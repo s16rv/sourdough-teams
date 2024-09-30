@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.9;
 
-contract SignatureVerifier {
+import "../interfaces/ISignatureVerifier.sol";
+
+contract SignatureVerifier is ISignatureVerifier {
     /**
      * @dev Helper function to recover signer address from signature.
      * @param messageHash The hash of the message that was signed.

@@ -11,5 +11,8 @@
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",
     "hardhat": "^2.22.12"
+  },
+  "dependencies": {
+    "@axelar-network/axelar-gmp-sdk-solidity": "^5.10.0"
   }
 }

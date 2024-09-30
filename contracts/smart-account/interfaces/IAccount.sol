@@ -2,10 +2,14 @@
 pragma solidity ^0.8.9;
 
 interface IAccount {
+    // Errors
+    error NotEntryPointOrRecover();
+
     // Events
-    event OwnerChanged(address indexed oldOwner, address indexed newOwner);
+    event AccountInitialized(address indexed recover, address indexed signer);
     event TransactionExecuted(address indexed dest, uint256 value, bytes data);
-    event AccountInitialized(address indexed owner, address indexed signer);
+    event RecoverChanged(address indexed oldRecover, address indexed newRecover);
+    
 
     /**
      * @notice Validate an operation by checking the signature.
