@@ -4,12 +4,8 @@ pragma solidity ^0.8.0;
 import { AxelarExecutable } from '@axelar-network/axelar-gmp-sdk-solidity/contracts/executable/AxelarExecutable.sol';
 import { IAxelarGateway } from '@axelar-network/axelar-gmp-sdk-solidity/contracts/interfaces/IAxelarGateway.sol';
 import { IAxelarGasService } from '@axelar-network/axelar-gmp-sdk-solidity/contracts/interfaces/IAxelarGasService.sol';
-import "./Account.sol";
-
-interface IAccount {
-    function validateOperation(bytes32 messageHash, bytes32 r, bytes32 s) external view returns (bool);
-    function executeTransaction(address dest, uint256 value, bytes calldata data) external returns (bool);
-}
+import "./interfaces/IEntryPoint.sol";
+import "./interfaces/IAccount.sol";
 
 contract EntryPoint is AxelarExecutable {
     IAxelarGasService public immutable gasService;
