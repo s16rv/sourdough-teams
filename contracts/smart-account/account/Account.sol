@@ -15,19 +15,21 @@ contract Account is IAccount, SignatureVerifier {
     constructor(
         address _recoverAddr,
         address _signerAddr,
-        address _entryPointAddr,
+        address _entryPointAddr
     ) {
         recover = _recoverAddr;
         signer = _signerAddr;
-        entryPoint = EntryPoint(entryPointAddr);
+        entryPoint = EntryPoint(_entryPointAddr);
 
         emit AccountInitialized(_recoverAddr, signer);
     }
 
     modifier onlyEntryPointOrRecover() {
-        if !(msg.sender == address(entryPoint) || msg.sender == recover) revert NotEntryPointOrRecover();
-        _;
+    if (!(msg.sender == address(entryPoint) || msg.sender == recover)) {
+        revert NotEntryPointOrRecover();
     }
+    _;
+}
 
     function _call(address target, uint256 value, bytes memory data) internal returns (bool) {
         (bool success, bytes memory result) = target.call{value: value}(data);

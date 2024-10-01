@@ -1,53 +1,22 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.9;
 
 import { AxelarExecutable } from '@axelar-network/axelar-gmp-sdk-solidity/contracts/executable/AxelarExecutable.sol';
 import { IAxelarGateway } from '@axelar-network/axelar-gmp-sdk-solidity/contracts/interfaces/IAxelarGateway.sol';
 import { IAxelarGasService } from '@axelar-network/axelar-gmp-sdk-solidity/contracts/interfaces/IAxelarGasService.sol';
 import "./interfaces/IEntryPoint.sol";
 import "./interfaces/IAccount.sol";
+import "./interfaces/IAccountFactory.sol";
 
-contract EntryPoint is AxelarExecutable {
-    IAxelarGasService public immutable gasService;
-
-    event Executed(string sourceChain, string sourceAddress);
-    event TransactionExecuted(address indexed target, bytes txPayload);
-    event AccountCreated(address indexed accountAddress, address indexed owner);
-    event TransactionHandled(address indexed dest, uint256 value, bytes payload);
-    event SignatureValidated(bytes32 messageHash, bytes32 r, bytes32 s);
+contract EntryPoint is IEntryPoint, AxelarExecutable {
+    IAccountFactory public immutable accountFactory;
 
     /**
      *
      * @param _gateway address of axl gateway on deployed chain
-     * @param _gasReceiver address of axl gas service on deployed chain
      */
-    constructor(address _gateway, address _gasReceiver) AxelarExecutable(_gateway) {
-        gasService = IAxelarGasService(_gasReceiver);
-    }
-
-    /**
-     * @notice Send message from chain A to chain B
-     * @dev message param is passed in as gmp message
-     * @param destinationChain name of the dest chain (ex. "Fantom")
-     * @param destinationAddress address on dest chain this tx is going to
-     * @param _message message to be sent
-     */
-    function setRemoteValue(
-        string calldata destinationChain,
-        string calldata destinationAddress,
-        string calldata _message
-    ) external payable {
-        require(msg.value > 0, 'Gas payment is required');
-
-        bytes memory payload = abi.encode(_message);
-        gasService.payNativeGasForContractCall{ value: msg.value }(
-            address(this),
-            destinationChain,
-            destinationAddress,
-            payload,
-            msg.sender
-        );
-        gateway.callContract(destinationChain, destinationAddress, payload);
+    constructor(address _gateway, address _accountFactory) AxelarExecutable(_gateway) {
+        accountFactory = IAccountFactory(_accountFactory);
     }
 
     /**
@@ -70,7 +39,7 @@ contract EntryPoint is AxelarExecutable {
         else if (category == 2) {
             // Handle category 2: handleTransaction
             // Check that the payload is large enough to contain both an address and the data
-            require(_payload.length > 160 + 20, "Payload too short");
+            if (_payload.length > 160 + 20) revert PayloadTooShort();
 
             // Decode the address and the signature components
             (address target, bytes32 messageHash, bytes32 r, bytes32 s) = abi.decode(_payload[32:160], (address, bytes32, bytes32, bytes32));
@@ -82,7 +51,7 @@ contract EntryPoint is AxelarExecutable {
             _handleTransaction(target, messageHash, r, s, txPayload);
         } 
         else {
-            revert("Unsupported category");
+            revert UnsupportedCategory();
         }
 
         // Emit the executed event
@@ -96,26 +65,32 @@ contract EntryPoint is AxelarExecutable {
         bytes32 s,
         bytes calldata txPayload
     ) internal {
-        require(IAccount(target).validateOperation(messageHash, r, s), "Invalid signature");
+        bool valid = IAccount(payable(target)).validateOperation(messageHash, r, s);
+        if (!valid) {
+            revert InvalidSignature();
+        }
+        
         emit SignatureValidated(messageHash, r, s);
 
         (address dest, uint256 value) = abi.decode(txPayload, (address, uint256));
-        emit TransactionHandled(dest, value, txPayload[64:]);
 
-        require(IAccount(target).executeTransaction(dest, value, txPayload[64:]), "Transaction failed");
+        bool success = IAccount(payable(target)).executeTransaction(dest, value, txPayload[64:]);
+        if (!success) {
+            revert TransactionFailed();
+        }
         
-        emit TransactionExecuted(target, txPayload);
+        emit TransactionExecuted(target, dest, value, txPayload[64:]);
     }
 
     function _createAccount(
-        address owner,
+        address recover,
         bytes32 messageHash,
         bytes32 r,
         bytes32 s
     ) internal returns (address) {
-        Account newAccount = new Account(owner, address(this), messageHash, r, s);
+        address accountAddress = accountFactory.createAccount(recover, address(this), messageHash, r, s);
         
-        emit AccountCreated(address(newAccount), owner);
-        return address(newAccount);
+        emit AccountCreated(accountAddress, recover);
+        return accountAddress;
     }
 }
