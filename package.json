@@ -1,26 +1,30 @@
 {
-  "name": "maestro-evm-contracts",
-  "version": "1.0.0",
-  "main": "index.js",
-  "scripts": {
-    "compile": "hardhat compile",
-    "test": "hardhat test",
-    "prepare": "husky",
-    "format": "prettier --check .",
-    "format:fix": "prettier --write ."
-  },
-  "author": "",
-  "license": "ISC",
-  "description": "",
-  "devDependencies": {
-    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
-    "hardhat": "^2.22.12",
-    "husky": "^9.1.6",
-    "lint-staged": "^15.2.10",
-    "prettier": "^3.3.3",
-    "prettier-plugin-solidity": "^1.4.1"
-  },
-  "dependencies": {
-    "@axelar-network/axelar-gmp-sdk-solidity": "^5.10.0"
-  }
+    "name": "maestro-evm-contracts",
+    "version": "1.0.0",
+    "main": "index.js",
+    "scripts": {
+        "compile": "hardhat compile",
+        "test": "hardhat test",
+        "prepare": "husky",
+        "extensions": "**/*.{ts,tsx,js,json,css,md,sol}",
+        "format": "prettier --check \"$npm_package_scripts_extensions\"",
+        "format:fix": "prettier --write \"$npm_package_scripts_extensions\""
+    },
+    "author": "",
+    "license": "ISC",
+    "description": "",
+    "devDependencies": {
+        "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+        "hardhat": "^2.22.12",
+        "husky": "^9.1.6",
+        "lint-staged": "^15.2.10",
+        "prettier": "^3.3.3",
+        "prettier-plugin-solidity": "^1.4.1"
+    },
+    "dependencies": {
+        "@axelar-network/axelar-gmp-sdk-solidity": "^5.10.0"
+    },
+    "lint-staged": {
+        "$npm_package_scripts_extensions": "prettier --write"
+    }
 }
