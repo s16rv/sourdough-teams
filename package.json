@@ -26,6 +26,6 @@
         "ethers": "^6.13.3"
     },
     "lint-staged": {
-        "$npm_package_scripts_extensions": "prettier --write"
+        "*.+(ts|tsx|json|css|md)": "prettier --write ."
     }
 }
