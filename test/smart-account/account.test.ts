@@ -1,6 +1,6 @@
 import hre from "hardhat";
 import { expect } from "chai";
-import { ethers, parseEther, sha256 } from "ethers";
+import { parseEther, sha256 } from "ethers";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 
 import { Account } from "../../typechain-types";
@@ -24,8 +24,8 @@ describe("Account", function () {
     beforeEach(async function () {
         [recover, stranger] = await hre.ethers.getSigners();
 
-        const Account = await hre.ethers.getContractFactory("Account");
-        account = await Account.deploy(recover.address, EXPECTED_SIGNER, ENTRYPOINT_ADDRESS);
+        const AccountContract = await hre.ethers.getContractFactory("Account");
+        account = await AccountContract.deploy(recover.address, EXPECTED_SIGNER, ENTRYPOINT_ADDRESS);
 
         const accountAddr = await account.getAddress();
 

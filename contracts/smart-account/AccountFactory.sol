@@ -5,6 +5,8 @@ import "./interfaces/IAccountFactory.sol";
 import "./util/SignatureVerifier.sol";
 import "./account/Account.sol";
 
+import "hardhat/console.sol";
+
 contract AccountFactory is IAccountFactory, SignatureVerifier {
     mapping(address => address[]) public signerAccounts;
 
@@ -39,7 +41,8 @@ contract AccountFactory is IAccountFactory, SignatureVerifier {
         assembly {
             accountAddress := create2(0, add(bytecode, 0x20), mload(bytecode), salt)
         }
-        if (accountAddress != address(0)) revert FailedDeployAccount();
+
+        if (accountAddress == address(0)) revert FailedDeployAccount();
 
         return accountAddress;
     }
