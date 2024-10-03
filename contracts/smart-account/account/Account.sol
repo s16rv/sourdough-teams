@@ -25,11 +25,11 @@ contract Account is IAccount, SignatureVerifier {
     }
 
     modifier onlyEntryPointOrRecover() {
-    if (!(msg.sender == address(entryPoint) || msg.sender == recover)) {
-        revert NotEntryPointOrRecover();
+        if (!(msg.sender == address(entryPoint) || msg.sender == recover)) {
+            revert NotEntryPointOrRecover();
+        }
+        _;
     }
-    _;
-}
 
     function _call(address target, uint256 value, bytes memory data) internal returns (bool) {
         (bool success, bytes memory result) = target.call{value: value}(data);
@@ -48,7 +48,7 @@ contract Account is IAccount, SignatureVerifier {
     }
 
     // Validate operation by checking the signature
-    function validateOperation(bytes32 messageHash, bytes32 r, bytes32 s) external view onlyEntryPointOrRecover returns (bool) {
+    function validateOperation(bytes32 messageHash, bytes32 r, bytes32 s) external view returns (bool) {
         return verifySignature(messageHash, r, s, SIGNATURE_V, signer);
     }
 
