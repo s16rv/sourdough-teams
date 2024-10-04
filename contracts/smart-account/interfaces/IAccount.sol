@@ -2,36 +2,62 @@
 pragma solidity ^0.8.9;
 
 interface IAccount {
-    // Errors
+    
+    /**
+     * @dev Error thrown when a call is made by an unauthorized address.
+     */
     error NotEntryPointOrRecover();
 
-    // Events
+    /**
+     * @dev Event emitted when the account is initialized.
+     * @param recover The recover address of the account.
+     * @param signer The signer address associated with the account.
+     */
     event AccountInitialized(address indexed recover, address indexed signer);
-    event TransactionExecuted(address indexed dest, uint256 value, bytes data);
+
+    /**
+     * @dev Event emitted when the recover address is changed.
+     * @param oldRecover The previous recover address.
+     * @param newRecover The new recover address.
+     */
     event RecoverChanged(address indexed oldRecover, address indexed newRecover);
-    
 
     /**
-     * @notice Validate an operation by checking the signature.
-     * @param messageHash Hash of the message being signed.
-     * @param r ECDSA signature parameter r.
-     * @param s ECDSA signature parameter s.
-     * @return True if the signature is valid, false otherwise.
+     * @dev Event emitted when a transaction is executed by the account.
+     * @param dest The destination address of the transaction.
+     * @param value The amount of Ether sent.
+     * @param data The data sent with the transaction.
      */
-    function validateOperation(bytes32 messageHash, bytes32 r, bytes32 s) external view returns (bool);
+    event TransactionExecuted(address indexed dest, uint256 value, bytes data);
 
     /**
-     * @notice Execute a transaction on behalf of the account.
-     * @param dest Address of the contract or recipient.
-     * @param value Amount of Ether to send.
-     * @param data Calldata to execute the transaction.
-     * @return True if the transaction is successful, false otherwise.
+     * @dev Validates an operation by verifying the provided signature.
+     * @param messageHash The hash of the message to be validated.
+     * @param r Part of the signature (r).
+     * @param s Part of the signature (s).
+     * @return bool indicating whether the signature is valid.
      */
-    function executeTransaction(address dest, uint256 value, bytes calldata data) external returns (bool);
+    function validateOperation(
+        bytes32 messageHash,
+        bytes32 r,
+        bytes32 s
+    ) external view returns (bool);
 
     /**
-     * @notice Receive Ether into the contract.
-     * @dev This function allows the contract to accept Ether.
+     * @dev Executes a transaction to a specified destination address.
+     * @param dest The destination address of the transaction.
+     * @param value The amount of Ether to send.
+     * @param data The data to pass to the destination.
+     * @return bool indicating whether the transaction was successful.
+     */
+    function executeTransaction(
+        address dest,
+        uint256 value,
+        bytes calldata data
+    ) external returns (bool);
+
+    /**
+     * @dev The fallback function to allow the contract to receive Ether.
      */
     receive() external payable;
 }
