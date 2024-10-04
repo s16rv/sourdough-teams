@@ -13,6 +13,7 @@ const SIGNATURE_A_1 = "GHUe6rGUxcUuzLnjYJ8qE+qYoHkTjcKdr2c5Ea4mCJlzrMvDi6sZZCNO4
 const SIGNATURE_A_2 = "0A5QeQgokPkkOxxYgdw+shCF+3nwr1eq4fxhax+kQ+J3TycL0JpeF4CuSDyvnUHwGMQk4ecx/15cl9CzJtUbgw==";
 
 const EXPECTED_SIGNER = "0x07557D755E777B85d878D34861cd52126524a155";
+const RECIPIENT_ADDRESS = "0xaa25Aa7a19f9c426E07dee59b12f944f4d9f1DD3";
 
 describe("EntryPoint", function () {
     let entryPoint: EntryPoint;
@@ -72,5 +73,34 @@ describe("EntryPoint", function () {
 
     it("should have recover", async function () {
         expect(await account.recover()).to.equal(recover.address);
+    });
+
+    it("should execute transactions from Account contract", async function () {
+        const initialRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
+        const amountToSend = parseEther("1.0");
+        const accountAddress = await account.getAddress();
+
+        // Execute transaction from the Account contract
+        const commandId = encodeBytes32String("commandId");
+        const sourceChain = "sourceChain";
+        const sourceAddress = recover.address;
+
+        const message = Buffer.from(TX_BYTES_A_1, "base64");
+        const signature = Buffer.from(SIGNATURE_A_1, "base64");
+
+        const r = "0x" + signature.subarray(0, 32).toString("hex");
+        const s = "0x" + signature.subarray(32, 64).toString("hex");
+
+        const messageHash = sha256(message);
+
+        const payload = new AbiCoder().encode(
+            ["uint8", "address", "bytes32", "bytes32", "bytes32", "address", "uint256", "bytes"],
+            [2, accountAddress, messageHash, r, s, RECIPIENT_ADDRESS, amountToSend, "0x"]
+        );
+
+        await entryPoint.execute(commandId, sourceChain, sourceAddress, payload);
+
+        const finalRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
+        expect(finalRecipientBalance).to.equal(initialRecipientBalance + amountToSend);
     });
 });

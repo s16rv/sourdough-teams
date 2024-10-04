@@ -39,7 +39,7 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
         else if (category == 2) {
             // Handle category 2: handleTransaction
             // Check that the payload is large enough to contain both an address and the data
-            if (_payload.length > 160 + 20) revert PayloadTooShort();
+            if (_payload.length < 160 + 20) revert PayloadTooShort();
 
             // Decode the address and the signature components
             (address target, bytes32 messageHash, bytes32 r, bytes32 s) = abi.decode(_payload[32:160], (address, bytes32, bytes32, bytes32));
