@@ -26,6 +26,7 @@ describe("Account", function () {
 
         const AccountContract = await hre.ethers.getContractFactory("Account");
         account = await AccountContract.deploy(recover.address, EXPECTED_SIGNER, ENTRYPOINT_ADDRESS);
+        await account.waitForDeployment();
 
         const accountAddr = await account.getAddress();
 

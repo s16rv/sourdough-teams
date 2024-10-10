@@ -24,6 +24,7 @@ describe("AccountFactory", function () {
 
         const AccountFactoryContract = await hre.ethers.getContractFactory("AccountFactory");
         accountFactory = await AccountFactoryContract.deploy();
+        await accountFactory.waitForDeployment();
     });
 
     it("Should compute address consistent", async function () {

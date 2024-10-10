@@ -29,11 +29,12 @@ describe("EntryPoint", function () {
 
         const AccountFactoryContract = await hre.ethers.getContractFactory("AccountFactory");
         const accountFactory = await AccountFactoryContract.deploy();
+        await accountFactory.waitForDeployment();
         const accountFactoryAddress = await accountFactory.getAddress();
 
         const EntryPointContract = await hre.ethers.getContractFactory("EntryPoint");
         entryPoint = await EntryPointContract.deploy(mockGatewayAddress, accountFactoryAddress);
-
+        await entryPoint.waitForDeployment();
         const commandId = encodeBytes32String("commandId");
         const sourceChain = "sourceChain";
         const sourceAddress = recover.address;

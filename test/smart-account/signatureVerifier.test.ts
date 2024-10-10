@@ -18,6 +18,7 @@ describe("SignatureVerifier", function () {
     beforeEach(async function () {
         const SignatureVerifierContract = await hre.ethers.getContractFactory("SignatureVerifier");
         signatureVerifier = await SignatureVerifierContract.deploy();
+        await signatureVerifier.waitForDeployment();
     });
 
     it("Should recover signer", async function () {
