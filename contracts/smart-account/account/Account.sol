@@ -108,6 +108,14 @@ contract Account is IAccount, SignatureVerifier {
     }
 
     /**
+     * @dev Returns the signer address.
+     * @return The address of the signer.
+     */
+    function getSigner() public view returns (address) {
+        return signer;
+    }
+
+    /**
      * @dev Allows the contract to receive Ether.
      * The fallback function to handle incoming Ether.
      */
