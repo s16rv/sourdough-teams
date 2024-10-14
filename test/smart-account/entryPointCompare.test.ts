@@ -1,7 +1,7 @@
-import hre from "hardhat";
+import hre, { ethers } from "hardhat";
 import { expect } from "chai";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
-import { encodeBytes32String, AbiCoder } from "ethers";
+import { encodeBytes32String, AbiCoder, parseEther } from "ethers";
 
 import { Account__factory, AccountFactory, EntryPoint, MockGateway } from "../../typechain-types";
 
@@ -55,6 +55,58 @@ describe("EntryPoint", function () {
         expect(signerAccounts).to.length(1);
 
         const account = Account__factory.connect(signerAccounts[0], recover);
+        console.log("account", await account.getAddress());
         expect(await account.getSigner()).to.equal(EXPECTED_SIGNER);
+    });
+
+    it("Test send account tx", async function () {
+        const r = "0xefd3b5cc6eafb4c628f86893c840ffcb448bea8d636ca35aac20bf81edb225b6";
+        const s = "0x2b07acbccaf1d895080ccf0e21f603d4f73ac9c0163e460fad55fd750e55ac5d";
+        const messageHash = "0x822829f6c11d1615e58bbe8068aa5577332015b4b248a2a60f0620e4c4c9bea4";
+        const recoverAddress = "0xee17D0A243361997245A0EBA740e26020952f249";
+
+        const commandId = encodeBytes32String("commandId");
+        const sourceChain = "sourceChain";
+        const sourceAddress = recoverAddress;
+
+        const payloadCreateAccount = new AbiCoder().encode(
+            ["uint8", "address", "bytes32", "bytes32", "bytes32"],
+            [1, recoverAddress, messageHash, r, s]
+        );
+
+        await mockGateway.setCallValid(true);
+        await entryPoint.execute(commandId, sourceChain, sourceAddress, payloadCreateAccount);
+        const signerAccounts = await accountFactory.getAccounts(EXPECTED_SIGNER);
+        expect(signerAccounts).to.length(1);
+
+        const account = Account__factory.connect(signerAccounts[0], recover);
+        const accountAddress = await account.getAddress();
+        console.log("account", accountAddress);
+        expect(await account.getSigner()).to.equal(EXPECTED_SIGNER);
+
+        await recover.sendTransaction({
+            to: signerAccounts[0],
+            value: parseEther("2.0"),
+        });
+
+        const amountToSend = parseEther("1.0");
+        const payloadAccountTx = new AbiCoder().encode(
+            ["address", "uint256", "bytes"],
+            [RECIPIENT_ADDRESS, amountToSend, "0x"]
+        );
+        console.log({ payloadAccountTx });
+
+        const payloadHandleTx = new AbiCoder().encode(
+            ["uint8", "address", "bytes32", "bytes32", "bytes32"],
+            [2, accountAddress, messageHash, r, s]
+        );
+        const payloadSendTx = ethers.concat([payloadHandleTx, payloadAccountTx]);
+        console.log({ payloadSendTx });
+
+        const initialRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
+        await entryPoint.execute(commandId, sourceChain, sourceAddress, payloadSendTx);
+
+        const finalRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
+        expect(finalRecipientBalance).to.equal(initialRecipientBalance + amountToSend);
     });
 });
