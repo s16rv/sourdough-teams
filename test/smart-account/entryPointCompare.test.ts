@@ -89,7 +89,7 @@ describe("EntryPoint", function () {
             value: parseEther("2.0"),
         });
 
-        const amountToSend = parseEther("1.0");
+        const amountToSend = parseEther("0.01");
         const payloadAccountTx = new AbiCoder().encode(
             ["address", "uint256", "bytes"],
             [RECIPIENT_ADDRESS, amountToSend, "0x"]
