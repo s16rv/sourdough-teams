@@ -16,8 +16,8 @@ async function main() {
     const s = "0x5161a2c18d41771776c43eb261ede3ce0d9981e13bcea1ddc2622ae20eeabab9";
     const messageHash = "0xdc8c11d51d653ac6baef8e1ae1bbddda8910d0d0abd0e0edeef0a67bef590e0a";
 
-    const signer = await account.signer();
-    console.log("signer", signer);
+    const recover = await account.recover();
+    console.log("recover", recover);
 
     const validateOperation = await account.validateOperation(messageHash, r, s);
     console.log("validateOperation", validateOperation);
