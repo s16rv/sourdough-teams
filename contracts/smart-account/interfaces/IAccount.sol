@@ -10,10 +10,10 @@ interface IAccount {
 
     /**
      * @dev Event emitted when the account is initialized.
-     * @param recover The recover address of the account.
-     * @param signer The signer address associated with the account.
+     * @param verifier The verifier address of the account.
+     * 
      */
-    event AccountInitialized(address indexed recover, address indexed signer);
+    event AccountInitialized(address indexed verifier);
 
     /**
      * @dev Event emitted when the recover address is changed.

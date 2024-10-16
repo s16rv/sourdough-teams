@@ -21,29 +21,51 @@ describe("SignatureVerifier", function () {
         await signatureVerifier.waitForDeployment();
     });
 
-    it("Should recover signer", async function () {
-        const message = Buffer.from(TX_BYTES_A_1, "base64");
-        const signature = Buffer.from(SIGNATURE_A_1, "base64");
+    // it("Should recover signer 1", async function () {
+    //     const messageHash = "0x87ed53f4eef3fd7cb1497e8671057c2859417487c0ee8b037ebd1be45075c001";
+    //     const r = "0xc07088b681723e98dbc11648ffa5646f80cfaff291120e90ffd75337093f4227";
+    //     const s = "0x6ffd64cf200433e89b12036119d2777c92b1903cf8579b70e873d03fa1844aa1";
 
-        const r = "0x" + signature.subarray(0, 32).toString("hex");
-        const s = "0x" + signature.subarray(32, 64).toString("hex");
+    //     const signer = await signatureVerifier.recoverSigner(messageHash, r, s, SIGNATURE_V);
+    //     expect(signer).to.equal("");
+    // });
 
-        const messageHash = sha256(message);
-        const signer = await signatureVerifier.recoverSigner(messageHash, r, s, SIGNATURE_V);
-        expect(signer).to.equal(EXPECTED_SIGNER);
-    });
+    // it("Should recover signer 2", async function () {
+    //     const messageHash = "0xdc8c11d51d653ac6baef8e1ae1bbddda8910d0d0abd0e0edeef0a67bef590e0a";
+    //     const r = "0x2100b47091a86403304ac0f71a57c185b41c7de0262c21800e04c3bb0e9d655e";
+    //     const s = "0x5161a2c18d41771776c43eb261ede3ce0d9981e13bcea1ddc2622ae20eeabab9";
 
-    it("Should verify signature A", async function () {
-        const message = Buffer.from(TX_BYTES_A_1, "base64");
-        const signature = Buffer.from(SIGNATURE_A_1, "base64");
+    //     const signer = await signatureVerifier.recoverSigner(messageHash, r, s, SIGNATURE_V);
+    //     expect(signer).to.equal("");
+    // });
 
-        const r = "0x" + signature.subarray(0, 32).toString("hex");
-        const s = "0x" + signature.subarray(32, 64).toString("hex");
+    // it("Should verify signature A", async function () {
+    //     const r = "0x2100b47091a86403304ac0f71a57c185b41c7de0262c21800e04c3bb0e9d655e";
+    //     const s = "0x5161a2c18d41771776c43eb261ede3ce0d9981e13bcea1ddc2622ae20eeabab9";
 
-        const messageHash = sha256(message);
-        const isValid = await signatureVerifier.verifySignature(messageHash, r, s, SIGNATURE_V, EXPECTED_SIGNER);
-        expect(isValid).to.be.true;
-    });
+    //     const messageHash = "0xdc8c11d51d653ac6baef8e1ae1bbddda8910d0d0abd0e0edeef0a67bef590e0a";
+    //     const signer = "0x07557D755E777B85d878D34861cd52126524a155"
+
+    //     const recoveredSigner = await signatureVerifier.recoverSigner(messageHash, r, s, SIGNATURE_V);
+    //     console.log("recoveredSignerA", recoveredSigner);
+
+    //     const isValid = await signatureVerifier.verifySignature(messageHash, r, s, SIGNATURE_V, signer);
+    //     expect(isValid).to.be.true;
+    // });
+
+    // it("Should verify signature A2", async function () {
+    //     const r = "0xc07088b681723e98dbc11648ffa5646f80cfaff291120e90ffd75337093f4227";
+    //     const s = "0x6ffd64cf200433e89b12036119d2777c92b1903cf8579b70e873d03fa1844aa1";
+
+    //     const messageHash = "0x87ed53f4eef3fd7cb1497e8671057c2859417487c0ee8b037ebd1be45075c001";
+    //     const signer = "0x07557D755E777B85d878D34861cd52126524a155"
+
+    //     const recoveredSigner = await signatureVerifier.recoverSigner(messageHash, r, s, SIGNATURE_V);
+    //     console.log("recoveredSignerA2", recoveredSigner);
+
+    //     const isValid = await signatureVerifier.verifySignature(messageHash, r, s, SIGNATURE_V, signer);
+    //     expect(isValid).to.be.true;
+    // });
 
     it("Should verify signature B", async function () {
         const message = Buffer.from(TX_BYTES_A_2, "base64");

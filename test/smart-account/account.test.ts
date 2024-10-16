@@ -3,7 +3,7 @@ import { expect } from "chai";
 import { parseEther, sha256 } from "ethers";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 
-import { Account } from "../../typechain-types";
+import { Account, Secp256k1Verifier } from "../../typechain-types";
 
 const TX_BYTES_A_1 =
     "CoECCv4BCiUvaW50ZXJjaGFpbmF1dGguaWNhdXRoLnYxLk1zZ1N1Ym1pdFR4EtQBCi1jb3Ntb3MxenlwcWE3NmplN3B4c2R3a2ZhaDZtdTlhNTgzc2p1NnhxdDNtdjYSCWNoYW5uZWwtMBqQAQocL2Nvc21vcy5iYW5rLnYxYmV0YTEuTXNnU2VuZBJwCi1jb3Ntb3MxenlwcWE3NmplN3B4c2R3a2ZhaDZtdTlhNTgzc2p1NnhxdDNtdjYSLWNvc21vczFtZ3A3cW52dW1obGNxNmU0ejJxMDVyMjlkY2hjeXVnMHozenhlZxoQCgV1YmV0YRIHMjAwMDAwMCCAoPHCsTQSWApQCkYKHy9jb3Ntb3MuY3J5cHRvLnNlY3AyNTZrMS5QdWJLZXkSIwohApC+f+iGx0i+gOmLNA0UGNC/54ZWde5ZfZ2FBSZSAIXwEgQKAggBGAESBBDAmgwaB2FscGhhLTE=";
@@ -16,16 +16,30 @@ const EXPECTED_SIGNER = "0x07557D755E777B85d878D34861cd52126524a155";
 const ENTRYPOINT_ADDRESS = "0x3bd70e10d71c6e882e3c1809d26a310d793646eb";
 const RECIPIENT_ADDRESS = "0xaa25Aa7a19f9c426E07dee59b12f944f4d9f1DD3";
 
+const PUBLIC_KEY_X = "0x90be7fe886c748be80e98b340d1418d0bfe7865675ee597d9d850526520085f0";
+const PUBLIC_KEY_Y = "0x87b9efdb5c81e067890e9439bdf717cf1c22adfe29d802050a11414d66b6e338";
+
 describe("Account", function () {
     let account: Account;
+    let verifier: Secp256k1Verifier;
     let recover: HardhatEthersSigner;
     let stranger: HardhatEthersSigner;
 
     beforeEach(async function () {
         [recover, stranger] = await hre.ethers.getSigners();
 
+        const Secp256k1VerifierContract = await hre.ethers.getContractFactory("Secp256k1Verifier");
+        verifier = await Secp256k1VerifierContract.deploy();
+        await verifier.waitForDeployment();
+
         const AccountContract = await hre.ethers.getContractFactory("Account");
-        account = await AccountContract.deploy(recover.address, EXPECTED_SIGNER, ENTRYPOINT_ADDRESS);
+        account = await AccountContract.deploy(
+            recover.address,
+            verifier.target,
+            PUBLIC_KEY_X,
+            PUBLIC_KEY_Y,
+            ENTRYPOINT_ADDRESS
+        );
         await account.waitForDeployment();
 
         const accountAddr = await account.getAddress();

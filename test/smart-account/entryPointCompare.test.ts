@@ -102,9 +102,16 @@ describe("EntryPoint", function () {
         );
         const payloadSendTx = ethers.concat([payloadHandleTx, payloadAccountTx]);
         console.log({ payloadSendTx });
+        const payloadSendTx2 =
+            "0x0000000000000000000000000000000000000000000000000000000000000002000000000000000000000000" +
+            accountAddress.replace("0x", "") +
+            messageHash.replace("0x", "") +
+            r.replace("0x", "") +
+            s.replace("0x", "") +
+            "000000000000000000000000aa25aa7a19f9c426e07dee59b12f944f4d9f1dd3000000000000000000000000000000000000000000000000002386f26fc1000000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000000";
 
         const initialRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
-        await entryPoint.execute(commandId, sourceChain, sourceAddress, payloadSendTx);
+        await entryPoint.execute(commandId, sourceChain, sourceAddress, payloadSendTx2);
 
         const finalRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
         expect(finalRecipientBalance).to.equal(initialRecipientBalance + amountToSend);

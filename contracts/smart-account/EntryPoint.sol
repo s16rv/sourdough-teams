@@ -36,13 +36,25 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
         (uint8 category) = abi.decode(_payload[:32], (uint8));
 
         if (category == 1) {
-            (address owner, bytes32 messageHash, bytes32 r, bytes32 s) = abi.decode(_payload[32:], (address, bytes32, bytes32, bytes32));
-            _createAccount(owner, messageHash, r, s);
+            (
+                address recover,
+                bytes32 messageHash,
+                bytes32 r,
+                bytes32 s,
+                bytes32 x,
+                bytes32 y
+            ) = abi.decode(_payload[32:], (address, bytes32, bytes32, bytes32, bytes32, bytes32));
+            _createAccount(recover, messageHash, r, s, x, y);
         } 
         else if (category == 2) {
             if (_payload.length < 160 + 20) revert PayloadTooShort();
 
-            (address target, bytes32 messageHash, bytes32 r, bytes32 s) = abi.decode(_payload[32:160], (address, bytes32, bytes32, bytes32));
+            (
+                address target,
+                bytes32 messageHash,
+                bytes32 r,
+                bytes32 s
+            ) = abi.decode(_payload[32:160], (address, bytes32, bytes32, bytes32));
 
             bytes calldata txPayload = _payload[160:];
 
@@ -99,10 +111,12 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
         address recover,
         bytes32 messageHash,
         bytes32 r,
-        bytes32 s
+        bytes32 s,
+        bytes32 x,
+        bytes32 y
     ) internal returns (address) {
-        address accountAddress = accountFactory.createAccount(recover, address(this), messageHash, r, s);
-        
+        address accountAddress = accountFactory.createAccount(recover, address(this), messageHash, r, s, x, y);
+
         emit AccountCreated(accountAddress, recover);
         return accountAddress;
     }

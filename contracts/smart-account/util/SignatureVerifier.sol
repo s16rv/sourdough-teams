@@ -1,46 +1,22 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.9;
+pragma solidity ^0.8.21;
 
-import "../interfaces/ISignatureVerifier.sol";
-
-contract SignatureVerifier is ISignatureVerifier {
-    /**
-     * @dev Helper function to recover signer address from signature.
-     * @param messageHash The hash of the message that was signed.
-     * @param r The r value of the signature.
-     * @param s The s value of the signature.
-     * @param v The recovery id (27 or 28 usually).
-     * @return Returns the address that signed the message.
-     */
-    function recoverSigner(
-        bytes32 messageHash,
-        bytes32 r,
-        bytes32 s,
-        uint8 v
-    ) public pure returns (address) {
-        // Recover the signer's address from the message hash and signature
-        return ecrecover(messageHash, v, r, s);
-    }
-
-    /**
-     * @dev Verifies a given message hash was signed by the holder of the private key corresponding to the public key.
-     * @param messageHash The hash of the message that was signed.
-     * @param r The r value of the signature.
-     * @param s The s value of the signature.
-     * @param v The recovery id (27 or 28 usually).
-     * @param expectedSigner The address expected to have signed the message.
-     * @return Returns true if the signature is valid and was signed by the expected signer.
-     */
+/**
+ * Helper library for external contracts to verify Secp256k1 signatures.
+ **/
+library SignatureVerifier {
     function verifySignature(
-        bytes32 messageHash,
-        bytes32 r,
-        bytes32 s,
-        uint8 v,
-        address expectedSigner
-    ) public pure returns (bool) {
-        address signer = recoverSigner(messageHash, r, s, v);
-        
-        // Check if the recovered address matches the expected signer address
-        return signer == expectedSigner;
+        address verifier,    // Add verifier address as parameter
+        bytes32 message_hash,
+        uint256 r,
+        uint256 s,
+        uint256 x,
+        uint256 y
+    ) internal view returns (bool) {
+        bytes memory args = abi.encode(message_hash, r, s, x, y);
+        (bool success, bytes memory ret) = verifier.staticcall(args);
+        assert(success); // never reverts, always returns 0 or 1
+
+        return abi.decode(ret, (uint256)) == 1;
     }
 }

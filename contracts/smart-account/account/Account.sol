@@ -5,30 +5,36 @@ import "../interfaces/IAccount.sol";
 import "../util/SignatureVerifier.sol";
 import "../EntryPoint.sol";
 
-contract Account is IAccount, SignatureVerifier {
+contract Account is IAccount {
     address public recover;
-    address public immutable signer;
+    address public immutable verifier;
     EntryPoint public immutable entryPoint;
-
-    uint8 private constant SIGNATURE_V = 27;
+    bytes32 public immutable x;
+    bytes32 public immutable y;
 
     /**
      * @dev Constructor that initializes the contract with the recover address, signer address, and entry point address.
      * Emits an `AccountInitialized` event.
+     * @param _verifierAddr The address of the secp256k1 verifier contract.
      * @param _recoverAddr The address that has the authority to recover the account.
-     * @param _signerAddr The address of the signer responsible for validating operations.
      * @param _entryPointAddr The address of the entry point contract.
+     * @param _x The x part of the public key.
+     * @param _y The y part of the public key.
      */
     constructor(
+        address _verifierAddr,
         address _recoverAddr,
-        address _signerAddr,
-        address _entryPointAddr
+        address _entryPointAddr,
+        bytes32 _x,
+        bytes32 _y
     ) {
+        verifier = _verifierAddr;
         recover = _recoverAddr;
-        signer = _signerAddr;
         entryPoint = EntryPoint(_entryPointAddr);
+        x = _x;
+        y = _y;
 
-        emit AccountInitialized(_recoverAddr, signer);
+        emit AccountInitialized(verifier);
     }
 
     /**
@@ -86,7 +92,7 @@ contract Account is IAccount, SignatureVerifier {
         bytes32 r,
         bytes32 s
     ) external view returns (bool) {
-        return verifySignature(messageHash, r, s, SIGNATURE_V, signer);
+        return SignatureVerifier.verifySignature(verifier, messageHash, uint256(r), uint256(s), uint256(x), uint256(y));
     }
 
     /**
@@ -108,11 +114,27 @@ contract Account is IAccount, SignatureVerifier {
     }
 
     /**
-     * @dev Returns the signer address.
-     * @return The address of the signer.
+     * @dev Returns the verifier address.
+     * @return The address of the verifier.
      */
-    function getSigner() public view returns (address) {
-        return signer;
+    function getVerifier() public view returns (address) {
+        return verifier;
+    }
+
+    /**
+     * @dev Returns the x part of the public key.
+     * @return The x part of the public key.
+     */
+    function getX() public view returns (bytes32) {
+        return x;
+    }
+
+    /**
+     * @dev Returns the y part of the public key.
+     * @return The y part of the public key.
+     */
+    function getY() public view returns (bytes32) {
+        return y;
     }
 
     /**

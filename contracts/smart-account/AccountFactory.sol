@@ -5,16 +5,21 @@ import "./interfaces/IAccountFactory.sol";
 import "./util/SignatureVerifier.sol";
 import "./account/Account.sol";
 
-import "hardhat/console.sol";
-
-contract AccountFactory is IAccountFactory, SignatureVerifier {
+contract AccountFactory is IAccountFactory {
     // Mapping of signers to their list of created accounts
-    mapping(address => address[]) public signerAccounts;
-
-    uint8 private constant SIGNATURE_V = 27;
+    mapping(bytes32 => mapping(bytes32 => address[])) public accounts;
+    address public immutable verifier;
 
     /**
-     * @dev Creates a new account contract using a signature for verification. 
+     * @dev Constructor that initializes the contract with the secp256k1 verifier address.
+     * @param _verifierAddr The address of the secp256k1 verifier contract.
+     */
+    constructor(address _verifierAddr) {
+        verifier = _verifierAddr;
+    }
+
+    /**
+     * @dev Creates a new account contract using a signature for verification.
      *      The account is deployed using the CREATE2 opcode for address predictability.
      * @param recover The address with recovery rights for the account.
      * @param entryPoint The address of the entry point contract.
@@ -24,43 +29,56 @@ contract AccountFactory is IAccountFactory, SignatureVerifier {
      * @return accountAddress The address of the newly created account contract.
      */
     function createAccount(
-        address recover, 
+        address recover,
         address entryPoint,
         bytes32 messageHash,
         bytes32 r,
-        bytes32 s
+        bytes32 s,
+        bytes32 x,
+        bytes32 y
     ) external returns (address) {
-        address signer = recoverSigner(messageHash, r, s, SIGNATURE_V);
-        uint256 salt = uint256(keccak256(abi.encodePacked(signer, signerAccounts[signer].length)));
-        address accountAddress = _deployAccount(recover, signer, entryPoint, salt);
+        bool isValidSignature = SignatureVerifier.verifySignature(
+            verifier,
+            messageHash,
+            uint256(r),
+            uint256(s),
+            uint256(x),
+            uint256(y)
+        );
+        if (!isValidSignature) revert InvalidSignature();
 
-        // Store the new account for the signer
-        signerAccounts[signer].push(accountAddress);
+        uint256 salt = uint256(keccak256(abi.encodePacked(x, y, accounts[x][y].length)));
+        address accountAddress = _deployAccount(recover, entryPoint, x, y, salt);
 
-        emit AccountCreated(signer, accountAddress);
+        // Store the new account for the x and y
+        accounts[x][y].push(accountAddress);
+
+        emit AccountCreated(x, y, accountAddress);
         return accountAddress;
     }
 
     /**
      * @dev Deploys the account contract using the CREATE2 opcode for address predictability.
      * @param recover The address with recovery rights for the account.
-     * @param signer The address of the signer, which will be tied to the new account.
      * @param entryPoint The address of the entry point contract.
+     * @param x The x part of the public key.
+     * @param y The y part of the public key.
      * @param salt The salt used for deterministic contract deployment with CREATE2.
      * @return accountAddress The address of the newly deployed account contract.
      */
     function _deployAccount(
         address recover,
-        address signer,
         address entryPoint,
+        bytes32 x,
+        bytes32 y,
         uint256 salt
     ) internal returns (address) {
         // Encode the creation bytecode of the Account contract
         bytes memory bytecode = abi.encodePacked(
             type(Account).creationCode,
-            abi.encode(recover, signer, entryPoint)
+            abi.encode(verifier, recover, entryPoint, x, y)
         );
-        
+
         // Use CREATE2 to deploy the contract with the provided salt
         address accountAddress;
         assembly {
@@ -75,33 +93,36 @@ contract AccountFactory is IAccountFactory, SignatureVerifier {
     /**
      * @dev Computes the address of an account contract to be deployed using CREATE2, without actually deploying it.
      * @param recover The address with recovery rights for the account.
-     * @param signer The address of the signer for the account.
      * @param entryPoint The address of the entry point contract.
+     * @param x The x part of the public key.
+     * @param y The y part of the public key.
      * @param salt The salt used for deterministic contract deployment with CREATE2.
      * @return The address at which the contract would be deployed.
      */
     function computeAddress(
         address recover,
-        address signer,
         address entryPoint,
+        bytes32 x,
+        bytes32 y,
         uint256 salt
     ) external view returns (address) {
         bytes memory bytecode = abi.encodePacked(
             type(Account).creationCode,
-            abi.encode(recover, signer, entryPoint)
+            abi.encode(verifier, recover, entryPoint, x, y)
         );
-        bytes32 hash = keccak256(
-            abi.encodePacked(bytes1(0xff), address(this), bytes32(salt), keccak256(bytecode))
-        );
+        bytes32 hash = keccak256(abi.encodePacked(bytes1(0xff), address(this), bytes32(salt), keccak256(bytecode)));
         return address(uint160(uint256(hash)));
     }
 
     /**
      * @dev Returns the list of accounts created by a particular signer.
-     * @param signer The address of the signer whose accounts to retrieve.
+     * @param x The x part of the public key.
+     * @param y The y part of the public key.
      * @return An array of account addresses created by the signer.
      */
-    function getAccounts(address signer) external view returns (address[] memory) {
-        return signerAccounts[signer];
+    function getAccounts(bytes32 x, bytes32 y) external view returns (address[] memory) {
+        return accounts[x][y];
     }
+
+    function getAccounts(address signer) external view override returns (address[] memory) {}
 }

@@ -5,7 +5,16 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const config: HardhatUserConfig = {
-    solidity: "0.8.9",
+    solidity: {
+        version: "0.8.21",
+        settings: {
+            optimizer: {
+                enabled: true,
+                runs: 200,
+            },
+            viaIR: true,
+        },
+    },
     networks: {
         sepolia: {
             url: "https://ethereum-sepolia-rpc.publicnode.com",
