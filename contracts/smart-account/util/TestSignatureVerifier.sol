@@ -4,7 +4,7 @@ pragma solidity ^0.8.21;
 /**
  * Helper library for external contracts to verify Secp256k1 signatures.
  **/
-library SignatureVerifier {
+library TestSignatureVerifier {
     function verifySignature(
         address verifier,
         bytes32 message_hash,
@@ -12,7 +12,7 @@ library SignatureVerifier {
         uint256 s,
         uint256 x,
         uint256 y
-    ) internal view returns (bool) {
+    ) public view returns (bool) {
         bytes memory args = abi.encode(message_hash, r, s, x, y);
         (bool success, bytes memory ret) = verifier.staticcall(args);
         assert(success);
