@@ -1,18 +1,10 @@
 import hre from "hardhat";
 import { expect } from "chai";
-import { parseEther, sha256 } from "ethers";
+import { parseEther } from "ethers";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 
 import { Account, Secp256k1Verifier } from "../../typechain-types";
 
-const TX_BYTES_A_1 =
-    "CoECCv4BCiUvaW50ZXJjaGFpbmF1dGguaWNhdXRoLnYxLk1zZ1N1Ym1pdFR4EtQBCi1jb3Ntb3MxenlwcWE3NmplN3B4c2R3a2ZhaDZtdTlhNTgzc2p1NnhxdDNtdjYSCWNoYW5uZWwtMBqQAQocL2Nvc21vcy5iYW5rLnYxYmV0YTEuTXNnU2VuZBJwCi1jb3Ntb3MxenlwcWE3NmplN3B4c2R3a2ZhaDZtdTlhNTgzc2p1NnhxdDNtdjYSLWNvc21vczFtZ3A3cW52dW1obGNxNmU0ejJxMDVyMjlkY2hjeXVnMHozenhlZxoQCgV1YmV0YRIHMjAwMDAwMCCAoPHCsTQSWApQCkYKHy9jb3Ntb3MuY3J5cHRvLnNlY3AyNTZrMS5QdWJLZXkSIwohApC+f+iGx0i+gOmLNA0UGNC/54ZWde5ZfZ2FBSZSAIXwEgQKAggBGAESBBDAmgwaB2FscGhhLTE=";
-const TX_BYTES_A_2 =
-    "CoECCv4BCiUvaW50ZXJjaGFpbmF1dGguaWNhdXRoLnYxLk1zZ1N1Ym1pdFR4EtQBCi1jb3Ntb3MxenlwcWE3NmplN3B4c2R3a2ZhaDZtdTlhNTgzc2p1NnhxdDNtdjYSCWNoYW5uZWwtMBqQAQocL2Nvc21vcy5iYW5rLnYxYmV0YTEuTXNnU2VuZBJwCi1jb3Ntb3MxenlwcWE3NmplN3B4c2R3a2ZhaDZtdTlhNTgzc2p1NnhxdDNtdjYSLWNvc21vczFtZ3A3cW52dW1obGNxNmU0ejJxMDVyMjlkY2hjeXVnMHozenhlZxoQCgV1YmV0YRIHMjAwMDAwMCCAoPHCsTQSWApQCkYKHy9jb3Ntb3MuY3J5cHRvLnNlY3AyNTZrMS5QdWJLZXkSIwohApC+f+iGx0i+gOmLNA0UGNC/54ZWde5ZfZ2FBSZSAIXwEgQKAggBGAISBBDAmgwaB2FscGhhLTE=";
-const SIGNATURE_A_1 = "GHUe6rGUxcUuzLnjYJ8qE+qYoHkTjcKdr2c5Ea4mCJlzrMvDi6sZZCNO4K6taTiaeYmMgL+MNXBjMinM9fJKHg==";
-const SIGNATURE_A_2 = "0A5QeQgokPkkOxxYgdw+shCF+3nwr1eq4fxhax+kQ+J3TycL0JpeF4CuSDyvnUHwGMQk4ecx/15cl9CzJtUbgw==";
-
-const EXPECTED_SIGNER = "0x07557D755E777B85d878D34861cd52126524a155";
 const ENTRYPOINT_ADDRESS = "0x3bd70e10d71c6e882e3c1809d26a310d793646eb";
 const RECIPIENT_ADDRESS = "0xaa25Aa7a19f9c426E07dee59b12f944f4d9f1DD3";
 
@@ -34,11 +26,11 @@ describe("Account", function () {
 
         const AccountContract = await hre.ethers.getContractFactory("Account");
         account = await AccountContract.deploy(
-            recover.address,
             verifier.target,
+            recover.address,
+            ENTRYPOINT_ADDRESS,
             PUBLIC_KEY_X,
-            PUBLIC_KEY_Y,
-            ENTRYPOINT_ADDRESS
+            PUBLIC_KEY_Y
         );
         await account.waitForDeployment();
 
@@ -58,25 +50,19 @@ describe("Account", function () {
     });
 
     it("Should validate operation", async function () {
-        const message = Buffer.from(TX_BYTES_A_1, "base64");
-        const signature = Buffer.from(SIGNATURE_A_1, "base64");
+        const messageHash = "0x87ed53f4eef3fd7cb1497e8671057c2859417487c0ee8b037ebd1be45075c001";
+        const r = "0xc07088b681723e98dbc11648ffa5646f80cfaff291120e90ffd75337093f4227";
+        const s = "0x6ffd64cf200433e89b12036119d2777c92b1903cf8579b70e873d03fa1844aa1";
 
-        const r = "0x" + signature.subarray(0, 32).toString("hex");
-        const s = "0x" + signature.subarray(32, 64).toString("hex");
-
-        const messageHash = sha256(message);
         const isValid = await account.validateOperation(messageHash, r, s);
         expect(isValid).to.be.true;
     });
 
     it("Should not validate operation", async function () {
-        const message = Buffer.from(TX_BYTES_A_2, "base64");
-        const signature = Buffer.from(SIGNATURE_A_1, "base64");
+        const messageHash = "0x87ed53f4eef3fd7cb1497e8671057c2859417487c0ee8b037ebd1be45075c002";
+        const r = "0xc07088b681723e98dbc11648ffa5646f80cfaff291120e90ffd75337093f4227";
+        const s = "0x6ffd64cf200433e89b12036119d2777c92b1903cf8579b70e873d03fa1844aa1";
 
-        const r = "0x" + signature.subarray(0, 32).toString("hex");
-        const s = "0x" + signature.subarray(32, 64).toString("hex");
-
-        const messageHash = sha256(message);
         const isValid = await account.validateOperation(messageHash, r, s);
         expect(isValid).to.be.false;
     });
