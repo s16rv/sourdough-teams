@@ -123,6 +123,4 @@ contract AccountFactory is IAccountFactory {
     function getAccounts(bytes32 x, bytes32 y) external view returns (address[] memory) {
         return accounts[x][y];
     }
-
-    function getAccounts(address signer) external view override returns (address[] memory) {}
 }

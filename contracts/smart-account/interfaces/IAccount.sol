@@ -2,7 +2,6 @@
 pragma solidity ^0.8.9;
 
 interface IAccount {
-    
     /**
      * @dev Error thrown when a call is made by an unauthorized address.
      */
@@ -11,7 +10,6 @@ interface IAccount {
     /**
      * @dev Event emitted when the account is initialized.
      * @param verifier The verifier address of the account.
-     * 
      */
     event AccountInitialized(address indexed verifier);
 

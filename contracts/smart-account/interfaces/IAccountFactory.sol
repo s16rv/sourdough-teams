@@ -60,9 +60,10 @@ interface IAccountFactory {
     ) external view returns (address);
 
     /**
-     * @dev Returns the list of accounts created by a particular signer.
-     * @param signer The address of the signer whose accounts to retrieve.
-     * @return An array of account addresses created by the signer.
+     * @dev Returns the list of accounts created using the provided public keys.
+     * @param x The x part of the public key.
+     * @param y The y part of the public key.
+     * @return An array of account addresses created using the public keys.
      */
-    function getAccounts(address signer) external view returns (address[] memory);
+    function getAccounts(bytes32 x, bytes32 y) external view returns (address[] memory);
 }
