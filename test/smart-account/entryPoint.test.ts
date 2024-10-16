@@ -1,19 +1,14 @@
 import hre from "hardhat";
 import { expect } from "chai";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
-import { sha256, encodeBytes32String, AbiCoder, parseEther } from "ethers";
+import { encodeBytes32String, AbiCoder, parseEther } from "ethers";
 
 import { Account, EntryPoint } from "../../typechain-types";
 
-const TX_BYTES_A_1 =
-    "CoECCv4BCiUvaW50ZXJjaGFpbmF1dGguaWNhdXRoLnYxLk1zZ1N1Ym1pdFR4EtQBCi1jb3Ntb3MxenlwcWE3NmplN3B4c2R3a2ZhaDZtdTlhNTgzc2p1NnhxdDNtdjYSCWNoYW5uZWwtMBqQAQocL2Nvc21vcy5iYW5rLnYxYmV0YTEuTXNnU2VuZBJwCi1jb3Ntb3MxenlwcWE3NmplN3B4c2R3a2ZhaDZtdTlhNTgzc2p1NnhxdDNtdjYSLWNvc21vczFtZ3A3cW52dW1obGNxNmU0ejJxMDVyMjlkY2hjeXVnMHozenhlZxoQCgV1YmV0YRIHMjAwMDAwMCCAoPHCsTQSWApQCkYKHy9jb3Ntb3MuY3J5cHRvLnNlY3AyNTZrMS5QdWJLZXkSIwohApC+f+iGx0i+gOmLNA0UGNC/54ZWde5ZfZ2FBSZSAIXwEgQKAggBGAESBBDAmgwaB2FscGhhLTE=";
-const TX_BYTES_A_2 =
-    "CoECCv4BCiUvaW50ZXJjaGFpbmF1dGguaWNhdXRoLnYxLk1zZ1N1Ym1pdFR4EtQBCi1jb3Ntb3MxenlwcWE3NmplN3B4c2R3a2ZhaDZtdTlhNTgzc2p1NnhxdDNtdjYSCWNoYW5uZWwtMBqQAQocL2Nvc21vcy5iYW5rLnYxYmV0YTEuTXNnU2VuZBJwCi1jb3Ntb3MxenlwcWE3NmplN3B4c2R3a2ZhaDZtdTlhNTgzc2p1NnhxdDNtdjYSLWNvc21vczFtZ3A3cW52dW1obGNxNmU0ejJxMDVyMjlkY2hjeXVnMHozenhlZxoQCgV1YmV0YRIHMjAwMDAwMCCAoPHCsTQSWApQCkYKHy9jb3Ntb3MuY3J5cHRvLnNlY3AyNTZrMS5QdWJLZXkSIwohApC+f+iGx0i+gOmLNA0UGNC/54ZWde5ZfZ2FBSZSAIXwEgQKAggBGAISBBDAmgwaB2FscGhhLTE=";
-const SIGNATURE_A_1 = "GHUe6rGUxcUuzLnjYJ8qE+qYoHkTjcKdr2c5Ea4mCJlzrMvDi6sZZCNO4K6taTiaeYmMgL+MNXBjMinM9fJKHg==";
-const SIGNATURE_A_2 = "0A5QeQgokPkkOxxYgdw+shCF+3nwr1eq4fxhax+kQ+J3TycL0JpeF4CuSDyvnUHwGMQk4ecx/15cl9CzJtUbgw==";
-
-const EXPECTED_SIGNER = "0x07557D755E777B85d878D34861cd52126524a155";
 const RECIPIENT_ADDRESS = "0xaa25Aa7a19f9c426E07dee59b12f944f4d9f1DD3";
+
+const PUBLIC_KEY_X = "0x90be7fe886c748be80e98b340d1418d0bfe7865675ee597d9d850526520085f0";
+const PUBLIC_KEY_Y = "0x87b9efdb5c81e067890e9439bdf717cf1c22adfe29d802050a11414d66b6e338";
 
 describe("EntryPoint", function () {
     let entryPoint: EntryPoint;
@@ -25,43 +20,42 @@ describe("EntryPoint", function () {
 
         const MockGatewayContract = await hre.ethers.getContractFactory("MockGateway");
         const mockGateway = await MockGatewayContract.deploy();
-        const mockGatewayAddress = await mockGateway.getAddress();
+
+        const Secp256k1VerifierContract = await hre.ethers.getContractFactory("Secp256k1Verifier");
+        const verifier = await Secp256k1VerifierContract.deploy();
+        await verifier.waitForDeployment();
 
         const AccountFactoryContract = await hre.ethers.getContractFactory("AccountFactory");
-        const accountFactory = await AccountFactoryContract.deploy();
+        const accountFactory = await AccountFactoryContract.deploy(verifier.target);
         await accountFactory.waitForDeployment();
-        const accountFactoryAddress = await accountFactory.getAddress();
 
         const EntryPointContract = await hre.ethers.getContractFactory("EntryPoint");
-        entryPoint = await EntryPointContract.deploy(mockGatewayAddress, accountFactoryAddress);
+        entryPoint = await EntryPointContract.deploy(mockGateway.target, accountFactory.target);
         await entryPoint.waitForDeployment();
+
         const commandId = encodeBytes32String("commandId");
         const sourceChain = "sourceChain";
         const sourceAddress = recover.address;
 
-        const message = Buffer.from(TX_BYTES_A_1, "base64");
-        const signature = Buffer.from(SIGNATURE_A_1, "base64");
-
-        const r = "0x" + signature.subarray(0, 32).toString("hex");
-        const s = "0x" + signature.subarray(32, 64).toString("hex");
-
-        const messageHash = sha256(message);
+        const messageHash = "0x87ed53f4eef3fd7cb1497e8671057c2859417487c0ee8b037ebd1be45075c001";
+        const r = "0xc07088b681723e98dbc11648ffa5646f80cfaff291120e90ffd75337093f4227";
+        const s = "0x6ffd64cf200433e89b12036119d2777c92b1903cf8579b70e873d03fa1844aa1";
 
         const payload = new AbiCoder().encode(
-            ["uint8", "address", "bytes32", "bytes32", "bytes32"],
-            [1, recover.address, messageHash, r, s]
+            ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32", "bytes32"],
+            [1, recover.address, messageHash, r, s, PUBLIC_KEY_X, PUBLIC_KEY_Y]
         );
 
         await mockGateway.setCallValid(true);
         await entryPoint.execute(commandId, sourceChain, sourceAddress, payload);
-        const signerAccounts = await accountFactory.getAccounts(EXPECTED_SIGNER);
-        expect(signerAccounts).to.length(1);
+        const accounts = await accountFactory["getAccounts(bytes32,bytes32)"](PUBLIC_KEY_X, PUBLIC_KEY_Y);
+        expect(accounts).to.length(1);
 
         const AccountContract = await hre.ethers.getContractFactory("Account");
-        account = AccountContract.attach(signerAccounts[0]) as Account;
+        account = AccountContract.attach(accounts[0]) as Account;
 
         await recover.sendTransaction({
-            to: signerAccounts[0],
+            to: accounts[0],
             value: parseEther("2.0"),
         });
     });
@@ -77,6 +71,10 @@ describe("EntryPoint", function () {
     });
 
     it("should execute transactions from Account contract", async function () {
+        const messageHash = "0xdc8c11d51d653ac6baef8e1ae1bbddda8910d0d0abd0e0edeef0a67bef590e0a";
+        const r = "0x2100b47091a86403304ac0f71a57c185b41c7de0262c21800e04c3bb0e9d655e";
+        const s = "0x5161a2c18d41771776c43eb261ede3ce0d9981e13bcea1ddc2622ae20eeabab9";
+
         const initialRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
         const amountToSend = parseEther("1.0");
         const accountAddress = await account.getAddress();
@@ -85,14 +83,6 @@ describe("EntryPoint", function () {
         const commandId = encodeBytes32String("commandId");
         const sourceChain = "sourceChain";
         const sourceAddress = recover.address;
-
-        const message = Buffer.from(TX_BYTES_A_1, "base64");
-        const signature = Buffer.from(SIGNATURE_A_1, "base64");
-
-        const r = "0x" + signature.subarray(0, 32).toString("hex");
-        const s = "0x" + signature.subarray(32, 64).toString("hex");
-
-        const messageHash = sha256(message);
 
         const payload = new AbiCoder().encode(
             ["uint8", "address", "bytes32", "bytes32", "bytes32", "address", "uint256", "bytes"],
