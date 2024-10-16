@@ -8,6 +8,9 @@ import { Account__factory, AccountFactory, EntryPoint, MockGateway } from "../..
 const EXPECTED_SIGNER = "0x07557D755E777B85d878D34861cd52126524a155";
 const RECIPIENT_ADDRESS = "0xaa25Aa7a19f9c426E07dee59b12f944f4d9f1DD3";
 
+const PUBLIC_KEY_X = "0x90be7fe886c748be80e98b340d1418d0bfe7865675ee597d9d850526520085f0";
+const PUBLIC_KEY_Y = "0x87b9efdb5c81e067890e9439bdf717cf1c22adfe29d802050a11414d66b6e338";
+
 describe("EntryPoint", function () {
     let entryPoint: EntryPoint;
     let recover: HardhatEthersSigner;
@@ -20,22 +23,24 @@ describe("EntryPoint", function () {
         const MockGatewayContract = await hre.ethers.getContractFactory("MockGateway");
         mockGateway = await MockGatewayContract.deploy();
         await mockGateway.waitForDeployment();
-        const mockGatewayAddress = await mockGateway.getAddress();
+
+        const Secp256k1VerifierContract = await hre.ethers.getContractFactory("Secp256k1Verifier");
+        const verifier = await Secp256k1VerifierContract.deploy();
+        await verifier.waitForDeployment();
 
         const AccountFactoryContract = await hre.ethers.getContractFactory("AccountFactory");
-        accountFactory = await AccountFactoryContract.deploy();
+        accountFactory = await AccountFactoryContract.deploy(verifier.target);
         await accountFactory.waitForDeployment();
-        const accountFactoryAddress = await accountFactory.getAddress();
 
         const EntryPointContract = await hre.ethers.getContractFactory("EntryPoint");
-        entryPoint = await EntryPointContract.deploy(mockGatewayAddress, accountFactoryAddress);
+        entryPoint = await EntryPointContract.deploy(mockGateway.target, accountFactory.target);
         await entryPoint.waitForDeployment();
     });
 
     it("Test create account", async function () {
+        const messageHash = "0x87ed53f4eef3fd7cb1497e8671057c2859417487c0ee8b037ebd1be45075c001";
         const r = "0xc07088b681723e98dbc11648ffa5646f80cfaff291120e90ffd75337093f4227";
         const s = "0x6ffd64cf200433e89b12036119d2777c92b1903cf8579b70e873d03fa1844aa1";
-        const messageHash = "0x87ed53f4eef3fd7cb1497e8671057c2859417487c0ee8b037ebd1be45075c001";
         const recoverAddress = "0xee17D0A243361997245A0EBA740e26020952f249";
 
         const commandId = encodeBytes32String("commandId");
@@ -43,26 +48,26 @@ describe("EntryPoint", function () {
         const sourceAddress = recoverAddress;
 
         const payload = new AbiCoder().encode(
-            ["uint8", "address", "bytes32", "bytes32", "bytes32"],
-            [1, recoverAddress, messageHash, r, s]
+            ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32", "bytes32"],
+            [1, recoverAddress, messageHash, r, s, PUBLIC_KEY_X, PUBLIC_KEY_Y]
         );
 
         console.log({ payload });
 
         await mockGateway.setCallValid(true);
         await entryPoint.execute(commandId, sourceChain, sourceAddress, payload);
-        const signerAccounts = await accountFactory.getAccounts(EXPECTED_SIGNER);
-        expect(signerAccounts).to.length(1);
+        const accounts = await accountFactory["getAccounts(bytes32,bytes32)"](PUBLIC_KEY_X, PUBLIC_KEY_Y);
+        expect(accounts).to.length(1);
 
-        const account = Account__factory.connect(signerAccounts[0], recover);
+        const account = Account__factory.connect(accounts[0], recover);
         console.log("account", await account.getAddress());
-        expect(await account.getSigner()).to.equal(EXPECTED_SIGNER);
+        expect(await account.recover()).to.equal(recoverAddress);
     });
 
     it("Test send account tx", async function () {
-        const r = "0xefd3b5cc6eafb4c628f86893c840ffcb448bea8d636ca35aac20bf81edb225b6";
-        const s = "0x2b07acbccaf1d895080ccf0e21f603d4f73ac9c0163e460fad55fd750e55ac5d";
-        const messageHash = "0x822829f6c11d1615e58bbe8068aa5577332015b4b248a2a60f0620e4c4c9bea4";
+        const messageHash = "0xdc8c11d51d653ac6baef8e1ae1bbddda8910d0d0abd0e0edeef0a67bef590e0a";
+        const r = "0x2100b47091a86403304ac0f71a57c185b41c7de0262c21800e04c3bb0e9d655e";
+        const s = "0x5161a2c18d41771776c43eb261ede3ce0d9981e13bcea1ddc2622ae20eeabab9";
         const recoverAddress = "0xee17D0A243361997245A0EBA740e26020952f249";
 
         const commandId = encodeBytes32String("commandId");
@@ -70,22 +75,22 @@ describe("EntryPoint", function () {
         const sourceAddress = recoverAddress;
 
         const payloadCreateAccount = new AbiCoder().encode(
-            ["uint8", "address", "bytes32", "bytes32", "bytes32"],
-            [1, recoverAddress, messageHash, r, s]
+            ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32", "bytes32"],
+            [1, recoverAddress, messageHash, r, s, PUBLIC_KEY_X, PUBLIC_KEY_Y]
         );
 
         await mockGateway.setCallValid(true);
         await entryPoint.execute(commandId, sourceChain, sourceAddress, payloadCreateAccount);
-        const signerAccounts = await accountFactory.getAccounts(EXPECTED_SIGNER);
-        expect(signerAccounts).to.length(1);
+        const accounts = await accountFactory["getAccounts(bytes32,bytes32)"](PUBLIC_KEY_X, PUBLIC_KEY_Y);
+        expect(accounts).to.length(1);
 
-        const account = Account__factory.connect(signerAccounts[0], recover);
+        const account = Account__factory.connect(accounts[0], recover);
         const accountAddress = await account.getAddress();
         console.log("account", accountAddress);
-        expect(await account.getSigner()).to.equal(EXPECTED_SIGNER);
+        expect(await account.recover()).to.equal(recoverAddress);
 
         await recover.sendTransaction({
-            to: signerAccounts[0],
+            to: accounts[0],
             value: parseEther("2.0"),
         });
 
