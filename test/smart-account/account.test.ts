@@ -11,6 +11,8 @@ const RECIPIENT_ADDRESS = "0xaa25Aa7a19f9c426E07dee59b12f944f4d9f1DD3";
 const PUBLIC_KEY_X = "0x90be7fe886c748be80e98b340d1418d0bfe7865675ee597d9d850526520085f0";
 const PUBLIC_KEY_Y = "0x87b9efdb5c81e067890e9439bdf717cf1c22adfe29d802050a11414d66b6e338";
 
+const SOURCE_ADDRESS = "neutron1chcktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
+
 describe("Account", function () {
     let account: Account;
     let verifier: Secp256k1Verifier;
@@ -26,6 +28,7 @@ describe("Account", function () {
 
         const AccountContract = await hre.ethers.getContractFactory("Account");
         account = await AccountContract.deploy(
+            SOURCE_ADDRESS,
             verifier.target,
             recover.address,
             ENTRYPOINT_ADDRESS,
@@ -54,7 +57,7 @@ describe("Account", function () {
         const r = "0xc07088b681723e98dbc11648ffa5646f80cfaff291120e90ffd75337093f4227";
         const s = "0x6ffd64cf200433e89b12036119d2777c92b1903cf8579b70e873d03fa1844aa1";
 
-        const isValid = await account.validateOperation(messageHash, r, s);
+        const isValid = await account.validateOperation(SOURCE_ADDRESS, messageHash, r, s);
         expect(isValid).to.be.true;
     });
 
@@ -63,7 +66,7 @@ describe("Account", function () {
         const r = "0xc07088b681723e98dbc11648ffa5646f80cfaff291120e90ffd75337093f4227";
         const s = "0x6ffd64cf200433e89b12036119d2777c92b1903cf8579b70e873d03fa1844aa1";
 
-        const isValid = await account.validateOperation(messageHash, r, s);
+        const isValid = await account.validateOperation(SOURCE_ADDRESS, messageHash, r, s);
         expect(isValid).to.be.false;
     });
 

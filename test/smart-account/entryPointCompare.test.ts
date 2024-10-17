@@ -5,11 +5,12 @@ import { encodeBytes32String, AbiCoder, parseEther } from "ethers";
 
 import { Account__factory, AccountFactory, EntryPoint, MockGateway } from "../../typechain-types";
 
-const EXPECTED_SIGNER = "0x07557D755E777B85d878D34861cd52126524a155";
 const RECIPIENT_ADDRESS = "0xaa25Aa7a19f9c426E07dee59b12f944f4d9f1DD3";
 
 const PUBLIC_KEY_X = "0x90be7fe886c748be80e98b340d1418d0bfe7865675ee597d9d850526520085f0";
 const PUBLIC_KEY_Y = "0x87b9efdb5c81e067890e9439bdf717cf1c22adfe29d802050a11414d66b6e338";
+
+const SOURCE_ADDRESS = "neutron1chcktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
 
 describe("EntryPoint", function () {
     let entryPoint: EntryPoint;
@@ -45,7 +46,6 @@ describe("EntryPoint", function () {
 
         const commandId = encodeBytes32String("commandId");
         const sourceChain = "sourceChain";
-        const sourceAddress = recoverAddress;
 
         const payload = new AbiCoder().encode(
             ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32", "bytes32"],
@@ -55,8 +55,8 @@ describe("EntryPoint", function () {
         console.log({ payload });
 
         await mockGateway.setCallValid(true);
-        await entryPoint.execute(commandId, sourceChain, sourceAddress, payload);
-        const accounts = await accountFactory["getAccounts(bytes32,bytes32)"](PUBLIC_KEY_X, PUBLIC_KEY_Y);
+        await entryPoint.execute(commandId, sourceChain, SOURCE_ADDRESS, payload);
+        const accounts = await accountFactory.getAccounts(PUBLIC_KEY_X, PUBLIC_KEY_Y);
         expect(accounts).to.length(1);
 
         const account = Account__factory.connect(accounts[0], recover);
@@ -72,7 +72,6 @@ describe("EntryPoint", function () {
 
         const commandId = encodeBytes32String("commandId");
         const sourceChain = "sourceChain";
-        const sourceAddress = recoverAddress;
 
         const payloadCreateAccount = new AbiCoder().encode(
             ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32", "bytes32"],
@@ -80,8 +79,8 @@ describe("EntryPoint", function () {
         );
 
         await mockGateway.setCallValid(true);
-        await entryPoint.execute(commandId, sourceChain, sourceAddress, payloadCreateAccount);
-        const accounts = await accountFactory["getAccounts(bytes32,bytes32)"](PUBLIC_KEY_X, PUBLIC_KEY_Y);
+        await entryPoint.execute(commandId, sourceChain, SOURCE_ADDRESS, payloadCreateAccount);
+        const accounts = await accountFactory.getAccounts(PUBLIC_KEY_X, PUBLIC_KEY_Y);
         expect(accounts).to.length(1);
 
         const account = Account__factory.connect(accounts[0], recover);
@@ -116,7 +115,7 @@ describe("EntryPoint", function () {
             "000000000000000000000000aa25aa7a19f9c426e07dee59b12f944f4d9f1dd3000000000000000000000000000000000000000000000000002386f26fc1000000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000000";
 
         const initialRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
-        await entryPoint.execute(commandId, sourceChain, sourceAddress, payloadSendTx2);
+        await entryPoint.execute(commandId, sourceChain, SOURCE_ADDRESS, payloadSendTx2);
 
         const finalRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
         expect(finalRecipientBalance).to.equal(initialRecipientBalance + amountToSend);

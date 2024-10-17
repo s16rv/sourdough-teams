@@ -10,6 +10,8 @@ const RECIPIENT_ADDRESS = "0xaa25Aa7a19f9c426E07dee59b12f944f4d9f1DD3";
 const PUBLIC_KEY_X = "0x90be7fe886c748be80e98b340d1418d0bfe7865675ee597d9d850526520085f0";
 const PUBLIC_KEY_Y = "0x87b9efdb5c81e067890e9439bdf717cf1c22adfe29d802050a11414d66b6e338";
 
+const SOURCE_ADDRESS = "neutron1chcktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
+
 describe("EntryPoint", function () {
     let entryPoint: EntryPoint;
     let recover: HardhatEthersSigner;
@@ -35,7 +37,6 @@ describe("EntryPoint", function () {
 
         const commandId = encodeBytes32String("commandId");
         const sourceChain = "sourceChain";
-        const sourceAddress = recover.address;
 
         const messageHash = "0x87ed53f4eef3fd7cb1497e8671057c2859417487c0ee8b037ebd1be45075c001";
         const r = "0xc07088b681723e98dbc11648ffa5646f80cfaff291120e90ffd75337093f4227";
@@ -47,8 +48,8 @@ describe("EntryPoint", function () {
         );
 
         await mockGateway.setCallValid(true);
-        await entryPoint.execute(commandId, sourceChain, sourceAddress, payload);
-        const accounts = await accountFactory["getAccounts(bytes32,bytes32)"](PUBLIC_KEY_X, PUBLIC_KEY_Y);
+        await entryPoint.execute(commandId, sourceChain, SOURCE_ADDRESS, payload);
+        const accounts = await accountFactory.getAccounts(PUBLIC_KEY_X, PUBLIC_KEY_Y);
         expect(accounts).to.length(1);
 
         const AccountContract = await hre.ethers.getContractFactory("Account");
@@ -82,14 +83,13 @@ describe("EntryPoint", function () {
         // Execute transaction from the Account contract
         const commandId = encodeBytes32String("commandId");
         const sourceChain = "sourceChain";
-        const sourceAddress = recover.address;
 
         const payload = new AbiCoder().encode(
             ["uint8", "address", "bytes32", "bytes32", "bytes32", "address", "uint256", "bytes"],
             [2, accountAddress, messageHash, r, s, RECIPIENT_ADDRESS, amountToSend, "0x"]
         );
 
-        await entryPoint.execute(commandId, sourceChain, sourceAddress, payload);
+        await entryPoint.execute(commandId, sourceChain, SOURCE_ADDRESS, payload);
 
         const finalRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
         expect(finalRecipientBalance).to.equal(initialRecipientBalance + amountToSend);
