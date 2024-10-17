@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.9;
+pragma solidity ^0.8.21;
 
 import "./interfaces/IAccountFactory.sol";
 import "./util/SignatureVerifier.sol";
 import "./account/Account.sol";
 
 contract AccountFactory is IAccountFactory {
-    // Mapping of signers to their list of created accounts
     mapping(bytes32 => mapping(bytes32 => address[])) public accounts;
     address public immutable verifier;
 
