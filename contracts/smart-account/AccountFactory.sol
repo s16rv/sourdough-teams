@@ -20,14 +20,18 @@ contract AccountFactory is IAccountFactory {
     /**
      * @dev Creates a new account contract using a signature for verification.
      *      The account is deployed using the CREATE2 opcode for address predictability.
+     * @param sourceAddress The address on the source chain where the transaction originated.
      * @param recover The address with recovery rights for the account.
      * @param entryPoint The address of the entry point contract.
      * @param messageHash The hash of the message to verify the signer's identity.
      * @param r The r part of the signature.
      * @param s The s part of the signature.
+     * @param x The x part of the public key.
+     * @param y The y part of the public key.
      * @return accountAddress The address of the newly created account contract.
      */
     function createAccount(
+        string calldata sourceAddress,
         address recover,
         address entryPoint,
         bytes32 messageHash,
@@ -47,7 +51,7 @@ contract AccountFactory is IAccountFactory {
         if (!isValidSignature) revert InvalidSignature();
 
         uint256 salt = uint256(keccak256(abi.encodePacked(x, y, accounts[x][y].length)));
-        address accountAddress = _deployAccount(recover, entryPoint, x, y, salt);
+        address accountAddress = _deployAccount(sourceAddress, recover, entryPoint, x, y, salt);
 
         // Store the new account for the x and y
         accounts[x][y].push(accountAddress);
@@ -58,6 +62,7 @@ contract AccountFactory is IAccountFactory {
 
     /**
      * @dev Deploys the account contract using the CREATE2 opcode for address predictability.
+     * @param sourceAddress The address on the source chain where the transaction originated.
      * @param recover The address with recovery rights for the account.
      * @param entryPoint The address of the entry point contract.
      * @param x The x part of the public key.
@@ -66,6 +71,7 @@ contract AccountFactory is IAccountFactory {
      * @return accountAddress The address of the newly deployed account contract.
      */
     function _deployAccount(
+        string calldata sourceAddress,
         address recover,
         address entryPoint,
         bytes32 x,
@@ -75,7 +81,7 @@ contract AccountFactory is IAccountFactory {
         // Encode the creation bytecode of the Account contract
         bytes memory bytecode = abi.encodePacked(
             type(Account).creationCode,
-            abi.encode(verifier, recover, entryPoint, x, y)
+            abi.encode(sourceAddress, verifier, recover, entryPoint, x, y)
         );
 
         // Use CREATE2 to deploy the contract with the provided salt
@@ -91,6 +97,7 @@ contract AccountFactory is IAccountFactory {
 
     /**
      * @dev Computes the address of an account contract to be deployed using CREATE2, without actually deploying it.
+     * @param sourceAddress The address on the source chain where the transaction originated.
      * @param recover The address with recovery rights for the account.
      * @param entryPoint The address of the entry point contract.
      * @param x The x part of the public key.
@@ -99,6 +106,7 @@ contract AccountFactory is IAccountFactory {
      * @return The address at which the contract would be deployed.
      */
     function computeAddress(
+        string calldata sourceAddress,
         address recover,
         address entryPoint,
         bytes32 x,
@@ -107,7 +115,7 @@ contract AccountFactory is IAccountFactory {
     ) external view returns (address) {
         bytes memory bytecode = abi.encodePacked(
             type(Account).creationCode,
-            abi.encode(verifier, recover, entryPoint, x, y)
+            abi.encode(sourceAddress, verifier, recover, entryPoint, x, y)
         );
         bytes32 hash = keccak256(abi.encodePacked(bytes1(0xff), address(this), bytes32(salt), keccak256(bytecode)));
         return address(uint160(uint256(hash)));

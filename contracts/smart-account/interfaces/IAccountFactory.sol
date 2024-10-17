@@ -23,6 +23,7 @@ interface IAccountFactory {
 
     /**
      * @dev Creates a new account contract using the provided parameters and deploys it using CREATE2.
+     * @param sourceAddress The address on the source chain where the transaction originated.
      * @param recover The address with recovery rights for the account.
      * @param entryPoint The address of the entry point contract.
      * @param messageHash The hash of the message to verify the signer's identity.
@@ -33,6 +34,7 @@ interface IAccountFactory {
      * @return accountAddress The address of the newly created account contract.
      */
     function createAccount(
+        string calldata sourceAddress,
         address recover, 
         address entryPoint,
         bytes32 messageHash,
@@ -44,6 +46,7 @@ interface IAccountFactory {
 
     /**
      * @dev Computes the address of an account contract that would be deployed using CREATE2, without actually deploying it.
+     * @param sourceAddress The address on the source chain where the transaction originated.
      * @param recover The address with recovery rights for the account.
      * @param entryPoint The address of the entry point contract.
      * @param x The x part of the public key.
@@ -52,6 +55,7 @@ interface IAccountFactory {
      * @return The address at which the contract would be deployed.
      */
     function computeAddress(
+        string calldata sourceAddress,
         address recover,
         address entryPoint,
         bytes32 x,

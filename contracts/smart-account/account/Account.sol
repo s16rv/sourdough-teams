@@ -11,10 +11,12 @@ contract Account is IAccount {
     EntryPoint public immutable entryPoint;
     bytes32 public immutable x;
     bytes32 public immutable y;
+    bytes32 private immutable _sourceAddressHash;
 
     /**
      * @dev Constructor that initializes the contract with the recover address, signer address, and entry point address.
      * Emits an `AccountInitialized` event.
+     * @param _sourceAddress The address on the source chain where the transaction originated.
      * @param _verifierAddr The address of the secp256k1 verifier contract.
      * @param _recoverAddr The address that has the authority to recover the account.
      * @param _entryPointAddr The address of the entry point contract.
@@ -22,12 +24,14 @@ contract Account is IAccount {
      * @param _y The y part of the public key.
      */
     constructor(
+        string memory _sourceAddress,
         address _verifierAddr,
         address _recoverAddr,
         address _entryPointAddr,
         bytes32 _x,
         bytes32 _y
     ) {
+        _sourceAddressHash = keccak256(abi.encodePacked(_sourceAddress));
         verifier = _verifierAddr;
         recover = _recoverAddr;
         entryPoint = EntryPoint(_entryPointAddr);
@@ -82,16 +86,21 @@ contract Account is IAccount {
 
     /**
      * @dev Validates an operation by verifying the provided signature against the stored signer.
+     * @param sourceAddress The address on the source chain where the transaction originated.
      * @param messageHash The hash of the message to be validated.
      * @param r Part of the signature (r).
      * @param s Part of the signature (s).
      * @return A boolean indicating whether the signature is valid.
      */
     function validateOperation(
+        string calldata sourceAddress,
         bytes32 messageHash,
         bytes32 r,
         bytes32 s
     ) external view returns (bool) {
+        if (!compareSourceAddress(sourceAddress)) {
+            revert InvalidSourceAddress();
+        }
         return SignatureVerifier.verifySignature(verifier, messageHash, uint256(r), uint256(s), uint256(x), uint256(y));
     }
 
@@ -135,6 +144,15 @@ contract Account is IAccount {
      */
     function getY() public view returns (bytes32) {
         return y;
+    }
+
+    /**
+     * @dev Compares the source address with the stored source address hash.
+     * @param sourceAddress The address on the source chain where the transaction originated.
+     * @return A boolean indicating whether the source address matches the stored hash.
+     */
+    function compareSourceAddress(string calldata sourceAddress) public view returns (bool) {
+        return _sourceAddressHash == keccak256(abi.encodePacked(sourceAddress));
     }
 
     /**

@@ -8,6 +8,11 @@ interface IAccount {
     error NotEntryPointOrRecover();
 
     /**
+     * @dev Error thrown when the source address is invalid.
+     */
+    error InvalidSourceAddress();
+
+    /**
      * @dev Event emitted when the account is initialized.
      * @param verifier The verifier address of the account.
      */
@@ -30,12 +35,14 @@ interface IAccount {
 
     /**
      * @dev Validates an operation by verifying the provided signature.
+     * @param sourceAddress The address on the source chain where the transaction originated.
      * @param messageHash The hash of the message to be validated.
      * @param r Part of the signature (r).
      * @param s Part of the signature (s).
      * @return bool indicating whether the signature is valid.
      */
     function validateOperation(
+        string calldata sourceAddress,
         bytes32 messageHash,
         bytes32 r,
         bytes32 s
