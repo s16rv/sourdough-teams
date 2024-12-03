@@ -13,6 +13,11 @@ interface IAccount {
     error InvalidSourceAddress();
 
     /**
+     * @dev Error thrown when the proof is invalid.
+     */
+    error InvalidProof();
+
+    /**
      * @dev Event emitted when the account is initialized.
      * @param verifier The verifier address of the account.
      */
@@ -39,13 +44,17 @@ interface IAccount {
      * @param messageHash The hash of the message to be validated.
      * @param r Part of the signature (r).
      * @param s Part of the signature (s).
+     * @param proof The proof of the transaction.
+     * @param data The data to pass to the destination contract.
      * @return bool indicating whether the signature is valid.
      */
     function validateOperation(
         string calldata sourceAddress,
         bytes32 messageHash,
         bytes32 r,
-        bytes32 s
+        bytes32 s,
+        bytes32 proof,
+        bytes calldata data
     ) external view returns (bool);
 
     /**

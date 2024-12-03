@@ -1,7 +1,7 @@
 import hre from "hardhat";
 import { expect } from "chai";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
-import { encodeBytes32String, AbiCoder, parseEther } from "ethers";
+import { encodeBytes32String, AbiCoder, parseEther, sha256 } from "ethers";
 
 import { Account, EntryPoint } from "../../typechain-types";
 
@@ -72,9 +72,9 @@ describe("EntryPoint", function () {
     });
 
     it("should execute transactions from Account contract", async function () {
-        const messageHash = "0xdc8c11d51d653ac6baef8e1ae1bbddda8910d0d0abd0e0edeef0a67bef590e0a";
-        const r = "0x2100b47091a86403304ac0f71a57c185b41c7de0262c21800e04c3bb0e9d655e";
-        const s = "0x5161a2c18d41771776c43eb261ede3ce0d9981e13bcea1ddc2622ae20eeabab9";
+        const messageHash = "0xcc61a33a7a9ace63fa4c5e74f9db3080c7ef68dd53e75dfb311bc28381830c2f";
+        const r = "0x87df5d0e314c3fe01b3dc136b3afe1659e02316f8d189f0b68983b7f90cd9b61";
+        const s = "0x7d2212755fb0db4f8e9a3343d264942d14c5e75471245b0419f29ce10355b08b";
 
         const initialRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
         const amountToSend = parseEther("1.0");
@@ -84,10 +84,18 @@ describe("EntryPoint", function () {
         const commandId = encodeBytes32String("commandId");
         const sourceChain = "sourceChain";
 
-        const payload = new AbiCoder().encode(
-            ["uint8", "address", "bytes32", "bytes32", "bytes32", "address", "uint256", "bytes"],
-            [2, accountAddress, messageHash, r, s, RECIPIENT_ADDRESS, amountToSend, "0x"]
+        const txPayload = new AbiCoder().encode(
+            ["address", "uint256", "bytes"],
+            [RECIPIENT_ADDRESS, amountToSend, "0x"]
         );
+
+        const proof = sha256(combineHexStrings(messageHash, txPayload));
+
+        const p = new AbiCoder().encode(
+            ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32"],
+            [2, accountAddress, messageHash, r, s, proof]
+        );
+        const payload = combineHexStrings(p, txPayload);
 
         await entryPoint.execute(commandId, sourceChain, SOURCE_ADDRESS, payload);
 
@@ -95,3 +103,14 @@ describe("EntryPoint", function () {
         expect(finalRecipientBalance).to.equal(initialRecipientBalance + amountToSend);
     });
 });
+
+function combineHexStrings(hexString1: string, hexString2: string): string {
+    const buffer1 = Buffer.from(hexString1.slice(2), "hex");
+    const buffer2 = Buffer.from(hexString2.slice(2), "hex");
+
+    const combinedBuffer = Buffer.concat([buffer1, buffer2]);
+
+    const combinedHex = combinedBuffer.toString("hex");
+
+    return "0x" + combinedHex;
+}

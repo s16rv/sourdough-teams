@@ -53,20 +53,38 @@ describe("Account", function () {
     });
 
     it("Should validate operation", async function () {
-        const messageHash = "0x87ed53f4eef3fd7cb1497e8671057c2859417487c0ee8b037ebd1be45075c001";
-        const r = "0xc07088b681723e98dbc11648ffa5646f80cfaff291120e90ffd75337093f4227";
-        const s = "0x6ffd64cf200433e89b12036119d2777c92b1903cf8579b70e873d03fa1844aa1";
+        const messageHash = "0xcc61a33a7a9ace63fa4c5e74f9db3080c7ef68dd53e75dfb311bc28381830c2f";
+        const r = "0x87df5d0e314c3fe01b3dc136b3afe1659e02316f8d189f0b68983b7f90cd9b61";
+        const s = "0x7d2212755fb0db4f8e9a3343d264942d14c5e75471245b0419f29ce10355b08b";
+        const proof = "0x878ca931506cebeb0388fc31f82f2ed5daefa3b18576fe9536a46795cdb384a1";
+        const data =
+            "0x000000000000000000000000aa25aa7a19f9c426e07dee59b12f944f4d9f1dd3000000000000000000000000000000000000000000000000002386f26fc1000000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000000";
 
-        const isValid = await account.validateOperation(SOURCE_ADDRESS, messageHash, r, s);
+        const isValid = await account.validateOperation(SOURCE_ADDRESS, messageHash, r, s, proof, data);
         expect(isValid).to.be.true;
     });
 
-    it("Should not validate operation", async function () {
-        const messageHash = "0x87ed53f4eef3fd7cb1497e8671057c2859417487c0ee8b037ebd1be45075c002";
-        const r = "0xc07088b681723e98dbc11648ffa5646f80cfaff291120e90ffd75337093f4227";
-        const s = "0x6ffd64cf200433e89b12036119d2777c92b1903cf8579b70e873d03fa1844aa1";
+    it("Should not validate operation, invalid proof", async function () {
+        const messageHash = "0xcc61a33a7a9ace63fa4c5e74f9db3080c7ef68dd53e75dfb311bc28381830c2f";
+        const r = "0x87df5d0e314c3fe01b3dc136b3afe1659e02316f8d189f0b68983b7f90cd9b61";
+        const s = "0x7d2212755fb0db4f8e9a3343d264942d14c5e75471245b0419f29ce10355b08b";
+        const proof = "0x878ca931506cebeb0388fc31f82f2ed5daefa3b18576fe9536a46795cdb384a1";
+        const data = "0x000000000000000000000000";
 
-        const isValid = await account.validateOperation(SOURCE_ADDRESS, messageHash, r, s);
+        await expect(
+            account.validateOperation(SOURCE_ADDRESS, messageHash, r, s, proof, data)
+        ).to.be.revertedWithCustomError(account, "InvalidProof");
+    });
+
+    it("Should not validate operation, invalid signature", async function () {
+        const messageHash = "0xcc61a33a7a9ace63fa4c5e74f9db3080c7ef68dd53e75dfb311bc28381830c2f";
+        const r = "0x87df5d0e314c3fe01b3dc136b3afe1659e02316f8d189f0b68983b7f90cd9b62";
+        const s = "0x7d2212755fb0db4f8e9a3343d264942d14c5e75471245b0419f29ce10355b08b";
+        const proof = "0x878ca931506cebeb0388fc31f82f2ed5daefa3b18576fe9536a46795cdb384a1";
+        const data =
+            "0x000000000000000000000000aa25aa7a19f9c426e07dee59b12f944f4d9f1dd3000000000000000000000000000000000000000000000000002386f26fc1000000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000000";
+
+        const isValid = await account.validateOperation(SOURCE_ADDRESS, messageHash, r, s, proof, data);
         expect(isValid).to.be.false;
     });
 

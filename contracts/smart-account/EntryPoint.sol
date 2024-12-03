@@ -47,18 +47,19 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
             _createAccount(_sourceAddress, recover, messageHash, r, s, x, y);
         } 
         else if (category == 2) {
-            if (_payload.length < 160 + 20) revert PayloadTooShort();
+            if (_payload.length < 192 + 20) revert PayloadTooShort();
 
             (
                 address target,
                 bytes32 messageHash,
                 bytes32 r,
-                bytes32 s
-            ) = abi.decode(_payload[32:160], (address, bytes32, bytes32, bytes32));
+                bytes32 s,
+                bytes32 proof
+            ) = abi.decode(_payload[32:192], (address, bytes32, bytes32, bytes32, bytes32));
 
-            bytes calldata txPayload = _payload[160:];
+            bytes calldata txPayload = _payload[192:];
 
-            _handleTransaction(_sourceAddress, target, messageHash, r, s, txPayload);
+            _handleTransaction(_sourceAddress, target, messageHash, r, s, proof, txPayload);
         } 
         else {
             revert UnsupportedCategory();
@@ -74,6 +75,7 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
      * @param messageHash The hash of the message used for signature verification.
      * @param r Part of the signature (r).
      * @param s Part of the signature (s).
+     * @param proof The proof of the transaction.
      * @param txPayload The transaction payload containing the destination address and value.
      */
     function _handleTransaction(
@@ -82,9 +84,10 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
         bytes32 messageHash,
         bytes32 r,
         bytes32 s,
+        bytes32 proof,
         bytes calldata txPayload
     ) internal {
-        bool valid = IAccount(payable(target)).validateOperation(sourceAddress, messageHash, r, s);
+        bool valid = IAccount(payable(target)).validateOperation(sourceAddress, messageHash, r, s, proof, txPayload);
         if (!valid) {
             revert InvalidSignature();
         }
@@ -93,12 +96,12 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
 
         (address dest, uint256 value) = abi.decode(txPayload, (address, uint256));
 
-        bool success = IAccount(payable(target)).executeTransaction(dest, value, txPayload[64:]);
+        bool success = IAccount(payable(target)).executeTransaction(dest, value, txPayload);
         if (!success) {
             revert TransactionFailed();
         }
 
-        emit TransactionExecuted(target, dest, value, txPayload[64:]);
+        emit TransactionExecuted(target, dest, value, txPayload);
     }
 
     /**
