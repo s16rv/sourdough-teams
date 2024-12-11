@@ -43,10 +43,10 @@ contract AccountFactory is IAccountFactory {
         bool isValidSignature = SignatureVerifier.verifySignature(
             verifier,
             messageHash,
-            uint256(r),
-            uint256(s),
-            uint256(x),
-            uint256(y)
+            r,
+            s,
+            x,
+            y
         );
         if (!isValidSignature) revert InvalidSignature();
 

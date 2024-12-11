@@ -8,10 +8,10 @@ library SignatureVerifier {
     function verifySignature(
         address verifier,
         bytes32 message_hash,
-        uint256 r,
-        uint256 s,
-        uint256 x,
-        uint256 y
+        bytes32 r,
+        bytes32 s,
+        bytes32 x,
+        bytes32 y
     ) internal view returns (bool) {
         bytes memory args = abi.encode(message_hash, r, s, x, y);
         (bool success, bytes memory ret) = verifier.staticcall(args);

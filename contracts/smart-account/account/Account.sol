@@ -111,7 +111,7 @@ contract Account is IAccount {
             revert InvalidProof();
         }
 
-        return SignatureVerifier.verifySignature(verifier, messageHash, uint256(r), uint256(s), uint256(x), uint256(y));
+        return SignatureVerifier.verifySignature(verifier, messageHash, r, s, x, y);
     }
 
     /**
