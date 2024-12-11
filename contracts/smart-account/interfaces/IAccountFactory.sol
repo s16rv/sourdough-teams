@@ -36,13 +36,13 @@ interface IAccountFactory {
         string calldata sourceAddress
     ) external returns (address);
 
-    /**
-     * @dev Computes the address of an account contract that would be deployed using CREATE2, without actually deploying it.
+     /**
+     * @dev Computes the address of an account contract to be deployed using CREATE2, without actually deploying it.
      * @param recover The address with recovery rights for the account.
      * @param entryPoint The address of the entry point contract.
      * @param x The x part of the public key.
      * @param y The y part of the public key.
-     * @param sourceAddress The address on the source chain where the transaction originated.
+     * @param addrHash The hash address on the source chain where the transaction originated.
      * @return The address at which the contract would be deployed.
      */
     function computeAddress(
@@ -50,19 +50,19 @@ interface IAccountFactory {
         address entryPoint,
         bytes32 x,
         bytes32 y,
-        string calldata sourceAddress
+        bytes32 addrHash
     ) external view returns (address);
 
-    /**
-     * @dev Returns the account address for a given public key and salt.
+     /**
+     * @dev Returns the list of accounts created by a particular signer.
      * @param x The x part of the public key.
      * @param y The y part of the public key.
-     * @param sourceAddress The address on the source chain where the transaction originated.
-     * @return The address of the account.
+     * @param addrHash The hash address on the source chain where the transaction originated.
+     * @return An account address created by the signer.
      */
     function getAccount(
         bytes32 x,
         bytes32 y,
-        string calldata sourceAddress
+        bytes32 addrHash
     ) external view returns (address);
 }

@@ -6,37 +6,37 @@ import "../util/SignatureVerifier.sol";
 import "../EntryPoint.sol";
 
 contract Account is IAccount {
-    address public recover;
-    address public immutable verifier;
-    EntryPoint public immutable entryPoint;
-    bytes32 public immutable x;
-    bytes32 public immutable y;
-    bytes32 private immutable _sourceAddressHash;
+    address public immutable recover;
+    address private immutable verifier;
+    EntryPoint private immutable entryPoint;
+    bytes32 private immutable x;
+    bytes32 private immutable y;
+    bytes32 private immutable addrHash;
 
     /**
      * @dev Constructor that initializes the contract with the recover address, signer address, and entry point address.
      * Emits an `AccountInitialized` event.
-     * @param _sourceAddress The address on the source chain where the transaction originated.
      * @param _verifierAddr The address of the secp256k1 verifier contract.
      * @param _recoverAddr The address that has the authority to recover the account.
      * @param _entryPointAddr The address of the entry point contract.
      * @param _x The x part of the public key.
      * @param _y The y part of the public key.
+     * @param _addrHash The hash of address on the source chain where the transaction originated.
      */
     constructor(
-        string memory _sourceAddress,
         address _verifierAddr,
         address _recoverAddr,
         address _entryPointAddr,
         bytes32 _x,
-        bytes32 _y
+        bytes32 _y,
+        bytes32 _addrHash
     ) {
-        _sourceAddressHash = keccak256(abi.encodePacked(_sourceAddress));
         verifier = _verifierAddr;
         recover = _recoverAddr;
         entryPoint = EntryPoint(_entryPointAddr);
         x = _x;
         y = _y;
+        addrHash = _addrHash;
 
         emit AccountInitialized(verifier);
     }
@@ -72,16 +72,6 @@ contract Account is IAccount {
             }
         }
         return success;
-    }
-
-    /**
-     * @dev Allows the recover address or EntryPoint to change the recover address.
-     * Emits a `RecoverChanged` event.
-     * @param newRecover The new recover address to be set.
-     */
-    function changeRecover(address newRecover) public onlyEntryPointOrRecover {
-        emit RecoverChanged(recover, newRecover);
-        recover = newRecover;
     }
 
     /**
@@ -162,7 +152,7 @@ contract Account is IAccount {
      * @return A boolean indicating whether the source address matches the stored hash.
      */
     function compareSourceAddress(string calldata sourceAddress) public view returns (bool) {
-        return _sourceAddressHash == keccak256(abi.encodePacked(sourceAddress));
+        return addrHash == keccak256(abi.encodePacked(sourceAddress));
     }
 
     /**

@@ -1,7 +1,7 @@
 import hre from "hardhat";
 import { expect } from "chai";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
-import { AbiCoder, keccak256, toBigInt } from "ethers";
+import { keccak256, toUtf8Bytes } from "ethers";
 
 import { AccountFactory, Secp256k1Verifier } from "../../typechain-types";
 
@@ -11,7 +11,9 @@ const PUBLIC_KEY_X = "0x90be7fe886c748be80e98b340d1418d0bfe7865675ee597d9d850526
 const PUBLIC_KEY_Y = "0x87b9efdb5c81e067890e9439bdf717cf1c22adfe29d802050a11414d66b6e338";
 
 const SOURCE_ADDRESS = "neutron1chcktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
+const SOURCE_ADDRESS_HASH = keccak256(toUtf8Bytes(SOURCE_ADDRESS));
 const SOURCE_ADDRESS2 = "neutron1klzktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
+const SOURCE_ADDRESS2_HASH = keccak256(toUtf8Bytes(SOURCE_ADDRESS2));
 
 describe("AccountFactory", function () {
     let accountFactory: AccountFactory;
@@ -36,14 +38,14 @@ describe("AccountFactory", function () {
             ENTRYPOINT_ADDRESS,
             PUBLIC_KEY_X,
             PUBLIC_KEY_Y,
-            SOURCE_ADDRESS
+            SOURCE_ADDRESS_HASH
         );
         const accountAddr2 = await accountFactory.computeAddress(
             recover.address,
             ENTRYPOINT_ADDRESS,
             PUBLIC_KEY_X,
             PUBLIC_KEY_Y,
-            SOURCE_ADDRESS
+            SOURCE_ADDRESS_HASH
         );
 
         expect(accountAddr1).to.equal(accountAddr2);
@@ -70,9 +72,9 @@ describe("AccountFactory", function () {
             ENTRYPOINT_ADDRESS,
             PUBLIC_KEY_X,
             PUBLIC_KEY_Y,
-            SOURCE_ADDRESS
+            SOURCE_ADDRESS_HASH
         );
-        const accountAddr = await accountFactory.getAccount(PUBLIC_KEY_X, PUBLIC_KEY_Y, SOURCE_ADDRESS);
+        const accountAddr = await accountFactory.getAccount(PUBLIC_KEY_X, PUBLIC_KEY_Y, SOURCE_ADDRESS_HASH);
 
         expect(addressComputed).to.equal(accountAddr);
     });
@@ -104,8 +106,8 @@ describe("AccountFactory", function () {
             SOURCE_ADDRESS2
         );
 
-        const accountAddr1 = await accountFactory.getAccount(PUBLIC_KEY_X, PUBLIC_KEY_Y, SOURCE_ADDRESS);
-        const accountAddr2 = await accountFactory.getAccount(PUBLIC_KEY_X, PUBLIC_KEY_Y, SOURCE_ADDRESS2);
+        const accountAddr1 = await accountFactory.getAccount(PUBLIC_KEY_X, PUBLIC_KEY_Y, SOURCE_ADDRESS_HASH);
+        const accountAddr2 = await accountFactory.getAccount(PUBLIC_KEY_X, PUBLIC_KEY_Y, SOURCE_ADDRESS2_HASH);
 
         expect(accountAddr1).to.not.equal(accountAddr2);
     });
