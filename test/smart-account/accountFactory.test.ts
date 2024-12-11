@@ -11,6 +11,7 @@ const PUBLIC_KEY_X = "0x90be7fe886c748be80e98b340d1418d0bfe7865675ee597d9d850526
 const PUBLIC_KEY_Y = "0x87b9efdb5c81e067890e9439bdf717cf1c22adfe29d802050a11414d66b6e338";
 
 const SOURCE_ADDRESS = "neutron1chcktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
+const SOURCE_ADDRESS2 = "neutron1klzktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
 
 describe("AccountFactory", function () {
     let accountFactory: AccountFactory;
@@ -31,20 +32,18 @@ describe("AccountFactory", function () {
 
     it("Should compute address consistent", async function () {
         const accountAddr1 = await accountFactory.computeAddress(
-            SOURCE_ADDRESS,
             recover.address,
             ENTRYPOINT_ADDRESS,
             PUBLIC_KEY_X,
             PUBLIC_KEY_Y,
-            0
+            SOURCE_ADDRESS
         );
         const accountAddr2 = await accountFactory.computeAddress(
-            SOURCE_ADDRESS,
             recover.address,
             ENTRYPOINT_ADDRESS,
             PUBLIC_KEY_X,
             PUBLIC_KEY_Y,
-            0
+            SOURCE_ADDRESS
         );
 
         expect(accountAddr1).to.equal(accountAddr2);
@@ -56,32 +55,26 @@ describe("AccountFactory", function () {
         const s = "0x6ffd64cf200433e89b12036119d2777c92b1903cf8579b70e873d03fa1844aa1";
 
         await accountFactory.createAccount(
-            SOURCE_ADDRESS,
             recover.address,
             ENTRYPOINT_ADDRESS,
             messageHash,
             r,
             s,
             PUBLIC_KEY_X,
-            PUBLIC_KEY_Y
+            PUBLIC_KEY_Y,
+            SOURCE_ADDRESS
         );
 
-        const accounts = await accountFactory.getAccounts(PUBLIC_KEY_X, PUBLIC_KEY_Y);
-
-        const salt = toBigInt(
-            keccak256(new AbiCoder().encode(["bytes32", "bytes32", "uint256"], [PUBLIC_KEY_X, PUBLIC_KEY_Y, 0]))
-        );
         const addressComputed = await accountFactory.computeAddress(
-            SOURCE_ADDRESS,
             recover.address,
             ENTRYPOINT_ADDRESS,
             PUBLIC_KEY_X,
             PUBLIC_KEY_Y,
-            salt
+            SOURCE_ADDRESS
         );
+        const accountAddr = await accountFactory.getAccount(PUBLIC_KEY_X, PUBLIC_KEY_Y, SOURCE_ADDRESS);
 
-        expect(accounts).to.length(1);
-        expect(addressComputed).to.equal(accounts[0]);
+        expect(addressComputed).to.equal(accountAddr);
     });
 
     it("Should create two different accounts", async function () {
@@ -90,30 +83,30 @@ describe("AccountFactory", function () {
         const s = "0x6ffd64cf200433e89b12036119d2777c92b1903cf8579b70e873d03fa1844aa1";
 
         await accountFactory.createAccount(
-            SOURCE_ADDRESS,
             recover.address,
             ENTRYPOINT_ADDRESS,
             messageHash,
             r,
             s,
             PUBLIC_KEY_X,
-            PUBLIC_KEY_Y
+            PUBLIC_KEY_Y,
+            SOURCE_ADDRESS
         );
 
         await accountFactory.createAccount(
-            SOURCE_ADDRESS,
             recover.address,
             ENTRYPOINT_ADDRESS,
             messageHash,
             r,
             s,
             PUBLIC_KEY_X,
-            PUBLIC_KEY_Y
+            PUBLIC_KEY_Y,
+            SOURCE_ADDRESS2
         );
 
-        const accounts = await accountFactory.getAccounts(PUBLIC_KEY_X, PUBLIC_KEY_Y);
+        const accountAddr1 = await accountFactory.getAccount(PUBLIC_KEY_X, PUBLIC_KEY_Y, SOURCE_ADDRESS);
+        const accountAddr2 = await accountFactory.getAccount(PUBLIC_KEY_X, PUBLIC_KEY_Y, SOURCE_ADDRESS2);
 
-        expect(accounts).to.length(2);
-        expect(accounts[0]).to.not.equal(accounts[1]);
+        expect(accountAddr1).to.not.equal(accountAddr2);
     });
 });

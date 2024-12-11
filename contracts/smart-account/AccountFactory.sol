@@ -6,7 +6,7 @@ import "./util/SignatureVerifier.sol";
 import "./account/Account.sol";
 
 contract AccountFactory is IAccountFactory {
-    mapping(bytes32 => mapping(bytes32 => address[])) public accounts;
+    mapping(bytes32 => address) public account;
     address public immutable verifier;
 
     /**
@@ -20,7 +20,6 @@ contract AccountFactory is IAccountFactory {
     /**
      * @dev Creates a new account contract using a signature for verification.
      *      The account is deployed using the CREATE2 opcode for address predictability.
-     * @param sourceAddress The address on the source chain where the transaction originated.
      * @param recover The address with recovery rights for the account.
      * @param entryPoint The address of the entry point contract.
      * @param messageHash The hash of the message to verify the signer's identity.
@@ -28,17 +27,18 @@ contract AccountFactory is IAccountFactory {
      * @param s The s part of the signature.
      * @param x The x part of the public key.
      * @param y The y part of the public key.
+     * @param sourceAddress The address on the source chain where the transaction originated.
      * @return accountAddress The address of the newly created account contract.
      */
     function createAccount(
-        string calldata sourceAddress,
         address recover,
         address entryPoint,
         bytes32 messageHash,
         bytes32 r,
         bytes32 s,
         bytes32 x,
-        bytes32 y
+        bytes32 y,
+        string calldata sourceAddress
     ) external returns (address) {
         bool isValidSignature = SignatureVerifier.verifySignature(
             verifier,
@@ -50,35 +50,31 @@ contract AccountFactory is IAccountFactory {
         );
         if (!isValidSignature) revert InvalidSignature();
 
-        uint256 salt = uint256(keccak256(abi.encodePacked(x, y, accounts[x][y].length)));
-        address accountAddress = _deployAccount(sourceAddress, recover, entryPoint, x, y, salt);
+        address accountAddress = _deployAccount(recover, entryPoint, x, y, sourceAddress);
 
-        // Store the new account for the x and y
-        accounts[x][y].push(accountAddress);
+        // Store the new account
+        storeAccount(x, y, accountAddress, sourceAddress);
 
-        emit AccountCreated(x, y, accountAddress);
         return accountAddress;
     }
 
     /**
      * @dev Deploys the account contract using the CREATE2 opcode for address predictability.
-     * @param sourceAddress The address on the source chain where the transaction originated.
      * @param recover The address with recovery rights for the account.
      * @param entryPoint The address of the entry point contract.
      * @param x The x part of the public key.
      * @param y The y part of the public key.
-     * @param salt The salt used for deterministic contract deployment with CREATE2.
+     * @param sourceAddress The address on the source chain where the transaction originated.
      * @return accountAddress The address of the newly deployed account contract.
      */
     function _deployAccount(
-        string calldata sourceAddress,
         address recover,
         address entryPoint,
         bytes32 x,
         bytes32 y,
-        uint256 salt
+        string calldata sourceAddress
     ) internal returns (address) {
-        // Encode the creation bytecode of the Account contract
+        bytes32 salt = keccak256(abi.encodePacked(sourceAddress));
         bytes memory bytecode = abi.encodePacked(
             type(Account).creationCode,
             abi.encode(sourceAddress, verifier, recover, entryPoint, x, y)
@@ -97,27 +93,26 @@ contract AccountFactory is IAccountFactory {
 
     /**
      * @dev Computes the address of an account contract to be deployed using CREATE2, without actually deploying it.
-     * @param sourceAddress The address on the source chain where the transaction originated.
      * @param recover The address with recovery rights for the account.
      * @param entryPoint The address of the entry point contract.
      * @param x The x part of the public key.
      * @param y The y part of the public key.
-     * @param salt The salt used for deterministic contract deployment with CREATE2.
+     * @param sourceAddress The address on the source chain where the transaction originated.
      * @return The address at which the contract would be deployed.
      */
     function computeAddress(
-        string calldata sourceAddress,
         address recover,
         address entryPoint,
         bytes32 x,
         bytes32 y,
-        uint256 salt
+        string calldata sourceAddress
     ) external view returns (address) {
+        bytes32 salt = keccak256(abi.encodePacked(sourceAddress));
         bytes memory bytecode = abi.encodePacked(
             type(Account).creationCode,
             abi.encode(sourceAddress, verifier, recover, entryPoint, x, y)
         );
-        bytes32 hash = keccak256(abi.encodePacked(bytes1(0xff), address(this), bytes32(salt), keccak256(bytecode)));
+        bytes32 hash = keccak256(abi.encodePacked(bytes1(0xff), address(this), salt, keccak256(bytecode)));
         return address(uint160(uint256(hash)));
     }
 
@@ -125,9 +120,25 @@ contract AccountFactory is IAccountFactory {
      * @dev Returns the list of accounts created by a particular signer.
      * @param x The x part of the public key.
      * @param y The y part of the public key.
-     * @return An array of account addresses created by the signer.
+     * @param sourceAddress The address on the source chain where the transaction originated.
+     * @return An account address created by the signer.
      */
-    function getAccounts(bytes32 x, bytes32 y) external view returns (address[] memory) {
-        return accounts[x][y];
+    function getAccount(
+        bytes32 x,
+        bytes32 y,
+        string calldata sourceAddress
+    ) external view returns (address) {
+        bytes32 key = keccak256(abi.encodePacked(x, y, sourceAddress));
+        return account[key];
+    }
+
+    function storeAccount(
+        bytes32 x,
+        bytes32 y,
+        address accountAddress,
+        string calldata sourceAddress
+    ) internal {
+        bytes32 key = keccak256(abi.encodePacked(x, y, sourceAddress));
+        account[key] = accountAddress;
     }
 }

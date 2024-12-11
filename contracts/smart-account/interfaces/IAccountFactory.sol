@@ -14,16 +14,7 @@ interface IAccountFactory {
     error FailedDeployAccount();
 
     /**
-     * @dev Event emitted when a new account is created.
-     * @param x The x part of the public key.
-     * @param y The y part of the public key.
-     * @param accountAddress The address of the newly created account.
-     */
-    event AccountCreated(bytes32 indexed x, bytes32 indexed y, address indexed accountAddress);
-
-    /**
      * @dev Creates a new account contract using the provided parameters and deploys it using CREATE2.
-     * @param sourceAddress The address on the source chain where the transaction originated.
      * @param recover The address with recovery rights for the account.
      * @param entryPoint The address of the entry point contract.
      * @param messageHash The hash of the message to verify the signer's identity.
@@ -31,43 +22,47 @@ interface IAccountFactory {
      * @param s The s part of the signature.
      * @param x The x part of the public key.
      * @param y The y part of the public key.
+     * @param sourceAddress The address on the source chain where the transaction originated.
      * @return accountAddress The address of the newly created account contract.
      */
     function createAccount(
-        string calldata sourceAddress,
         address recover, 
         address entryPoint,
         bytes32 messageHash,
         bytes32 r,
         bytes32 s,
         bytes32 x,
-        bytes32 y
+        bytes32 y,
+        string calldata sourceAddress
     ) external returns (address);
 
     /**
      * @dev Computes the address of an account contract that would be deployed using CREATE2, without actually deploying it.
-     * @param sourceAddress The address on the source chain where the transaction originated.
      * @param recover The address with recovery rights for the account.
      * @param entryPoint The address of the entry point contract.
      * @param x The x part of the public key.
      * @param y The y part of the public key.
-     * @param salt The salt used for deterministic contract deployment with CREATE2.
+     * @param sourceAddress The address on the source chain where the transaction originated.
      * @return The address at which the contract would be deployed.
      */
     function computeAddress(
-        string calldata sourceAddress,
         address recover,
         address entryPoint,
         bytes32 x,
         bytes32 y,
-        uint256 salt
+        string calldata sourceAddress
     ) external view returns (address);
 
     /**
-     * @dev Returns the list of accounts created using the provided public keys.
+     * @dev Returns the account address for a given public key and salt.
      * @param x The x part of the public key.
      * @param y The y part of the public key.
-     * @return An array of account addresses created using the public keys.
+     * @param sourceAddress The address on the source chain where the transaction originated.
+     * @return The address of the account.
      */
-    function getAccounts(bytes32 x, bytes32 y) external view returns (address[] memory);
+    function getAccount(
+        bytes32 x,
+        bytes32 y,
+        string calldata sourceAddress
+    ) external view returns (address);
 }

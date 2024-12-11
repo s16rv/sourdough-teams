@@ -49,14 +49,13 @@ describe("EntryPoint", function () {
 
         await mockGateway.setCallValid(true);
         await entryPoint.execute(commandId, sourceChain, SOURCE_ADDRESS, payload);
-        const accounts = await accountFactory.getAccounts(PUBLIC_KEY_X, PUBLIC_KEY_Y);
-        expect(accounts).to.length(1);
+        const accountAddr = await accountFactory.getAccount(PUBLIC_KEY_X, PUBLIC_KEY_Y, SOURCE_ADDRESS);
 
         const AccountContract = await hre.ethers.getContractFactory("Account");
-        account = AccountContract.attach(accounts[0]) as Account;
+        account = AccountContract.attach(accountAddr) as Account;
 
         await recover.sendTransaction({
-            to: accounts[0],
+            to: accountAddr,
             value: parseEther("2.0"),
         });
     });
