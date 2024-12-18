@@ -1,7 +1,7 @@
 import hre from "hardhat";
 import { expect } from "chai";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
-import { encodeBytes32String, AbiCoder, parseEther, sha256 } from "ethers";
+import { encodeBytes32String, AbiCoder, parseEther, sha256, toUtf8Bytes, keccak256 } from "ethers";
 
 import { Account, EntryPoint } from "../../typechain-types";
 
@@ -11,6 +11,7 @@ const PUBLIC_KEY_X = "0x90be7fe886c748be80e98b340d1418d0bfe7865675ee597d9d850526
 const PUBLIC_KEY_Y = "0x87b9efdb5c81e067890e9439bdf717cf1c22adfe29d802050a11414d66b6e338";
 
 const SOURCE_ADDRESS = "neutron1chcktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
+const SOURCE_ADDRESS_HASH = keccak256(toUtf8Bytes(SOURCE_ADDRESS));
 
 describe("EntryPoint", function () {
     let entryPoint: EntryPoint;
@@ -49,14 +50,13 @@ describe("EntryPoint", function () {
 
         await mockGateway.setCallValid(true);
         await entryPoint.execute(commandId, sourceChain, SOURCE_ADDRESS, payload);
-        const accounts = await accountFactory.getAccounts(PUBLIC_KEY_X, PUBLIC_KEY_Y);
-        expect(accounts).to.length(1);
+        const accountAddr = await accountFactory.getAccount(PUBLIC_KEY_X, PUBLIC_KEY_Y, SOURCE_ADDRESS_HASH);
 
         const AccountContract = await hre.ethers.getContractFactory("Account");
-        account = AccountContract.attach(accounts[0]) as Account;
+        account = AccountContract.attach(accountAddr) as Account;
 
         await recover.sendTransaction({
-            to: accounts[0],
+            to: accountAddr,
             value: parseEther("2.0"),
         });
     });

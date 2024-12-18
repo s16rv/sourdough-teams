@@ -44,7 +44,7 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
                 bytes32 x,
                 bytes32 y
             ) = abi.decode(_payload[32:], (address, bytes32, bytes32, bytes32, bytes32, bytes32));
-            _createAccount(_sourceAddress, recover, messageHash, r, s, x, y);
+            _createAccount(recover, messageHash, r, s, x, y, _sourceAddress);
         } 
         else if (category == 2) {
             if (_payload.length < 192 + 20) revert PayloadTooShort();
@@ -59,7 +59,7 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
 
             bytes calldata txPayload = _payload[192:];
 
-            _handleTransaction(_sourceAddress, target, messageHash, r, s, proof, txPayload);
+            _handleTransaction(target, messageHash, r, s, proof, _sourceAddress, txPayload);
         } 
         else {
             revert UnsupportedCategory();
@@ -70,21 +70,21 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
 
     /**
      * @dev Handles the execution of a transaction on the destination chain by validating the signature and calling the target account's `executeTransaction` function.
-     * @param sourceAddress The address on the source chain where the transaction originated.
      * @param target The target address to execute the transaction.
      * @param messageHash The hash of the message used for signature verification.
      * @param r Part of the signature (r).
      * @param s Part of the signature (s).
      * @param proof The proof of the transaction.
+     * @param sourceAddress The address on the source chain where the transaction originated.
      * @param txPayload The transaction payload containing the destination address and value.
      */
     function _handleTransaction(
-        string calldata sourceAddress,
         address target,
         bytes32 messageHash,
         bytes32 r,
         bytes32 s,
         bytes32 proof,
+        string calldata sourceAddress,
         bytes calldata txPayload
     ) internal {
         bool valid = IAccount(payable(target)).validateOperation(sourceAddress, messageHash, r, s, proof, txPayload);
@@ -106,25 +106,25 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
 
     /**
      * @dev Creates a new account by calling the `createAccount` function in the account factory.
-     * @param sourceAddress The address on the source chain where the transaction originated.
      * @param recover The address that has recovery rights for the new account.
      * @param messageHash The hash of the message used for signature verification.
      * @param r Part of the signature (r).
      * @param s Part of the signature (s).  
      * @param x The x part of the public key.
      * @param y The y part of the public key.
+     * @param sourceAddress The address on the source chain where the transaction originated.
      * @return accountAddress The address of the newly created account.
      */
     function _createAccount(
-        string calldata sourceAddress,
         address recover,
         bytes32 messageHash,
         bytes32 r,
         bytes32 s,
         bytes32 x,
-        bytes32 y
+        bytes32 y,
+        string calldata sourceAddress
     ) internal returns (address) {
-        address accountAddress = accountFactory.createAccount(sourceAddress, recover, address(this), messageHash, r, s, x, y);
+        address accountAddress = accountFactory.createAccount(recover, address(this), messageHash, r, s, x, y, sourceAddress);
 
         emit AccountCreated(accountAddress, recover);
         return accountAddress;

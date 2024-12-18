@@ -21,6 +21,11 @@ const config: HardhatUserConfig = {
             accounts: [process.env.EVM_PRIVATE_KEY as string],
         },
     },
+    gasReporter: {
+        enabled: process.env.REPORT_GAS ? true : false,
+        coinmarketcap: process.env.COINMARKETCAP_API_KEY,
+        gasPriceApi: process.env.ETHERSCAN_API_KEY,
+    },
 };
 
 export default config;
