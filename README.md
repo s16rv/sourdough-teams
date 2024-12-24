@@ -1,6 +1,6 @@
-# Maestro EVM Contracts
+# Sourdough EVM Contracts
 
-This project contains the smart contracts for Maestro EVM expansion.
+This project contains the smart contracts for Sourdough EVM expansion.
 
 ## Development
 
