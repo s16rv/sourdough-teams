@@ -3,6 +3,7 @@ pragma solidity ^0.8.21;
 
 import "../interfaces/IAccount.sol";
 import "../util/SignatureVerifier.sol";
+import "../util/Authorization.sol";
 import "../EntryPoint.sol";
 
 contract Account is IAccount {
@@ -12,6 +13,14 @@ contract Account is IAccount {
     bytes32 private immutable x;
     bytes32 private immutable y;
     bytes32 private immutable addrHash;
+
+    uint256 private expirationTimestamp;
+    address private contractAddr;
+    uint256 private contractValue;
+    bytes private contractData;
+    Authorization.Status private status;
+    bytes private authorization;
+    mapping(uint256 => bytes) private mutableAuth;
 
     /**
      * @dev Constructor that initializes the contract with the recover address, signer address, and entry point address.
@@ -60,11 +69,7 @@ contract Account is IAccount {
      * @param data The data to pass to the target contract.
      * @return success A boolean indicating whether the call was successful.
      */
-    function _call(
-        address target,
-        uint256 value,
-        bytes memory data
-    ) internal returns (bool) {
+    function _call(address target, uint256 value, bytes memory data) internal returns (bool) {
         (bool success, bytes memory result) = target.call{value: value}(data);
         if (!success) {
             assembly {
@@ -160,4 +165,120 @@ contract Account is IAccount {
      * The fallback function to handle incoming Ether.
      */
     receive() external payable {}
+
+    /**
+     * @dev Returns the stored contract information.
+     * @return cAddress The contract address.
+     * @return cValue The contract value.
+     * @return cData The contract data.
+     * @return cExpTs The expiration time.
+     * @return cStatus The status.
+     * @return cAuthorization The authorization.
+     */
+    function getStoredContract()
+        external
+        view
+        returns (
+            address cAddress,
+            uint256 cValue,
+            bytes memory cData,
+            uint256 cExpTs,
+            Authorization.Status cStatus,
+            bytes memory cAuthorization
+        )
+    {
+        return (contractAddr, contractValue, contractData, expirationTimestamp, status, authorization);
+    }
+
+    /**
+     * @dev Compares the source address with the stored source address hash.
+     * @param cAddress The contract address stored on chain to be executed later.
+     * @param cValue The contract value stored on chain to be executed later.
+     * @param cData The contract data stored on chain to be executed later.
+     * @param cExpTs The contract expiration time stored on chain to be executed later.
+     * @param authPayload The authorization payload, can be empty
+     */
+    function createStoredContract(
+        address cAddress,
+        uint256 cValue,
+        bytes calldata cData,
+        uint256 cExpTs,
+        bytes calldata authPayload
+    ) external onlyEntryPointOrRecover {
+        contractAddr = cAddress;
+        contractValue = cValue;
+        contractData = cData;
+        expirationTimestamp = cExpTs;
+        authorization = authPayload;
+        status = Authorization.Status.Active;
+
+        if (authPayload.length == 0) {
+            return;
+        }
+
+        uint256 offset = 0;
+        uint256 index = 0;
+        // Read each payload
+        while (true) {
+            // Check if the current index is out of bounds
+            if (offset >= authPayload.length) {
+                break; // Exit the loop if we are out of bounds
+            }
+
+            (uint16 elemLength, uint8 dataType, uint8 operator) = abi.decode(
+                authPayload[offset:(offset + 96)],
+                (uint16, uint8, uint8)
+            );
+
+            if (Authorization.isOperationMutable(operator)) {
+                mutableAuth[index] = Authorization.extractBaseValueMutable(dataType, operator);
+            }
+
+            // move to next elem length index
+            offset += 32 + elemLength;
+            index++;
+        }
+    }
+
+    /**
+     * @dev Validates an operation by verifying the provided authorization against the stored data.
+     * @param cAddress The contract address.
+     * @param cValue The contract value.
+     * @param cData The contract data.
+     * @return A boolean indicating whether the authorization is valid.
+     */
+    function validateAuthorization(
+        address cAddress,
+        uint256 cValue,
+        bytes calldata cData
+    ) external view returns (bool) {
+        if (cAddress != contractAddr) {
+            revert InvalidAuthorization();
+        }
+
+        if (cValue != contractValue) {
+            revert InvalidAuthorization();
+        }
+
+        if (keccak256(cData) != keccak256(contractData)) {
+            revert InvalidAuthorization();
+        }
+
+        if (block.timestamp > expirationTimestamp) {
+            revert InvalidAuthorization();
+        }
+
+        if (status != Authorization.Status.Active) {
+            revert InvalidAuthorization();
+        }
+
+        return true;
+    }
+
+    /**
+     * @dev Compares the source address with the stored source address hash.
+     */
+    function revokeStoredContract() external onlyEntryPointOrRecover {
+        status = Authorization.Status.Revoked;
+    }
 }

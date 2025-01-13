@@ -2,7 +2,6 @@
 pragma solidity ^0.8.21;
 
 interface IAccountFactory {
-
     /**
      * @dev Error thrown when the signature is invalid.
      */
@@ -12,6 +11,11 @@ interface IAccountFactory {
      * @dev Error thrown when the account deployment fails.
      */
     error FailedDeployAccount();
+
+    /**
+     * @dev Error thrown when the authorization provided for a transaction is invalid.
+     */
+    error InvalidAuthorization();
 
     /**
      * @dev Creates a new account contract using the provided parameters and deploys it using CREATE2.
@@ -26,7 +30,7 @@ interface IAccountFactory {
      * @return accountAddress The address of the newly created account contract.
      */
     function createAccount(
-        address recover, 
+        address recover,
         address entryPoint,
         bytes32 messageHash,
         bytes32 r,
@@ -36,7 +40,7 @@ interface IAccountFactory {
         string calldata sourceAddress
     ) external returns (address);
 
-     /**
+    /**
      * @dev Computes the address of an account contract to be deployed using CREATE2, without actually deploying it.
      * @param recover The address with recovery rights for the account.
      * @param entryPoint The address of the entry point contract.
@@ -53,16 +57,12 @@ interface IAccountFactory {
         bytes32 addrHash
     ) external view returns (address);
 
-     /**
+    /**
      * @dev Returns the list of accounts created by a particular signer.
      * @param x The x part of the public key.
      * @param y The y part of the public key.
      * @param addrHash The hash address on the source chain where the transaction originated.
      * @return An account address created by the signer.
      */
-    function getAccount(
-        bytes32 x,
-        bytes32 y,
-        bytes32 addrHash
-    ) external view returns (address);
+    function getAccount(bytes32 x, bytes32 y, bytes32 addrHash) external view returns (address);
 }
