@@ -7,7 +7,6 @@ import {IAxelarGasService} from "@axelar-network/axelar-gmp-sdk-solidity/contrac
 import "./interfaces/IEntryPoint.sol";
 import "./interfaces/IAccount.sol";
 import "./interfaces/IAccountFactory.sol";
-import "hardhat/console.sol";
 
 contract EntryPoint is IEntryPoint, AxelarExecutable {
     IAccountFactory public immutable accountFactory;

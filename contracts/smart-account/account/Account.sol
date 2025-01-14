@@ -235,7 +235,7 @@ contract Account is IAccount {
             }
 
             // move to next elem length index
-            offset += 32 + elemLength;
+            offset += 160 + elemLength;
             index++;
         }
     }
@@ -247,11 +247,7 @@ contract Account is IAccount {
      * @param cData The contract data.
      * @return A boolean indicating whether the authorization is valid.
      */
-    function validateAuthorization(
-        address cAddress,
-        uint256 cValue,
-        bytes calldata cData
-    ) external view returns (bool) {
+    function validateAuthorization(address cAddress, uint256 cValue, bytes calldata cData) external returns (bool) {
         if (cAddress != contractAddr) {
             revert InvalidAuthorization();
         }
@@ -270,6 +266,51 @@ contract Account is IAccount {
 
         if (status != Authorization.Status.Active) {
             revert InvalidAuthorization();
+        }
+
+        // guard clause if no authorization
+        if (authorization.length == 0) {
+            return true;
+        }
+
+        uint256 offset = 0;
+        uint256 index = 0;
+
+        // Read each payload
+        while (true) {
+            // Check if the current index is out of bounds
+            if (offset >= authorization.length) {
+                break; // Exit the loop if we are out of bounds
+            }
+            (uint16 elemLength, uint8 dataType, uint8 operator, uint16 start, uint16 end) = abi.decode(
+                Authorization.sliceBytesFromStorage(authorization, offset, offset + 160),
+                (uint16, uint8, uint8, uint16, uint16)
+            );
+            bytes memory payload = cData[start:end];
+            bytes memory param = Authorization.sliceBytesFromStorage(
+                authorization,
+                offset + 160,
+                offset + 160 + elemLength
+            );
+
+            (bool validAuthorization, bool needUpdate, bytes memory updateValue) = Authorization.isAuthorizationValid(
+                dataType,
+                operator,
+                param,
+                payload,
+                mutableAuth[index]
+            );
+            if (!validAuthorization) {
+                return false;
+            }
+
+            if (needUpdate) {
+                mutableAuth[index] = updateValue;
+            }
+
+            // move to next elem length index
+            offset += 160 + elemLength;
+            index++;
         }
 
         return true;

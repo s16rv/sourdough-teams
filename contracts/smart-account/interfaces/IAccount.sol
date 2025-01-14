@@ -121,7 +121,7 @@ interface IAccount {
      * @param cData The contract data.
      * @return A boolean indicating whether the authorization is valid.
      */
-    function validateAuthorization(address cAddress, uint256 cValue, bytes calldata cData) external view returns (bool);
+    function validateAuthorization(address cAddress, uint256 cValue, bytes calldata cData) external returns (bool);
 
     /**
      * @dev Compares the source address with the stored source address hash.

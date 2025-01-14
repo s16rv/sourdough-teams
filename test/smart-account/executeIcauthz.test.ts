@@ -99,13 +99,13 @@ describe("ExecuteIcauthz", function () {
         ];
 
         const addressEqualAuthType = ["uint16", "uint8", "uint8", "uint16", "uint16", "address"];
-        const addressEqualAuthValue = [32 + 32 + 32 + 32 + 32, 2, 1, 0, 20, RECIPIENT_ADDRESS];
+        const addressEqualAuthValue = [32, 2, 1, 0, 32, RECIPIENT_ADDRESS];
 
         const balanceLTEAuthType = ["uint16", "uint8", "uint8", "uint16", "uint16", "uint256"];
-        const balanceLTEAuthValue = [32 + 32 + 32 + 32 + 32, 1, 2, 20, 20 + 32, 5];
+        const balanceLTEAuthValue = [32, 1, 2, 32, 64, parseEther("5.0")];
 
         const balanceSumDailyAuthType = ["uint16", "uint8", "uint8", "uint16", "uint16", "uint256"];
-        const balanceSumDailyAuthValue = [32 + 32 + 32 + 32 + 32, 1, 4, 20, 20 + 32, 20];
+        const balanceSumDailyAuthValue = [32, 1, 4, 32, 64, parseEther("20.0")];
 
         const p = new AbiCoder().encode(
             [...payloadDataType, ...addressEqualAuthType, ...balanceLTEAuthType, ...balanceSumDailyAuthType],

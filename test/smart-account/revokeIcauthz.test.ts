@@ -95,41 +95,21 @@ describe("RevokeIcauthz", function () {
             s,
             proof,
             expTimestamp,
-            32 + 32 + 32 + 32 + (32 + 32 + 32 + 32 + 32) + (32 + 32 + 32 + 32 + 32) + (32 + 32 + 32 + 32 + 32),
+            32 + 32 + 32 + 32 + 32 + 32 + (32 + 32 + 32 + 32 + 32 + 32) + (32 + 32 + 32 + 32 + 32 + 32),
         ];
 
-        const addressEqualAuthType = ["uint8", "uint8", "uint16", "uint16", "address"];
-        const addressEqualAuthValue = [2, 1, 0, 20, RECIPIENT_ADDRESS];
+        const addressEqualAuthType = ["uint16", "uint8", "uint8", "uint16", "uint16", "address"];
+        const addressEqualAuthValue = [32, 2, 1, 0, 20, RECIPIENT_ADDRESS];
 
-        const balanceLTEAuthType = ["uint8", "uint8", "uint16", "uint16", "uint256"];
-        const balanceLTEAuthValue = [1, 2, 20, 20 + 32, 5];
+        const balanceLTEAuthType = ["uint16", "uint8", "uint8", "uint16", "uint16", "uint256"];
+        const balanceLTEAuthValue = [32, 1, 2, 20, 20 + 32, parseEther("5.0")];
 
-        const balanceSumDailyAuthType = ["uint8", "uint8", "uint16", "uint16", "uint256"];
-        const balanceSumDailyAuthValue = [1, 2, 20, 20 + 32, 20];
-
-        const authorizationPayloadDataType = ["uint8", "uint16", "uint16", "uint16"];
-        const authorizationPayloadDataValue = [
-            3,
-            32 + 32 + 32 + 32 + 32,
-            32 + 32 + 32 + 32 + 32,
-            32 + 32 + 32 + 32 + 32,
-        ];
+        const balanceSumDailyAuthType = ["uint16", "uint8", "uint8", "uint16", "uint16", "uint256"];
+        const balanceSumDailyAuthValue = [32, 1, 4, 20, 20 + 32, parseEther("20.0")];
 
         const p = new AbiCoder().encode(
-            [
-                ...payloadDataType,
-                ...authorizationPayloadDataType,
-                ...addressEqualAuthType,
-                ...balanceLTEAuthType,
-                ...balanceSumDailyAuthType,
-            ],
-            [
-                ...payloadDataValue,
-                ...authorizationPayloadDataValue,
-                ...addressEqualAuthValue,
-                ...balanceLTEAuthValue,
-                ...balanceSumDailyAuthValue,
-            ]
+            [...payloadDataType, ...addressEqualAuthType, ...balanceLTEAuthType, ...balanceSumDailyAuthType],
+            [...payloadDataValue, ...addressEqualAuthValue, ...balanceLTEAuthValue, ...balanceSumDailyAuthValue]
         );
 
         const payload = combineHexStrings(p, txPayload);
@@ -145,15 +125,8 @@ describe("RevokeIcauthz", function () {
 
         await entryPoint.execute(commandId, sourceChain, SOURCE_ADDRESS, qPayload);
 
-        const [
-            contractDest,
-            contractValue,
-            contractPayload,
-            contractExpTs,
-            contractStatus,
-            contractAuthorization,
-            contractMap,
-        ] = await account.getStoredContract();
+        const [contractDest, contractValue, contractPayload, contractExpTs, contractStatus, contractAuthorization] =
+            await account.getStoredContract();
 
         expect(contractStatus).to.equal(2);
     });
