@@ -80,7 +80,7 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
                 (address, bytes32, bytes32, bytes32, bytes32)
             );
 
-            (uint256 expTs, uint16 authLength) = abi.decode(_payload[192:256], (uint256, uint16));
+            (uint32 expTs, uint16 authLength) = abi.decode(_payload[192:256], (uint32, uint16));
 
             bytes calldata authPayload = _payload[256:(256 + authLength)];
 
@@ -207,7 +207,7 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
         bytes32 proof,
         string calldata sourceAddress,
         bytes calldata txPayload,
-        uint256 expTimestamp,
+        uint32 expTimestamp,
         bytes calldata authPayload
     ) internal {
         bool valid = IAccount(payable(target)).validateOperation(sourceAddress, messageHash, r, s, proof, txPayload);

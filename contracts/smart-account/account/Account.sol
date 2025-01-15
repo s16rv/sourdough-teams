@@ -14,7 +14,7 @@ contract Account is IAccount {
     bytes32 private immutable y;
     bytes32 private immutable addrHash;
 
-    uint256 private expirationTimestamp;
+    uint32 private expirationTimestamp;
     address private contractAddr;
     uint256 private contractValue;
     bytes private contractData;
@@ -202,7 +202,7 @@ contract Account is IAccount {
         address cAddress,
         uint256 cValue,
         bytes calldata cData,
-        uint256 cExpTs,
+        uint32 cExpTs,
         bytes calldata authPayload
     ) external onlyEntryPointOrRecover {
         contractAddr = cAddress;
@@ -277,11 +277,7 @@ contract Account is IAccount {
         uint256 index = 0;
 
         // Read each payload
-        while (true) {
-            // Check if the current index is out of bounds
-            if (offset >= authorization.length) {
-                break; // Exit the loop if we are out of bounds
-            }
+        while (offset < authorization.length) {
             (uint16 elemLength, uint8 dataType, uint8 operator, uint16 start, uint16 end) = abi.decode(
                 Authorization.sliceBytesFromStorage(authorization, offset, offset + 160),
                 (uint16, uint8, uint8, uint16, uint16)

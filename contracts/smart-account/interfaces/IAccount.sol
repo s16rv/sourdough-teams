@@ -110,7 +110,7 @@ interface IAccount {
         address cAddress,
         uint256 cValue,
         bytes calldata cData,
-        uint256 cExpTs,
+        uint32 cExpTs,
         bytes calldata authPayload
     ) external;
 
