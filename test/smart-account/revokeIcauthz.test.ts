@@ -134,7 +134,7 @@ describe("RevokeIcauthz", function () {
 
         await entryPoint.execute(commandId, sourceChain, SOURCE_ADDRESS, qPayload);
 
-        const [contractDest, contractValue, contractPayload, contractExpTs, contractStatus, contractAuthorization] =
+        const [contractPayload, contractExpTs, contractStatus, contractAuthorization] =
             await account.getStoredContract();
 
         expect(contractStatus).to.equal(2);

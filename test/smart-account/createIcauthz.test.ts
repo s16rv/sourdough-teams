@@ -121,11 +121,9 @@ describe("CreateIcauthz", function () {
 
         await entryPoint.execute(commandId, sourceChain, SOURCE_ADDRESS, payload);
 
-        const [contractDest, contractValue, contractPayload, contractExpTs, contractStatus, contractAuthorization] =
+        const [contractPayload, contractExpTs, contractStatus, contractAuthorization] =
             await account.getStoredContract();
 
-        expect(contractDest).to.equal(RECIPIENT_ADDRESS);
-        expect(contractValue).to.equal(amountToSend);
         expect(contractPayload).to.equal(txPayload);
         expect(contractExpTs).to.equal(expTimestamp);
         expect(contractStatus).to.equal(1);

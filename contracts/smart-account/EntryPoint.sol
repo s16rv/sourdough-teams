@@ -54,22 +54,6 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
 
             _handleTransaction(target, messageHash, r, s, proof, _sourceAddress, txPayload);
         } else if (category == 3) {
-            // == proof part ==
-            // category             32 bytes
-            // target               20 bytes
-            // messageHash          32 bytes
-            // r                    32 bytes
-            // s                    32 bytes
-            // proof                32 bytes
-
-            // == authorization part ==
-            // expirationTs         32 bytes - this will identify the expiration timestamp (uint256)
-            // authLength           32 bytes - this will identify the length of authorization data length (uint16)
-            // authPayload          bytes    - parsed by length
-
-            // == smart contract payload part ==
-            // txPayload            bytes
-
             // 192 is for the proof part
             // 32 is for expiration timestamp and length
             // 20 is for payload
@@ -220,9 +204,7 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
 
         emit SignatureValidated(messageHash, r, s);
 
-        (address dest, uint256 value) = abi.decode(txPayload, (address, uint256));
-
-        IAccount(payable(target)).createStoredContract(dest, value, txPayload, expTimestamp, authPayload);
+        IAccount(payable(target)).createStoredContract(txPayload, expTimestamp, authPayload);
     }
 
     /**
@@ -260,7 +242,7 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
 
         (address dest, uint256 value) = abi.decode(txPayload, (address, uint256));
 
-        bool validAuth = IAccount(payable(target)).validateAuthorization(dest, value, txPayload);
+        bool validAuth = IAccount(payable(target)).validateAuthorization(txPayload);
         if (!validAuth) {
             revert InvalidAuthorization();
         }

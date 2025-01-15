@@ -80,8 +80,6 @@ interface IAccount {
 
     /**
      * @dev Returns the stored contract information.
-     * @return cAddress The contract address.
-     * @return cValue The contract value.
      * @return cData The contract data.
      * @return cExpTs The expiration time.
      * @return cStatus The status.
@@ -89,39 +87,22 @@ interface IAccount {
      */
     function getStoredContract()
         external
-        returns (
-            address cAddress,
-            uint256 cValue,
-            bytes memory cData,
-            uint256 cExpTs,
-            Authorization.Status cStatus,
-            bytes memory cAuthorization
-        );
+        returns (bytes memory cData, uint256 cExpTs, Authorization.Status cStatus, bytes memory cAuthorization);
 
     /**
      * @dev Compares the source address with the stored source address hash.
-     * @param cAddress The contract address stored on chain to be executed later.
-     * @param cValue The contract value stored on chain to be executed later.
      * @param cData The contract data stored on chain to be executed later.
      * @param cExpTs The contract expiration time stored on chain to be executed later.
      * @param authPayload The authorization payload, can be empty
      */
-    function createStoredContract(
-        address cAddress,
-        uint256 cValue,
-        bytes calldata cData,
-        uint32 cExpTs,
-        bytes calldata authPayload
-    ) external;
+    function createStoredContract(bytes calldata cData, uint32 cExpTs, bytes calldata authPayload) external;
 
     /**
      * @dev Validates an operation by verifying the provided authorization against the stored data.
-     * @param cAddress The contract address.
-     * @param cValue The contract value.
      * @param cData The contract data.
      * @return A boolean indicating whether the authorization is valid.
      */
-    function validateAuthorization(address cAddress, uint256 cValue, bytes calldata cData) external returns (bool);
+    function validateAuthorization(bytes calldata cData) external returns (bool);
 
     /**
      * @dev Compares the source address with the stored source address hash.

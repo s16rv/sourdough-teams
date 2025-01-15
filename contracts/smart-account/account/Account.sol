@@ -15,8 +15,6 @@ contract Account is IAccount {
     bytes32 private immutable addrHash;
 
     uint32 private expirationTimestamp;
-    address private contractAddr;
-    uint256 private contractValue;
     bytes private contractData;
     Authorization.Status private status;
     bytes private authorization;
@@ -168,8 +166,6 @@ contract Account is IAccount {
 
     /**
      * @dev Returns the stored contract information.
-     * @return cAddress The contract address.
-     * @return cValue The contract value.
      * @return cData The contract data.
      * @return cExpTs The expiration time.
      * @return cStatus The status.
@@ -178,35 +174,22 @@ contract Account is IAccount {
     function getStoredContract()
         external
         view
-        returns (
-            address cAddress,
-            uint256 cValue,
-            bytes memory cData,
-            uint256 cExpTs,
-            Authorization.Status cStatus,
-            bytes memory cAuthorization
-        )
+        returns (bytes memory cData, uint256 cExpTs, Authorization.Status cStatus, bytes memory cAuthorization)
     {
-        return (contractAddr, contractValue, contractData, expirationTimestamp, status, authorization);
+        return (contractData, expirationTimestamp, status, authorization);
     }
 
     /**
      * @dev Compares the source address with the stored source address hash.
-     * @param cAddress The contract address stored on chain to be executed later.
-     * @param cValue The contract value stored on chain to be executed later.
      * @param cData The contract data stored on chain to be executed later.
      * @param cExpTs The contract expiration time stored on chain to be executed later.
      * @param authPayload The authorization payload, can be empty
      */
     function createStoredContract(
-        address cAddress,
-        uint256 cValue,
         bytes calldata cData,
         uint32 cExpTs,
         bytes calldata authPayload
     ) external onlyEntryPointOrRecover {
-        contractAddr = cAddress;
-        contractValue = cValue;
         contractData = cData;
         expirationTimestamp = cExpTs;
         authorization = authPayload;
@@ -242,20 +225,10 @@ contract Account is IAccount {
 
     /**
      * @dev Validates an operation by verifying the provided authorization against the stored data.
-     * @param cAddress The contract address.
-     * @param cValue The contract value.
      * @param cData The contract data.
      * @return A boolean indicating whether the authorization is valid.
      */
-    function validateAuthorization(address cAddress, uint256 cValue, bytes calldata cData) external returns (bool) {
-        if (cAddress != contractAddr) {
-            revert InvalidAuthorization();
-        }
-
-        if (cValue != contractValue) {
-            revert InvalidAuthorization();
-        }
-
+    function validateAuthorization(bytes calldata cData) external returns (bool) {
         if (keccak256(cData) != keccak256(contractData)) {
             revert InvalidAuthorization();
         }
