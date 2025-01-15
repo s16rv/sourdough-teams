@@ -7,6 +7,7 @@ import {IAxelarGasService} from "@axelar-network/axelar-gmp-sdk-solidity/contrac
 import "./interfaces/IEntryPoint.sol";
 import "./interfaces/IAccount.sol";
 import "./interfaces/IAccountFactory.sol";
+import "hardhat/console.sol";
 
 contract EntryPoint is IEntryPoint, AxelarExecutable {
     IAccountFactory public immutable accountFactory;
@@ -70,21 +71,23 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
             // txPayload            bytes
 
             // 192 is for the proof part
-            // 64 is for expiration timestamp and length
+            // 32 is for expiration timestamp and length
             // 20 is for payload
             // the rest can be optional
-            if (_payload.length < 192 + 64 + 20) revert PayloadTooShort();
+            if (_payload.length < 192 + 32 + 20) revert PayloadTooShort();
 
             (address target, bytes32 messageHash, bytes32 r, bytes32 s, bytes32 proof) = abi.decode(
                 _payload[32:192],
                 (address, bytes32, bytes32, bytes32, bytes32)
             );
 
-            (uint32 expTs, uint16 authLength) = abi.decode(_payload[192:256], (uint32, uint16));
+            // Manually extract and decode
+            uint32 expTs = uint32(bytes4(_payload[192:196]));
+            uint16 authLength = uint16(bytes2(_payload[208:210]));
 
-            bytes calldata authPayload = _payload[256:(256 + authLength)];
+            bytes calldata authPayload = _payload[224:(224 + authLength)];
 
-            bytes calldata txPayload = _payload[(256 + authLength):];
+            bytes calldata txPayload = _payload[(224 + authLength):];
 
             _handleCreateIcauthz(target, messageHash, r, s, proof, _sourceAddress, txPayload, expTs, authPayload);
         } else if (category == 4) {

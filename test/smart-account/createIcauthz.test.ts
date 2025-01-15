@@ -82,17 +82,20 @@ describe("CreateIcauthz", function () {
 
         const expTimestamp = 1704758400;
 
-        let payloadDataType = ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32", "uint256", "uint16"];
-        let payloadDataValue = [
-            3,
-            accountAddress,
-            messageHash,
-            r,
-            s,
-            proof,
-            expTimestamp,
-            32 + 32 + 32 + 32 + 32 + 32 + (32 + 32 + 32 + 32 + 32 + 32) + (32 + 32 + 32 + 32 + 32 + 32),
-        ];
+        const expTsPacked = ethers.zeroPadBytes(ethers.solidityPacked(["uint32"], [expTimestamp]), 16).slice(2);
+
+        const authLengthPacked = ethers
+            .zeroPadBytes(
+                ethers.solidityPacked(
+                    ["uint16"],
+                    [32 + 32 + 32 + 32 + 32 + 32 + (32 + 32 + 32 + 32 + 32 + 32) + (32 + 32 + 32 + 32 + 32 + 32)]
+                ),
+                16
+            )
+            .slice(2);
+
+        let payloadDataType = ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32"];
+        let payloadDataValue = [3, accountAddress, messageHash, r, s, proof];
 
         const addressEqualAuthType = ["uint16", "uint8", "uint8", "uint16", "uint16", "address"];
         const addressEqualAuthValue = [32, 2, 1, 0, 32, RECIPIENT_ADDRESS];
@@ -103,17 +106,18 @@ describe("CreateIcauthz", function () {
         const balanceSumDailyAuthType = ["uint16", "uint8", "uint8", "uint16", "uint16", "uint256"];
         const balanceSumDailyAuthValue = [32, 1, 4, 32, 64, parseEther("20.0")];
 
-        const p = new AbiCoder().encode(
-            [...payloadDataType, ...addressEqualAuthType, ...balanceLTEAuthType, ...balanceSumDailyAuthType],
-            [...payloadDataValue, ...addressEqualAuthValue, ...balanceLTEAuthValue, ...balanceSumDailyAuthValue]
-        );
+        const p = new AbiCoder().encode([...payloadDataType], [...payloadDataValue]);
 
         const mockAuth = new AbiCoder().encode(
             [...addressEqualAuthType, ...balanceLTEAuthType, ...balanceSumDailyAuthType],
             [...addressEqualAuthValue, ...balanceLTEAuthValue, ...balanceSumDailyAuthValue]
         );
 
-        const payload = combineHexStrings(p, txPayload);
+        const p2 = p.concat(expTsPacked.concat(authLengthPacked));
+
+        const p3 = p2.concat(mockAuth.slice(2));
+
+        const payload = combineHexStrings(p3, txPayload);
 
         await entryPoint.execute(commandId, sourceChain, SOURCE_ADDRESS, payload);
 
