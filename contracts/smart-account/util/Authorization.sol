@@ -22,6 +22,13 @@ library Authorization {
         DailySum
     }
 
+    struct Details {
+        uint8 dataType;
+        uint8 operator;
+        bytes paramValue;
+        bytes payloadValue;
+    }
+
     function isOperationMutable(uint256 operator) internal pure returns (bool) {
         Operator o = Operator(operator);
         if (o == Operator.DailySum) {
@@ -93,8 +100,8 @@ library Authorization {
                 }
             } else if (d == DataType.Address) {
                 // Extract address from paramValue and payloadValue
-                address paramAddress = abi.decode(paramValue, (address));
-                address payloadAddress = abi.decode(payloadValue, (address));
+                address paramAddress = address(bytes20(paramValue));
+                address payloadAddress = address(bytes20(payloadValue));
                 if (paramAddress == payloadAddress) {
                     return (true, false, "");
                 }
@@ -104,6 +111,7 @@ library Authorization {
                 // Extract balance as uint256
                 uint256 paramBalance = abi.decode(paramValue, (uint256));
                 uint256 payloadBalance = abi.decode(payloadValue, (uint256));
+
                 if (payloadBalance <= paramBalance) {
                     return (true, false, "");
                 }
@@ -111,31 +119,5 @@ library Authorization {
         }
 
         return (false, false, "");
-    }
-
-    function sliceBytesFromStorage(bytes storage source, uint start, uint end) internal view returns (bytes memory) {
-        if (start >= end || end > source.length) {
-            return new bytes(0); // Return an empty bytes array if the indices are invalid
-        }
-
-        bytes memory result = new bytes(end - start);
-
-        for (uint i = 0; i < result.length; i++) {
-            result[i] = source[start + i];
-        }
-
-        return result;
-    }
-
-    function bytesToHex(bytes memory _bytes) internal pure returns (string memory) {
-        bytes memory hexChars = "0123456789abcdef";
-        bytes memory hexString = new bytes(2 + _bytes.length * 2);
-        hexString[0] = "0";
-        hexString[1] = "x";
-        for (uint i = 0; i < _bytes.length; i++) {
-            hexString[2 + i * 2] = hexChars[uint(uint8(_bytes[i] >> 4))];
-            hexString[3 + i * 2] = hexChars[uint(uint8(_bytes[i] & 0x0f))];
-        }
-        return string(hexString);
     }
 }

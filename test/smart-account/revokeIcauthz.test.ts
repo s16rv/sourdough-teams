@@ -86,33 +86,27 @@ describe("RevokeIcauthz", function () {
 
         const proof = sha256(combineHexStrings(messageHash, txPayload));
 
-        const expTsPacked = ethers.zeroPadBytes(ethers.solidityPacked(["uint32"], [expTimestamp]), 16).slice(2);
+        const expTsPacked = ethers.solidityPacked(["uint32"], [expTimestamp]).slice(2);
 
         const authLengthPacked = ethers
-            .zeroPadBytes(
-                ethers.solidityPacked(
-                    ["uint16"],
-                    [32 + 32 + 32 + 32 + 32 + 32 + (32 + 32 + 32 + 32 + 32 + 32) + (32 + 32 + 32 + 32 + 32 + 32)]
-                ),
-                16
-            )
+            .solidityPacked(["uint16"], [2 + 1 + 1 + 2 + 2 + 20 + (2 + 1 + 1 + 2 + 2 + 32) + (2 + 1 + 1 + 2 + 2 + 32)])
             .slice(2);
 
         let payloadDataType = ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32"];
         let payloadDataValue = [3, accountAddress, messageHash, r, s, proof];
 
         const addressEqualAuthType = ["uint16", "uint8", "uint8", "uint16", "uint16", "address"];
-        const addressEqualAuthValue = [32, 2, 1, 0, 20, RECIPIENT_ADDRESS];
+        const addressEqualAuthValue = [20, 2, 1, 12, 32, RECIPIENT_ADDRESS];
 
         const balanceLTEAuthType = ["uint16", "uint8", "uint8", "uint16", "uint16", "uint256"];
-        const balanceLTEAuthValue = [32, 1, 2, 20, 20 + 32, parseEther("5.0")];
+        const balanceLTEAuthValue = [32, 1, 2, 32, 64, parseEther("5.0")];
 
         const balanceSumDailyAuthType = ["uint16", "uint8", "uint8", "uint16", "uint16", "uint256"];
-        const balanceSumDailyAuthValue = [32, 1, 4, 20, 20 + 32, parseEther("20.0")];
+        const balanceSumDailyAuthValue = [32, 1, 4, 32, 64, parseEther("20.0")];
 
         const p = new AbiCoder().encode([...payloadDataType], [...payloadDataValue]);
 
-        const mockAuth = new AbiCoder().encode(
+        const mockAuth = ethers.solidityPacked(
             [...addressEqualAuthType, ...balanceLTEAuthType, ...balanceSumDailyAuthType],
             [...addressEqualAuthValue, ...balanceLTEAuthValue, ...balanceSumDailyAuthValue]
         );

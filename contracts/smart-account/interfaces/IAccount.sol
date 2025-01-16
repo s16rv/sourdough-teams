@@ -87,7 +87,12 @@ interface IAccount {
      */
     function getStoredContract()
         external
-        returns (bytes memory cData, uint256 cExpTs, Authorization.Status cStatus, bytes memory cAuthorization);
+        returns (
+            bytes memory cData,
+            uint256 cExpTs,
+            Authorization.Status cStatus,
+            Authorization.Details[] memory cAuthorization
+        );
 
     /**
      * @dev Compares the source address with the stored source address hash.

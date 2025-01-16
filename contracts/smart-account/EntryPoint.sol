@@ -7,7 +7,6 @@ import {IAxelarGasService} from "@axelar-network/axelar-gmp-sdk-solidity/contrac
 import "./interfaces/IEntryPoint.sol";
 import "./interfaces/IAccount.sol";
 import "./interfaces/IAccountFactory.sol";
-import "hardhat/console.sol";
 
 contract EntryPoint is IEntryPoint, AxelarExecutable {
     IAccountFactory public immutable accountFactory;
@@ -55,10 +54,10 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
             _handleTransaction(target, messageHash, r, s, proof, _sourceAddress, txPayload);
         } else if (category == 3) {
             // 192 is for the proof part
-            // 32 is for expiration timestamp and length
-            // 20 is for payload
+            // 6 is for expiration timestamp and length
+            // 10++ is for payload
             // the rest can be optional
-            if (_payload.length < 192 + 32 + 20) revert PayloadTooShort();
+            if (_payload.length < 192 + 6 + 10) revert PayloadTooShort();
 
             (address target, bytes32 messageHash, bytes32 r, bytes32 s, bytes32 proof) = abi.decode(
                 _payload[32:192],
@@ -67,11 +66,10 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
 
             // Manually extract and decode
             uint32 expTs = uint32(bytes4(_payload[192:196]));
-            uint16 authLength = uint16(bytes2(_payload[208:210]));
+            uint16 authLength = uint16(bytes2(_payload[196:198]));
 
-            bytes calldata authPayload = _payload[224:(224 + authLength)];
-
-            bytes calldata txPayload = _payload[(224 + authLength):];
+            bytes calldata authPayload = _payload[198:(198 + authLength)];
+            bytes calldata txPayload = _payload[(198 + authLength):];
 
             _handleCreateIcauthz(target, messageHash, r, s, proof, _sourceAddress, txPayload, expTs, authPayload);
         } else if (category == 4) {
@@ -203,7 +201,6 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
         }
 
         emit SignatureValidated(messageHash, r, s);
-
         IAccount(payable(target)).createStoredContract(txPayload, expTimestamp, authPayload);
     }
 

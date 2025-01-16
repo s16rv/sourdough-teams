@@ -17,8 +17,8 @@ contract Account is IAccount {
     uint32 private expirationTimestamp;
     bytes private contractData;
     Authorization.Status private status;
-    bytes private authorization;
-    mapping(uint256 => bytes) private mutableAuth;
+    Authorization.Details[] private authorization;
+    mapping(uint8 => bytes) private mutableAuth;
 
     /**
      * @dev Constructor that initializes the contract with the recover address, signer address, and entry point address.
@@ -174,7 +174,12 @@ contract Account is IAccount {
     function getStoredContract()
         external
         view
-        returns (bytes memory cData, uint256 cExpTs, Authorization.Status cStatus, bytes memory cAuthorization)
+        returns (
+            bytes memory cData,
+            uint256 cExpTs,
+            Authorization.Status cStatus,
+            Authorization.Details[] memory cAuthorization
+        )
     {
         return (contractData, expirationTimestamp, status, authorization);
     }
@@ -192,7 +197,6 @@ contract Account is IAccount {
     ) external onlyEntryPointOrRecover {
         contractData = cData;
         expirationTimestamp = cExpTs;
-        authorization = authPayload;
         status = Authorization.Status.Active;
 
         if (authPayload.length == 0) {
@@ -200,12 +204,24 @@ contract Account is IAccount {
         }
 
         uint256 offset = 0;
-        uint256 index = 0;
+        uint8 index = 0;
         // Read each payload
         while (offset < authPayload.length) {
-            (uint16 elemLength, uint8 dataType, uint8 operator) = abi.decode(
-                authPayload[offset:(offset + 96)],
-                (uint16, uint8, uint8)
+            // Manually extract and decode
+            uint16 elemLength = uint16(bytes2(authPayload[offset:(offset + 2)]));
+            uint8 dataType = uint8(bytes1(authPayload[(offset + 2):(offset + 3)]));
+            uint8 operator = uint8(bytes1(authPayload[(offset + 3):(offset + 4)]));
+
+            uint16 start = uint16(bytes2(authPayload[(offset + 4):(offset + 6)]));
+            uint16 end = uint16(bytes2(authPayload[(offset + 6):(offset + 8)]));
+
+            authorization.push(
+                Authorization.Details(
+                    dataType,
+                    operator,
+                    authPayload[(offset + 8):(offset + 8 + elemLength)],
+                    cData[start:end]
+                )
             );
 
             if (Authorization.isOperationMutable(operator)) {
@@ -213,7 +229,7 @@ contract Account is IAccount {
             }
 
             // move to next elem length index
-            offset += 160 + elemLength;
+            offset += (8 + elemLength);
             index++;
         }
     }
@@ -241,40 +257,21 @@ contract Account is IAccount {
             return true;
         }
 
-        uint256 offset = 0;
-        uint256 index = 0;
-
-        // Read each payload
-        while (offset < authorization.length) {
-            (uint16 elemLength, uint8 dataType, uint8 operator, uint16 start, uint16 end) = abi.decode(
-                Authorization.sliceBytesFromStorage(authorization, offset, offset + 160),
-                (uint16, uint8, uint8, uint16, uint16)
-            );
-            bytes memory payload = cData[start:end];
-            bytes memory param = Authorization.sliceBytesFromStorage(
-                authorization,
-                offset + 160,
-                offset + 160 + elemLength
-            );
-
+        for (uint8 i = 0; i < authorization.length; i++) {
             (bool validAuthorization, bool needUpdate, bytes memory updateValue) = Authorization.isAuthorizationValid(
-                dataType,
-                operator,
-                param,
-                payload,
-                mutableAuth[index]
+                authorization[i].dataType,
+                authorization[i].operator,
+                authorization[i].paramValue,
+                authorization[i].payloadValue,
+                mutableAuth[i]
             );
             if (!validAuthorization) {
                 return false;
             }
 
             if (needUpdate) {
-                mutableAuth[index] = updateValue;
+                mutableAuth[i] = updateValue;
             }
-
-            // move to next elem length index
-            offset += 160 + elemLength;
-            index++;
         }
 
         return true;

@@ -82,23 +82,17 @@ describe("CreateIcauthz", function () {
 
         const expTimestamp = 1704758400;
 
-        const expTsPacked = ethers.zeroPadBytes(ethers.solidityPacked(["uint32"], [expTimestamp]), 16).slice(2);
+        const expTsPacked = ethers.solidityPacked(["uint32"], [expTimestamp]).slice(2);
 
         const authLengthPacked = ethers
-            .zeroPadBytes(
-                ethers.solidityPacked(
-                    ["uint16"],
-                    [32 + 32 + 32 + 32 + 32 + 32 + (32 + 32 + 32 + 32 + 32 + 32) + (32 + 32 + 32 + 32 + 32 + 32)]
-                ),
-                16
-            )
+            .solidityPacked(["uint16"], [2 + 1 + 1 + 2 + 2 + 20 + (2 + 1 + 1 + 2 + 2 + 32) + (2 + 1 + 1 + 2 + 2 + 32)])
             .slice(2);
 
         let payloadDataType = ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32"];
         let payloadDataValue = [3, accountAddress, messageHash, r, s, proof];
 
         const addressEqualAuthType = ["uint16", "uint8", "uint8", "uint16", "uint16", "address"];
-        const addressEqualAuthValue = [32, 2, 1, 0, 32, RECIPIENT_ADDRESS];
+        const addressEqualAuthValue = [20, 2, 1, 12, 32, RECIPIENT_ADDRESS];
 
         const balanceLTEAuthType = ["uint16", "uint8", "uint8", "uint16", "uint16", "uint256"];
         const balanceLTEAuthValue = [32, 1, 2, 32, 64, parseEther("5.0")];
@@ -108,7 +102,7 @@ describe("CreateIcauthz", function () {
 
         const p = new AbiCoder().encode([...payloadDataType], [...payloadDataValue]);
 
-        const mockAuth = new AbiCoder().encode(
+        const mockAuth = ethers.solidityPacked(
             [...addressEqualAuthType, ...balanceLTEAuthType, ...balanceSumDailyAuthType],
             [...addressEqualAuthValue, ...balanceLTEAuthValue, ...balanceSumDailyAuthValue]
         );
@@ -127,7 +121,7 @@ describe("CreateIcauthz", function () {
         expect(contractPayload).to.equal(txPayload);
         expect(contractExpTs).to.equal(expTimestamp);
         expect(contractStatus).to.equal(1);
-        expect(contractAuthorization).to.equal(mockAuth);
+        expect(contractAuthorization.length).to.equal(3);
     });
 });
 
