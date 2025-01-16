@@ -202,12 +202,7 @@ contract Account is IAccount {
         uint256 offset = 0;
         uint256 index = 0;
         // Read each payload
-        while (true) {
-            // Check if the current index is out of bounds
-            if (offset >= authPayload.length) {
-                break; // Exit the loop if we are out of bounds
-            }
-
+        while (offset < authPayload.length) {
             (uint16 elemLength, uint8 dataType, uint8 operator) = abi.decode(
                 authPayload[offset:(offset + 96)],
                 (uint16, uint8, uint8)
