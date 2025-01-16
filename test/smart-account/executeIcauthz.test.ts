@@ -128,7 +128,13 @@ describe("ExecuteIcauthz", function () {
         );
         const qPayload = combineHexStrings(q, txPayload);
 
-        await entryPoint.execute(commandId, sourceChain, SOURCE_ADDRESS, qPayload);
+        const tx = await entryPoint.execute(commandId, sourceChain, SOURCE_ADDRESS, qPayload);
+        const receipt = await tx.wait(); // Wait for the transaction to be mined
+
+        // Log gas used
+        if (receipt) {
+            console.log("Gas Used for execute icauthz:", receipt.gasUsed.toString());
+        }
 
         const finalRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
         expect(finalRecipientBalance).to.equal(initialRecipientBalance + amountToSend);

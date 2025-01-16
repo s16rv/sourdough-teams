@@ -126,7 +126,13 @@ describe("RevokeIcauthz", function () {
         );
         const qPayload = combineHexStrings(q, txPayload);
 
-        await entryPoint.execute(commandId, sourceChain, SOURCE_ADDRESS, qPayload);
+        const tx = await entryPoint.execute(commandId, sourceChain, SOURCE_ADDRESS, qPayload);
+        const receipt = await tx.wait(); // Wait for the transaction to be mined
+
+        // Log gas used
+        if (receipt) {
+            console.log("Gas Used for revoke icauthz:", receipt.gasUsed.toString());
+        }
 
         const [contractPayload, contractExpTs, contractStatus, contractAuthorization] =
             await account.getStoredContract();

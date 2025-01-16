@@ -113,7 +113,13 @@ describe("CreateIcauthz", function () {
 
         const payload = combineHexStrings(p3, txPayload);
 
-        await entryPoint.execute(commandId, sourceChain, SOURCE_ADDRESS, payload);
+        const tx = await entryPoint.execute(commandId, sourceChain, SOURCE_ADDRESS, payload);
+        const receipt = await tx.wait(); // Wait for the transaction to be mined
+
+        // Log gas used
+        if (receipt) {
+            console.log("Gas Used for create icauthz:", receipt.gasUsed.toString());
+        }
 
         const [contractPayload, contractExpTs, contractStatus, contractAuthorization] =
             await account.getStoredContract();
