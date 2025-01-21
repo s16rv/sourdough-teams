@@ -1,0 +1,565 @@
+import hre from "hardhat";
+import { expect } from "chai";
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
+import { encodeBytes32String, AbiCoder, parseEther, sha256, toUtf8Bytes, keccak256, ethers } from "ethers";
+
+import { Account, EntryPoint } from "../../typechain-types";
+
+const RECIPIENT_ADDRESS = "0xaa25Aa7a19f9c426E07dee59b12f944f4d9f1DD3";
+
+const PUBLIC_KEY_X = "0x90be7fe886c748be80e98b340d1418d0bfe7865675ee597d9d850526520085f0";
+const PUBLIC_KEY_Y = "0x87b9efdb5c81e067890e9439bdf717cf1c22adfe29d802050a11414d66b6e338";
+
+const SOURCE_ADDRESS = "neutron1chcktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
+const SOURCE_ADDRESS_HASH = keccak256(toUtf8Bytes(SOURCE_ADDRESS));
+
+describe("CreateIcauthz", function () {
+    let entryPoint: EntryPoint;
+    let recover: HardhatEthersSigner;
+    let account: Account;
+
+    beforeEach(async function () {
+        [recover] = await hre.ethers.getSigners();
+
+        const MockGatewayContract = await hre.ethers.getContractFactory("MockGateway");
+        const mockGateway = await MockGatewayContract.deploy();
+
+        const Secp256k1VerifierContract = await hre.ethers.getContractFactory("Secp256k1Verifier");
+        const verifier = await Secp256k1VerifierContract.deploy();
+        await verifier.waitForDeployment();
+
+        const AccountFactoryContract = await hre.ethers.getContractFactory("AccountFactory");
+        const accountFactory = await AccountFactoryContract.deploy(verifier.target);
+        await accountFactory.waitForDeployment();
+
+        const EntryPointContract = await hre.ethers.getContractFactory("EntryPoint");
+        entryPoint = await EntryPointContract.deploy(mockGateway.target, accountFactory.target);
+        await entryPoint.waitForDeployment();
+
+        const commandId = encodeBytes32String("commandId");
+        const sourceChain = "sourceChain";
+
+        const messageHash = "0x87ed53f4eef3fd7cb1497e8671057c2859417487c0ee8b037ebd1be45075c001";
+        const r = "0xc07088b681723e98dbc11648ffa5646f80cfaff291120e90ffd75337093f4227";
+        const s = "0x6ffd64cf200433e89b12036119d2777c92b1903cf8579b70e873d03fa1844aa1";
+
+        const payload = new AbiCoder().encode(
+            ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32", "bytes32"],
+            [1, recover.address, messageHash, r, s, PUBLIC_KEY_X, PUBLIC_KEY_Y]
+        );
+
+        await mockGateway.setCallValid(true);
+        await entryPoint.execute(commandId, sourceChain, SOURCE_ADDRESS, payload);
+        const accountAddr = await accountFactory.getAccount(PUBLIC_KEY_X, PUBLIC_KEY_Y, SOURCE_ADDRESS_HASH);
+
+        const AccountContract = await hre.ethers.getContractFactory("Account");
+        account = AccountContract.attach(accountAddr) as Account;
+
+        await recover.sendTransaction({
+            to: accountAddr,
+            value: parseEther("2.0"),
+        });
+    });
+
+    it("should execute create icauthz from account contract with authorization equivalent to recurring transfer", async function () {
+        const messageHash = "0xcc61a33a7a9ace63fa4c5e74f9db3080c7ef68dd53e75dfb311bc28381830c2f";
+        const r = "0x87df5d0e314c3fe01b3dc136b3afe1659e02316f8d189f0b68983b7f90cd9b61";
+        const s = "0x7d2212755fb0db4f8e9a3343d264942d14c5e75471245b0419f29ce10355b08b";
+
+        const amountToSend = parseEther("1.0");
+        const accountAddress = await account.getAddress();
+
+        // Execute transaction from the Account contract
+        const commandId = encodeBytes32String("commandId");
+        const sourceChain = "sourceChain";
+
+        const txPayload = new AbiCoder().encode(
+            ["address", "uint256", "bytes"],
+            [RECIPIENT_ADDRESS, amountToSend, "0x"]
+        );
+
+        const proof = sha256(combineHexStrings(messageHash, txPayload));
+
+        const expTimestamp = 1704758400;
+
+        const expTsPacked = ethers.solidityPacked(["uint32"], [expTimestamp]).slice(2);
+
+        const authLengthPacked = ethers
+            .solidityPacked(["uint16"], [2 + 1 + 1 + 2 + 2 + 20 + (2 + 1 + 1 + 2 + 2 + 32) + (2 + 1 + 1 + 2 + 2 + 32)])
+            .slice(2);
+
+        let payloadDataType = ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32"];
+        let payloadDataValue = [3, accountAddress, messageHash, r, s, proof];
+
+        const addressEqualAuthType = ["uint16", "uint8", "uint8", "uint16", "uint16", "address"];
+        const addressEqualAuthValue = [20, 2, 1, 12, 32, RECIPIENT_ADDRESS];
+
+        const balanceLTEAuthType = ["uint16", "uint8", "uint8", "uint16", "uint16", "uint256"];
+        const balanceLTEAuthValue = [32, 1, 2, 32, 64, parseEther("5.0")];
+
+        const balanceSumDailyAuthType = ["uint16", "uint8", "uint8", "uint16", "uint16", "uint256"];
+        const balanceSumDailyAuthValue = [32, 1, 4, 32, 64, parseEther("20.0")];
+
+        const p = new AbiCoder().encode([...payloadDataType], [...payloadDataValue]);
+
+        const mockAuth = ethers.solidityPacked(
+            [...addressEqualAuthType, ...balanceLTEAuthType, ...balanceSumDailyAuthType],
+            [...addressEqualAuthValue, ...balanceLTEAuthValue, ...balanceSumDailyAuthValue]
+        );
+
+        const p2 = p.concat(expTsPacked.concat(authLengthPacked));
+
+        const p3 = p2.concat(mockAuth.slice(2));
+
+        const payload = combineHexStrings(p3, txPayload);
+
+        const tx = await entryPoint.execute(commandId, sourceChain, SOURCE_ADDRESS, payload);
+        const receipt = await tx.wait(); // Wait for the transaction to be mined
+
+        // Log gas used
+        if (receipt) {
+            console.log("Gas Used for create icauthz:", receipt.gasUsed.toString());
+        }
+
+        const [contractPayload, contractExpTs, contractStatus, contractAuthorization] =
+            await account.getStoredContract();
+
+        expect(contractPayload).to.equal(txPayload);
+        expect(contractExpTs).to.equal(expTimestamp);
+        expect(contractStatus).to.equal(1);
+        expect(contractAuthorization.length).to.equal(3);
+    });
+
+    it("should execute create icauthz from account contract with authorization equivalent to 10 immutable authorization", async function () {
+        const messageHash = "0xcc61a33a7a9ace63fa4c5e74f9db3080c7ef68dd53e75dfb311bc28381830c2f";
+        const r = "0x87df5d0e314c3fe01b3dc136b3afe1659e02316f8d189f0b68983b7f90cd9b61";
+        const s = "0x7d2212755fb0db4f8e9a3343d264942d14c5e75471245b0419f29ce10355b08b";
+
+        const amountToSend = parseEther("1.0");
+        const accountAddress = await account.getAddress();
+
+        // Execute transaction from the Account contract
+        const commandId = encodeBytes32String("commandId");
+        const sourceChain = "sourceChain";
+
+        const txPayload = new AbiCoder().encode(
+            ["address", "uint256", "bytes"],
+            [RECIPIENT_ADDRESS, amountToSend, "0x"]
+        );
+
+        const proof = sha256(combineHexStrings(messageHash, txPayload));
+
+        const expTimestamp = 1704758400;
+
+        const expTsPacked = ethers.solidityPacked(["uint32"], [expTimestamp]).slice(2);
+
+        const authLengthPacked = ethers
+            .solidityPacked(["uint16"], [(2 + 1 + 1 + 2 + 2 + 20 + (2 + 1 + 1 + 2 + 2 + 32)) * 5])
+            .slice(2);
+
+        let payloadDataType = ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32"];
+        let payloadDataValue = [3, accountAddress, messageHash, r, s, proof];
+
+        const addressEqualAuthType = ["uint16", "uint8", "uint8", "uint16", "uint16", "address"];
+        const addressEqualAuthValue = [20, 2, 1, 12, 32, RECIPIENT_ADDRESS];
+
+        const balanceLTEAuthType = ["uint16", "uint8", "uint8", "uint16", "uint16", "uint256"];
+        const balanceLTEAuthValue = [32, 1, 2, 32, 64, parseEther("5.0")];
+
+        const p = new AbiCoder().encode([...payloadDataType], [...payloadDataValue]);
+
+        let mockAuthType = [];
+        let mockAuthValue = [];
+
+        for (let i = 0; i < 5; i++) {
+            mockAuthType.push(...addressEqualAuthType, ...balanceLTEAuthType);
+            mockAuthValue.push(...addressEqualAuthValue, ...balanceLTEAuthValue);
+        }
+
+        const mockAuth = ethers.solidityPacked([...mockAuthType], [...mockAuthValue]);
+
+        const p2 = p.concat(expTsPacked.concat(authLengthPacked));
+
+        const p3 = p2.concat(mockAuth.slice(2));
+
+        const payload = combineHexStrings(p3, txPayload);
+
+        const tx = await entryPoint.execute(commandId, sourceChain, SOURCE_ADDRESS, payload);
+        const receipt = await tx.wait(); // Wait for the transaction to be mined
+
+        // Log gas used
+        if (receipt) {
+            console.log("Gas Used for create icauthz 10 immutable authorization:", receipt.gasUsed.toString());
+        }
+
+        const [contractPayload, contractExpTs, contractStatus, contractAuthorization] =
+            await account.getStoredContract();
+
+        expect(contractPayload).to.equal(txPayload);
+        expect(contractExpTs).to.equal(expTimestamp);
+        expect(contractStatus).to.equal(1);
+        expect(contractAuthorization.length).to.equal(10);
+    });
+
+    it("should execute create icauthz from account contract with authorization equivalent to 5 immutable and 5 mutable authorization", async function () {
+        const messageHash = "0xcc61a33a7a9ace63fa4c5e74f9db3080c7ef68dd53e75dfb311bc28381830c2f";
+        const r = "0x87df5d0e314c3fe01b3dc136b3afe1659e02316f8d189f0b68983b7f90cd9b61";
+        const s = "0x7d2212755fb0db4f8e9a3343d264942d14c5e75471245b0419f29ce10355b08b";
+
+        const amountToSend = parseEther("1.0");
+        const accountAddress = await account.getAddress();
+
+        // Execute transaction from the Account contract
+        const commandId = encodeBytes32String("commandId");
+        const sourceChain = "sourceChain";
+
+        const txPayload = new AbiCoder().encode(
+            ["address", "uint256", "bytes"],
+            [RECIPIENT_ADDRESS, amountToSend, "0x"]
+        );
+
+        const proof = sha256(combineHexStrings(messageHash, txPayload));
+
+        const expTimestamp = 1704758400;
+
+        const expTsPacked = ethers.solidityPacked(["uint32"], [expTimestamp]).slice(2);
+
+        const authLengthPacked = ethers
+            .solidityPacked(["uint16"], [5 * (2 + 1 + 1 + 2 + 2 + 32 + (2 + 1 + 1 + 2 + 2 + 32))])
+            .slice(2);
+
+        let payloadDataType = ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32"];
+        let payloadDataValue = [3, accountAddress, messageHash, r, s, proof];
+
+        const balanceLTEAuthType = ["uint16", "uint8", "uint8", "uint16", "uint16", "uint256"];
+        const balanceLTEAuthValue = [32, 1, 2, 32, 64, parseEther("5.0")];
+
+        const balanceSumDailyAuthType = ["uint16", "uint8", "uint8", "uint16", "uint16", "uint256"];
+        const balanceSumDailyAuthValue = [32, 1, 4, 32, 64, parseEther("20.0")];
+
+        const p = new AbiCoder().encode([...payloadDataType], [...payloadDataValue]);
+
+        let mockAuthType = [];
+        let mockAuthValue = [];
+
+        for (let i = 0; i < 5; i++) {
+            mockAuthType.push(...balanceSumDailyAuthType, ...balanceLTEAuthType);
+            mockAuthValue.push(...balanceSumDailyAuthValue, ...balanceLTEAuthValue);
+        }
+
+        const mockAuth = ethers.solidityPacked([...mockAuthType], [...mockAuthValue]);
+
+        const p2 = p.concat(expTsPacked.concat(authLengthPacked));
+
+        const p3 = p2.concat(mockAuth.slice(2));
+
+        const payload = combineHexStrings(p3, txPayload);
+
+        const tx = await entryPoint.execute(commandId, sourceChain, SOURCE_ADDRESS, payload);
+        const receipt = await tx.wait(); // Wait for the transaction to be mined
+
+        // Log gas used
+        if (receipt) {
+            console.log(
+                "Gas Used for create icauthz 5 immutable and 5 mutable authorization:",
+                receipt.gasUsed.toString()
+            );
+        }
+
+        const [contractPayload, contractExpTs, contractStatus, contractAuthorization] =
+            await account.getStoredContract();
+
+        expect(contractPayload).to.equal(txPayload);
+        expect(contractExpTs).to.equal(expTimestamp);
+        expect(contractStatus).to.equal(1);
+        expect(contractAuthorization.length).to.equal(10);
+    });
+
+    it("should execute create icauthz from account contract with authorization equivalent to 10 mutable authorization", async function () {
+        const messageHash = "0xcc61a33a7a9ace63fa4c5e74f9db3080c7ef68dd53e75dfb311bc28381830c2f";
+        const r = "0x87df5d0e314c3fe01b3dc136b3afe1659e02316f8d189f0b68983b7f90cd9b61";
+        const s = "0x7d2212755fb0db4f8e9a3343d264942d14c5e75471245b0419f29ce10355b08b";
+
+        const amountToSend = parseEther("1.0");
+        const accountAddress = await account.getAddress();
+
+        // Execute transaction from the Account contract
+        const commandId = encodeBytes32String("commandId");
+        const sourceChain = "sourceChain";
+
+        const txPayload = new AbiCoder().encode(
+            ["address", "uint256", "bytes"],
+            [RECIPIENT_ADDRESS, amountToSend, "0x"]
+        );
+
+        const proof = sha256(combineHexStrings(messageHash, txPayload));
+
+        const expTimestamp = 1704758400;
+
+        const expTsPacked = ethers.solidityPacked(["uint32"], [expTimestamp]).slice(2);
+
+        const authLengthPacked = ethers.solidityPacked(["uint16"], [(2 + 1 + 1 + 2 + 2 + 32) * 10]).slice(2);
+
+        let payloadDataType = ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32"];
+        let payloadDataValue = [3, accountAddress, messageHash, r, s, proof];
+
+        const balanceSumDailyAuthType = ["uint16", "uint8", "uint8", "uint16", "uint16", "uint256"];
+        const balanceSumDailyAuthValue = [32, 1, 4, 32, 64, parseEther("20.0")];
+
+        const p = new AbiCoder().encode([...payloadDataType], [...payloadDataValue]);
+
+        let mockAuthType = [];
+        let mockAuthValue = [];
+
+        for (let i = 0; i < 10; i++) {
+            mockAuthType.push(...balanceSumDailyAuthType);
+            mockAuthValue.push(...balanceSumDailyAuthValue);
+        }
+
+        const mockAuth = ethers.solidityPacked([...mockAuthType], [...mockAuthValue]);
+
+        const p2 = p.concat(expTsPacked.concat(authLengthPacked));
+
+        const p3 = p2.concat(mockAuth.slice(2));
+
+        const payload = combineHexStrings(p3, txPayload);
+
+        const tx = await entryPoint.execute(commandId, sourceChain, SOURCE_ADDRESS, payload);
+        const receipt = await tx.wait(); // Wait for the transaction to be mined
+
+        // Log gas used
+        if (receipt) {
+            console.log("Gas Used for create icauthz 10 mutable authorization:", receipt.gasUsed.toString());
+        }
+
+        const [contractPayload, contractExpTs, contractStatus, contractAuthorization] =
+            await account.getStoredContract();
+
+        expect(contractPayload).to.equal(txPayload);
+        expect(contractExpTs).to.equal(expTimestamp);
+        expect(contractStatus).to.equal(1);
+        expect(contractAuthorization.length).to.equal(10);
+    });
+
+    it("should execute create icauthz from account contract with authorization equivalent to 20 immutable authorization", async function () {
+        const messageHash = "0xcc61a33a7a9ace63fa4c5e74f9db3080c7ef68dd53e75dfb311bc28381830c2f";
+        const r = "0x87df5d0e314c3fe01b3dc136b3afe1659e02316f8d189f0b68983b7f90cd9b61";
+        const s = "0x7d2212755fb0db4f8e9a3343d264942d14c5e75471245b0419f29ce10355b08b";
+
+        const amountToSend = parseEther("1.0");
+        const accountAddress = await account.getAddress();
+
+        // Execute transaction from the Account contract
+        const commandId = encodeBytes32String("commandId");
+        const sourceChain = "sourceChain";
+
+        const txPayload = new AbiCoder().encode(
+            ["address", "uint256", "bytes"],
+            [RECIPIENT_ADDRESS, amountToSend, "0x"]
+        );
+
+        const proof = sha256(combineHexStrings(messageHash, txPayload));
+
+        const expTimestamp = 1704758400;
+
+        const expTsPacked = ethers.solidityPacked(["uint32"], [expTimestamp]).slice(2);
+
+        const authLengthPacked = ethers
+            .solidityPacked(["uint16"], [(2 + 1 + 1 + 2 + 2 + 20 + (2 + 1 + 1 + 2 + 2 + 32)) * 10])
+            .slice(2);
+
+        let payloadDataType = ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32"];
+        let payloadDataValue = [3, accountAddress, messageHash, r, s, proof];
+
+        const addressEqualAuthType = ["uint16", "uint8", "uint8", "uint16", "uint16", "address"];
+        const addressEqualAuthValue = [20, 2, 1, 12, 32, RECIPIENT_ADDRESS];
+
+        const balanceLTEAuthType = ["uint16", "uint8", "uint8", "uint16", "uint16", "uint256"];
+        const balanceLTEAuthValue = [32, 1, 2, 32, 64, parseEther("5.0")];
+
+        const p = new AbiCoder().encode([...payloadDataType], [...payloadDataValue]);
+
+        let mockAuthType = [];
+        let mockAuthValue = [];
+
+        for (let i = 0; i < 10; i++) {
+            mockAuthType.push(...addressEqualAuthType, ...balanceLTEAuthType);
+            mockAuthValue.push(...addressEqualAuthValue, ...balanceLTEAuthValue);
+        }
+
+        const mockAuth = ethers.solidityPacked([...mockAuthType], [...mockAuthValue]);
+
+        const p2 = p.concat(expTsPacked.concat(authLengthPacked));
+
+        const p3 = p2.concat(mockAuth.slice(2));
+
+        const payload = combineHexStrings(p3, txPayload);
+
+        const tx = await entryPoint.execute(commandId, sourceChain, SOURCE_ADDRESS, payload);
+        const receipt = await tx.wait(); // Wait for the transaction to be mined
+
+        // Log gas used
+        if (receipt) {
+            console.log("Gas Used for create icauthz 20 immutable authorization:", receipt.gasUsed.toString());
+        }
+
+        const [contractPayload, contractExpTs, contractStatus, contractAuthorization] =
+            await account.getStoredContract();
+
+        expect(contractPayload).to.equal(txPayload);
+        expect(contractExpTs).to.equal(expTimestamp);
+        expect(contractStatus).to.equal(1);
+        expect(contractAuthorization.length).to.equal(20);
+    });
+
+    it("should execute create icauthz from account contract with authorization equivalent to 10 immutable and 10 mutable authorization", async function () {
+        const messageHash = "0xcc61a33a7a9ace63fa4c5e74f9db3080c7ef68dd53e75dfb311bc28381830c2f";
+        const r = "0x87df5d0e314c3fe01b3dc136b3afe1659e02316f8d189f0b68983b7f90cd9b61";
+        const s = "0x7d2212755fb0db4f8e9a3343d264942d14c5e75471245b0419f29ce10355b08b";
+
+        const amountToSend = parseEther("1.0");
+        const accountAddress = await account.getAddress();
+
+        // Execute transaction from the Account contract
+        const commandId = encodeBytes32String("commandId");
+        const sourceChain = "sourceChain";
+
+        const txPayload = new AbiCoder().encode(
+            ["address", "uint256", "bytes"],
+            [RECIPIENT_ADDRESS, amountToSend, "0x"]
+        );
+
+        const proof = sha256(combineHexStrings(messageHash, txPayload));
+
+        const expTimestamp = 1704758400;
+
+        const expTsPacked = ethers.solidityPacked(["uint32"], [expTimestamp]).slice(2);
+
+        const authLengthPacked = ethers
+            .solidityPacked(["uint16"], [10 * (2 + 1 + 1 + 2 + 2 + 32 + (2 + 1 + 1 + 2 + 2 + 32))])
+            .slice(2);
+
+        let payloadDataType = ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32"];
+        let payloadDataValue = [3, accountAddress, messageHash, r, s, proof];
+
+        const balanceLTEAuthType = ["uint16", "uint8", "uint8", "uint16", "uint16", "uint256"];
+        const balanceLTEAuthValue = [32, 1, 2, 32, 64, parseEther("5.0")];
+
+        const balanceSumDailyAuthType = ["uint16", "uint8", "uint8", "uint16", "uint16", "uint256"];
+        const balanceSumDailyAuthValue = [32, 1, 4, 32, 64, parseEther("20.0")];
+
+        const p = new AbiCoder().encode([...payloadDataType], [...payloadDataValue]);
+
+        let mockAuthType = [];
+        let mockAuthValue = [];
+
+        for (let i = 0; i < 10; i++) {
+            mockAuthType.push(...balanceSumDailyAuthType, ...balanceLTEAuthType);
+            mockAuthValue.push(...balanceSumDailyAuthValue, ...balanceLTEAuthValue);
+        }
+
+        const mockAuth = ethers.solidityPacked([...mockAuthType], [...mockAuthValue]);
+
+        const p2 = p.concat(expTsPacked.concat(authLengthPacked));
+
+        const p3 = p2.concat(mockAuth.slice(2));
+
+        const payload = combineHexStrings(p3, txPayload);
+
+        const tx = await entryPoint.execute(commandId, sourceChain, SOURCE_ADDRESS, payload);
+        const receipt = await tx.wait(); // Wait for the transaction to be mined
+
+        // Log gas used
+        if (receipt) {
+            console.log(
+                "Gas Used for create icauthz 10 immutable and 10 mutable authorization:",
+                receipt.gasUsed.toString()
+            );
+        }
+
+        const [contractPayload, contractExpTs, contractStatus, contractAuthorization] =
+            await account.getStoredContract();
+
+        expect(contractPayload).to.equal(txPayload);
+        expect(contractExpTs).to.equal(expTimestamp);
+        expect(contractStatus).to.equal(1);
+        expect(contractAuthorization.length).to.equal(20);
+    });
+
+    it("should execute create icauthz from account contract with authorization equivalent to 20 mutable authorization", async function () {
+        const messageHash = "0xcc61a33a7a9ace63fa4c5e74f9db3080c7ef68dd53e75dfb311bc28381830c2f";
+        const r = "0x87df5d0e314c3fe01b3dc136b3afe1659e02316f8d189f0b68983b7f90cd9b61";
+        const s = "0x7d2212755fb0db4f8e9a3343d264942d14c5e75471245b0419f29ce10355b08b";
+
+        const amountToSend = parseEther("1.0");
+        const accountAddress = await account.getAddress();
+
+        // Execute transaction from the Account contract
+        const commandId = encodeBytes32String("commandId");
+        const sourceChain = "sourceChain";
+
+        const txPayload = new AbiCoder().encode(
+            ["address", "uint256", "bytes"],
+            [RECIPIENT_ADDRESS, amountToSend, "0x"]
+        );
+
+        const proof = sha256(combineHexStrings(messageHash, txPayload));
+
+        const expTimestamp = 1704758400;
+
+        const expTsPacked = ethers.solidityPacked(["uint32"], [expTimestamp]).slice(2);
+
+        const authLengthPacked = ethers.solidityPacked(["uint16"], [(2 + 1 + 1 + 2 + 2 + 32) * 20]).slice(2);
+
+        let payloadDataType = ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32"];
+        let payloadDataValue = [3, accountAddress, messageHash, r, s, proof];
+
+        const balanceSumDailyAuthType = ["uint16", "uint8", "uint8", "uint16", "uint16", "uint256"];
+        const balanceSumDailyAuthValue = [32, 1, 4, 32, 64, parseEther("20.0")];
+
+        const p = new AbiCoder().encode([...payloadDataType], [...payloadDataValue]);
+
+        let mockAuthType = [];
+        let mockAuthValue = [];
+
+        for (let i = 0; i < 20; i++) {
+            mockAuthType.push(...balanceSumDailyAuthType);
+            mockAuthValue.push(...balanceSumDailyAuthValue);
+        }
+
+        const mockAuth = ethers.solidityPacked([...mockAuthType], [...mockAuthValue]);
+
+        const p2 = p.concat(expTsPacked.concat(authLengthPacked));
+
+        const p3 = p2.concat(mockAuth.slice(2));
+
+        const payload = combineHexStrings(p3, txPayload);
+
+        const tx = await entryPoint.execute(commandId, sourceChain, SOURCE_ADDRESS, payload);
+        const receipt = await tx.wait(); // Wait for the transaction to be mined
+
+        // Log gas used
+        if (receipt) {
+            console.log("Gas Used for create icauthz 20 mutable authorization:", receipt.gasUsed.toString());
+        }
+
+        const [contractPayload, contractExpTs, contractStatus, contractAuthorization] =
+            await account.getStoredContract();
+
+        expect(contractPayload).to.equal(txPayload);
+        expect(contractExpTs).to.equal(expTimestamp);
+        expect(contractStatus).to.equal(1);
+        expect(contractAuthorization.length).to.equal(20);
+    });
+});
+
+function combineHexStrings(hexString1: string, hexString2: string): string {
+    const buffer1 = Buffer.from(hexString1.slice(2), "hex");
+    const buffer2 = Buffer.from(hexString2.slice(2), "hex");
+
+    const combinedBuffer = Buffer.concat([buffer1, buffer2]);
+
+    const combinedHex = combinedBuffer.toString("hex");
+
+    return "0x" + combinedHex;
+}

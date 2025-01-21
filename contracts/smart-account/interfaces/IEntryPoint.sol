@@ -23,6 +23,11 @@ interface IEntryPoint {
     error TransactionFailed();
 
     /**
+     * @dev Error thrown when the authorization provided for a transaction is invalid.
+     */
+    error InvalidAuthorization();
+
+    /**
      * @dev Event emitted when an account is created.
      * @param accountAddress The address of the newly created account.
      * @param recover The address that has recovery rights for the new account.
