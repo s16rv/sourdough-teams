@@ -139,6 +139,483 @@ describe("ExecuteIcauthz", function () {
         const finalRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
         expect(finalRecipientBalance).to.equal(initialRecipientBalance + amountToSend);
     });
+
+    it("should execute icauthz from account contract with authorization equivalent to 10 immutable authorization", async function () {
+        const latestBlock = await hre.ethers.provider.getBlock("latest");
+        let expTimestamp = 1704758400;
+        if (latestBlock) {
+            expTimestamp = latestBlock.timestamp + 3600;
+        }
+
+        const messageHash = "0xcc61a33a7a9ace63fa4c5e74f9db3080c7ef68dd53e75dfb311bc28381830c2f";
+        const r = "0x87df5d0e314c3fe01b3dc136b3afe1659e02316f8d189f0b68983b7f90cd9b61";
+        const s = "0x7d2212755fb0db4f8e9a3343d264942d14c5e75471245b0419f29ce10355b08b";
+
+        const amountToSend = parseEther("1.0");
+        const accountAddress = await account.getAddress();
+
+        // Execute transaction from the Account contract
+        const commandId = encodeBytes32String("commandId");
+        const sourceChain = "sourceChain";
+
+        const txPayload = new AbiCoder().encode(
+            ["address", "uint256", "bytes"],
+            [RECIPIENT_ADDRESS, amountToSend, "0x"]
+        );
+
+        const proof = sha256(combineHexStrings(messageHash, txPayload));
+
+        const expTsPacked = ethers.solidityPacked(["uint32"], [expTimestamp]).slice(2);
+
+        const authLengthPacked = ethers
+            .solidityPacked(["uint16"], [(2 + 1 + 1 + 2 + 2 + 20 + (2 + 1 + 1 + 2 + 2 + 32)) * 5])
+            .slice(2);
+
+        let payloadDataType = ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32"];
+        let payloadDataValue = [3, accountAddress, messageHash, r, s, proof];
+
+        const addressEqualAuthType = ["uint16", "uint8", "uint8", "uint16", "uint16", "address"];
+        const addressEqualAuthValue = [20, 2, 1, 12, 32, RECIPIENT_ADDRESS];
+
+        const balanceLTEAuthType = ["uint16", "uint8", "uint8", "uint16", "uint16", "uint256"];
+        const balanceLTEAuthValue = [32, 1, 2, 32, 64, parseEther("5.0")];
+
+        const p = new AbiCoder().encode([...payloadDataType], [...payloadDataValue]);
+
+        let mockAuthType = [];
+        let mockAuthValue = [];
+
+        for (let i = 0; i < 5; i++) {
+            mockAuthType.push(...addressEqualAuthType, ...balanceLTEAuthType);
+            mockAuthValue.push(...addressEqualAuthValue, ...balanceLTEAuthValue);
+        }
+
+        const mockAuth = ethers.solidityPacked([...mockAuthType], [...mockAuthValue]);
+
+        const p2 = p.concat(expTsPacked.concat(authLengthPacked));
+
+        const p3 = p2.concat(mockAuth.slice(2));
+
+        const payload = combineHexStrings(p3, txPayload);
+
+        await entryPoint.execute(commandId, sourceChain, SOURCE_ADDRESS, payload);
+
+        // trigger execute after create
+        const initialRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
+
+        const q = new AbiCoder().encode(
+            ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32"],
+            [4, accountAddress, messageHash, r, s, proof]
+        );
+        const qPayload = combineHexStrings(q, txPayload);
+
+        const tx = await entryPoint.execute(commandId, sourceChain, SOURCE_ADDRESS, qPayload);
+        const receipt = await tx.wait(); // Wait for the transaction to be mined
+
+        // Log gas used
+        if (receipt) {
+            console.log("Gas Used for execute icauthz 10 immutable authorization:", receipt.gasUsed.toString());
+        }
+
+        const finalRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
+        expect(finalRecipientBalance).to.equal(initialRecipientBalance + amountToSend);
+    });
+
+    it("should execute icauthz from account contract with authorization equivalent to 5 immutable and 5 mutable authorization", async function () {
+        const latestBlock = await hre.ethers.provider.getBlock("latest");
+        let expTimestamp = 1704758400;
+        if (latestBlock) {
+            expTimestamp = latestBlock.timestamp + 3600;
+        }
+
+        const messageHash = "0xcc61a33a7a9ace63fa4c5e74f9db3080c7ef68dd53e75dfb311bc28381830c2f";
+        const r = "0x87df5d0e314c3fe01b3dc136b3afe1659e02316f8d189f0b68983b7f90cd9b61";
+        const s = "0x7d2212755fb0db4f8e9a3343d264942d14c5e75471245b0419f29ce10355b08b";
+
+        const amountToSend = parseEther("1.0");
+        const accountAddress = await account.getAddress();
+
+        // Execute transaction from the Account contract
+        const commandId = encodeBytes32String("commandId");
+        const sourceChain = "sourceChain";
+
+        const txPayload = new AbiCoder().encode(
+            ["address", "uint256", "bytes"],
+            [RECIPIENT_ADDRESS, amountToSend, "0x"]
+        );
+
+        const proof = sha256(combineHexStrings(messageHash, txPayload));
+
+        const expTsPacked = ethers.solidityPacked(["uint32"], [expTimestamp]).slice(2);
+
+        const authLengthPacked = ethers
+            .solidityPacked(["uint16"], [5 * (2 + 1 + 1 + 2 + 2 + 32 + (2 + 1 + 1 + 2 + 2 + 32))])
+            .slice(2);
+
+        let payloadDataType = ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32"];
+        let payloadDataValue = [3, accountAddress, messageHash, r, s, proof];
+
+        const balanceLTEAuthType = ["uint16", "uint8", "uint8", "uint16", "uint16", "uint256"];
+        const balanceLTEAuthValue = [32, 1, 2, 32, 64, parseEther("5.0")];
+
+        const balanceSumDailyAuthType = ["uint16", "uint8", "uint8", "uint16", "uint16", "uint256"];
+        const balanceSumDailyAuthValue = [32, 1, 4, 32, 64, parseEther("20.0")];
+
+        const p = new AbiCoder().encode([...payloadDataType], [...payloadDataValue]);
+
+        let mockAuthType = [];
+        let mockAuthValue = [];
+
+        for (let i = 0; i < 5; i++) {
+            mockAuthType.push(...balanceSumDailyAuthType, ...balanceLTEAuthType);
+            mockAuthValue.push(...balanceSumDailyAuthValue, ...balanceLTEAuthValue);
+        }
+
+        const mockAuth = ethers.solidityPacked([...mockAuthType], [...mockAuthValue]);
+
+        const p2 = p.concat(expTsPacked.concat(authLengthPacked));
+
+        const p3 = p2.concat(mockAuth.slice(2));
+
+        const payload = combineHexStrings(p3, txPayload);
+
+        await entryPoint.execute(commandId, sourceChain, SOURCE_ADDRESS, payload);
+        // trigger execute after create
+        const initialRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
+
+        const q = new AbiCoder().encode(
+            ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32"],
+            [4, accountAddress, messageHash, r, s, proof]
+        );
+        const qPayload = combineHexStrings(q, txPayload);
+
+        const tx = await entryPoint.execute(commandId, sourceChain, SOURCE_ADDRESS, qPayload);
+        const receipt = await tx.wait(); // Wait for the transaction to be mined
+        // Log gas used
+        if (receipt) {
+            console.log(
+                "Gas Used for execute icauthz 5 immutable and 5 mutable authorization:",
+                receipt.gasUsed.toString()
+            );
+        }
+
+        const finalRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
+        expect(finalRecipientBalance).to.equal(initialRecipientBalance + amountToSend);
+    });
+
+    it("should execute icauthz from account contract with authorization equivalent to 10 mutable authorization", async function () {
+        const latestBlock = await hre.ethers.provider.getBlock("latest");
+        let expTimestamp = 1704758400;
+        if (latestBlock) {
+            expTimestamp = latestBlock.timestamp + 3600;
+        }
+
+        const messageHash = "0xcc61a33a7a9ace63fa4c5e74f9db3080c7ef68dd53e75dfb311bc28381830c2f";
+        const r = "0x87df5d0e314c3fe01b3dc136b3afe1659e02316f8d189f0b68983b7f90cd9b61";
+        const s = "0x7d2212755fb0db4f8e9a3343d264942d14c5e75471245b0419f29ce10355b08b";
+
+        const amountToSend = parseEther("1.0");
+        const accountAddress = await account.getAddress();
+
+        // Execute transaction from the Account contract
+        const commandId = encodeBytes32String("commandId");
+        const sourceChain = "sourceChain";
+
+        const txPayload = new AbiCoder().encode(
+            ["address", "uint256", "bytes"],
+            [RECIPIENT_ADDRESS, amountToSend, "0x"]
+        );
+
+        const proof = sha256(combineHexStrings(messageHash, txPayload));
+
+        const expTsPacked = ethers.solidityPacked(["uint32"], [expTimestamp]).slice(2);
+
+        const authLengthPacked = ethers.solidityPacked(["uint16"], [(2 + 1 + 1 + 2 + 2 + 32) * 10]).slice(2);
+
+        let payloadDataType = ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32"];
+        let payloadDataValue = [3, accountAddress, messageHash, r, s, proof];
+
+        const balanceSumDailyAuthType = ["uint16", "uint8", "uint8", "uint16", "uint16", "uint256"];
+        const balanceSumDailyAuthValue = [32, 1, 4, 32, 64, parseEther("20.0")];
+
+        const p = new AbiCoder().encode([...payloadDataType], [...payloadDataValue]);
+
+        let mockAuthType = [];
+        let mockAuthValue = [];
+
+        for (let i = 0; i < 10; i++) {
+            mockAuthType.push(...balanceSumDailyAuthType);
+            mockAuthValue.push(...balanceSumDailyAuthValue);
+        }
+
+        const mockAuth = ethers.solidityPacked([...mockAuthType], [...mockAuthValue]);
+
+        const p2 = p.concat(expTsPacked.concat(authLengthPacked));
+
+        const p3 = p2.concat(mockAuth.slice(2));
+
+        const payload = combineHexStrings(p3, txPayload);
+
+        await entryPoint.execute(commandId, sourceChain, SOURCE_ADDRESS, payload);
+        // trigger execute after create
+        const initialRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
+
+        const q = new AbiCoder().encode(
+            ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32"],
+            [4, accountAddress, messageHash, r, s, proof]
+        );
+        const qPayload = combineHexStrings(q, txPayload);
+
+        const tx = await entryPoint.execute(commandId, sourceChain, SOURCE_ADDRESS, qPayload);
+        const receipt = await tx.wait(); // Wait for the transaction to be mined
+        // Log gas used
+        if (receipt) {
+            console.log("Gas Used for execute icauthz 10 mutable authorization:", receipt.gasUsed.toString());
+        }
+
+        const finalRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
+        expect(finalRecipientBalance).to.equal(initialRecipientBalance + amountToSend);
+    });
+
+    it("should execute icauthz from account contract with authorization equivalent to 20 immutable authorization", async function () {
+        const latestBlock = await hre.ethers.provider.getBlock("latest");
+        let expTimestamp = 1704758400;
+        if (latestBlock) {
+            expTimestamp = latestBlock.timestamp + 3600;
+        }
+
+        const messageHash = "0xcc61a33a7a9ace63fa4c5e74f9db3080c7ef68dd53e75dfb311bc28381830c2f";
+        const r = "0x87df5d0e314c3fe01b3dc136b3afe1659e02316f8d189f0b68983b7f90cd9b61";
+        const s = "0x7d2212755fb0db4f8e9a3343d264942d14c5e75471245b0419f29ce10355b08b";
+
+        const amountToSend = parseEther("1.0");
+        const accountAddress = await account.getAddress();
+
+        // Execute transaction from the Account contract
+        const commandId = encodeBytes32String("commandId");
+        const sourceChain = "sourceChain";
+
+        const txPayload = new AbiCoder().encode(
+            ["address", "uint256", "bytes"],
+            [RECIPIENT_ADDRESS, amountToSend, "0x"]
+        );
+
+        const proof = sha256(combineHexStrings(messageHash, txPayload));
+
+        const expTsPacked = ethers.solidityPacked(["uint32"], [expTimestamp]).slice(2);
+
+        const authLengthPacked = ethers
+            .solidityPacked(["uint16"], [(2 + 1 + 1 + 2 + 2 + 20 + (2 + 1 + 1 + 2 + 2 + 32)) * 10])
+            .slice(2);
+
+        let payloadDataType = ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32"];
+        let payloadDataValue = [3, accountAddress, messageHash, r, s, proof];
+
+        const addressEqualAuthType = ["uint16", "uint8", "uint8", "uint16", "uint16", "address"];
+        const addressEqualAuthValue = [20, 2, 1, 12, 32, RECIPIENT_ADDRESS];
+
+        const balanceLTEAuthType = ["uint16", "uint8", "uint8", "uint16", "uint16", "uint256"];
+        const balanceLTEAuthValue = [32, 1, 2, 32, 64, parseEther("5.0")];
+
+        const p = new AbiCoder().encode([...payloadDataType], [...payloadDataValue]);
+
+        let mockAuthType = [];
+        let mockAuthValue = [];
+
+        for (let i = 0; i < 10; i++) {
+            mockAuthType.push(...addressEqualAuthType, ...balanceLTEAuthType);
+            mockAuthValue.push(...addressEqualAuthValue, ...balanceLTEAuthValue);
+        }
+
+        const mockAuth = ethers.solidityPacked([...mockAuthType], [...mockAuthValue]);
+
+        const p2 = p.concat(expTsPacked.concat(authLengthPacked));
+
+        const p3 = p2.concat(mockAuth.slice(2));
+
+        const payload = combineHexStrings(p3, txPayload);
+
+        await entryPoint.execute(commandId, sourceChain, SOURCE_ADDRESS, payload);
+
+        // trigger execute after create
+        const initialRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
+
+        const q = new AbiCoder().encode(
+            ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32"],
+            [4, accountAddress, messageHash, r, s, proof]
+        );
+        const qPayload = combineHexStrings(q, txPayload);
+
+        const tx = await entryPoint.execute(commandId, sourceChain, SOURCE_ADDRESS, qPayload);
+        const receipt = await tx.wait(); // Wait for the transaction to be mined
+
+        // Log gas used
+        if (receipt) {
+            console.log("Gas Used for execute icauthz 20 immutable authorization:", receipt.gasUsed.toString());
+        }
+
+        const finalRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
+        expect(finalRecipientBalance).to.equal(initialRecipientBalance + amountToSend);
+    });
+
+    it("should execute icauthz from account contract with authorization equivalent to 10 immutable and 10 mutable authorization", async function () {
+        const latestBlock = await hre.ethers.provider.getBlock("latest");
+        let expTimestamp = 1704758400;
+        if (latestBlock) {
+            expTimestamp = latestBlock.timestamp + 3600;
+        }
+
+        const messageHash = "0xcc61a33a7a9ace63fa4c5e74f9db3080c7ef68dd53e75dfb311bc28381830c2f";
+        const r = "0x87df5d0e314c3fe01b3dc136b3afe1659e02316f8d189f0b68983b7f90cd9b61";
+        const s = "0x7d2212755fb0db4f8e9a3343d264942d14c5e75471245b0419f29ce10355b08b";
+
+        const amountToSend = parseEther("1.0");
+        const accountAddress = await account.getAddress();
+
+        // Execute transaction from the Account contract
+        const commandId = encodeBytes32String("commandId");
+        const sourceChain = "sourceChain";
+
+        const txPayload = new AbiCoder().encode(
+            ["address", "uint256", "bytes"],
+            [RECIPIENT_ADDRESS, amountToSend, "0x"]
+        );
+
+        const proof = sha256(combineHexStrings(messageHash, txPayload));
+
+        const expTsPacked = ethers.solidityPacked(["uint32"], [expTimestamp]).slice(2);
+
+        const authLengthPacked = ethers
+            .solidityPacked(["uint16"], [10 * (2 + 1 + 1 + 2 + 2 + 32 + (2 + 1 + 1 + 2 + 2 + 32))])
+            .slice(2);
+
+        let payloadDataType = ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32"];
+        let payloadDataValue = [3, accountAddress, messageHash, r, s, proof];
+
+        const balanceLTEAuthType = ["uint16", "uint8", "uint8", "uint16", "uint16", "uint256"];
+        const balanceLTEAuthValue = [32, 1, 2, 32, 64, parseEther("5.0")];
+
+        const balanceSumDailyAuthType = ["uint16", "uint8", "uint8", "uint16", "uint16", "uint256"];
+        const balanceSumDailyAuthValue = [32, 1, 4, 32, 64, parseEther("20.0")];
+
+        const p = new AbiCoder().encode([...payloadDataType], [...payloadDataValue]);
+
+        let mockAuthType = [];
+        let mockAuthValue = [];
+
+        for (let i = 0; i < 10; i++) {
+            mockAuthType.push(...balanceSumDailyAuthType, ...balanceLTEAuthType);
+            mockAuthValue.push(...balanceSumDailyAuthValue, ...balanceLTEAuthValue);
+        }
+
+        const mockAuth = ethers.solidityPacked([...mockAuthType], [...mockAuthValue]);
+
+        const p2 = p.concat(expTsPacked.concat(authLengthPacked));
+
+        const p3 = p2.concat(mockAuth.slice(2));
+
+        const payload = combineHexStrings(p3, txPayload);
+
+        await entryPoint.execute(commandId, sourceChain, SOURCE_ADDRESS, payload);
+
+        // trigger execute after create
+        const initialRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
+
+        const q = new AbiCoder().encode(
+            ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32"],
+            [4, accountAddress, messageHash, r, s, proof]
+        );
+        const qPayload = combineHexStrings(q, txPayload);
+
+        const tx = await entryPoint.execute(commandId, sourceChain, SOURCE_ADDRESS, qPayload);
+        const receipt = await tx.wait(); // Wait for the transaction to be mined
+        // Log gas used
+        if (receipt) {
+            console.log(
+                "Gas Used for execute icauthz 10 immutable and 10 mutable authorization:",
+                receipt.gasUsed.toString()
+            );
+        }
+
+        const finalRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
+        expect(finalRecipientBalance).to.equal(initialRecipientBalance + amountToSend);
+    });
+
+    it("should execute icauthz from account contract with authorization equivalent to 20 mutable authorization", async function () {
+        const latestBlock = await hre.ethers.provider.getBlock("latest");
+        let expTimestamp = 1704758400;
+        if (latestBlock) {
+            expTimestamp = latestBlock.timestamp + 3600;
+        }
+
+        const messageHash = "0xcc61a33a7a9ace63fa4c5e74f9db3080c7ef68dd53e75dfb311bc28381830c2f";
+        const r = "0x87df5d0e314c3fe01b3dc136b3afe1659e02316f8d189f0b68983b7f90cd9b61";
+        const s = "0x7d2212755fb0db4f8e9a3343d264942d14c5e75471245b0419f29ce10355b08b";
+
+        const amountToSend = parseEther("1.0");
+        const accountAddress = await account.getAddress();
+
+        // Execute transaction from the Account contract
+        const commandId = encodeBytes32String("commandId");
+        const sourceChain = "sourceChain";
+
+        const txPayload = new AbiCoder().encode(
+            ["address", "uint256", "bytes"],
+            [RECIPIENT_ADDRESS, amountToSend, "0x"]
+        );
+
+        const proof = sha256(combineHexStrings(messageHash, txPayload));
+
+        const expTsPacked = ethers.solidityPacked(["uint32"], [expTimestamp]).slice(2);
+
+        const authLengthPacked = ethers.solidityPacked(["uint16"], [(2 + 1 + 1 + 2 + 2 + 32) * 20]).slice(2);
+
+        let payloadDataType = ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32"];
+        let payloadDataValue = [3, accountAddress, messageHash, r, s, proof];
+
+        const balanceSumDailyAuthType = ["uint16", "uint8", "uint8", "uint16", "uint16", "uint256"];
+        const balanceSumDailyAuthValue = [32, 1, 4, 32, 64, parseEther("20.0")];
+
+        const p = new AbiCoder().encode([...payloadDataType], [...payloadDataValue]);
+
+        let mockAuthType = [];
+        let mockAuthValue = [];
+
+        for (let i = 0; i < 20; i++) {
+            mockAuthType.push(...balanceSumDailyAuthType);
+            mockAuthValue.push(...balanceSumDailyAuthValue);
+        }
+
+        const mockAuth = ethers.solidityPacked([...mockAuthType], [...mockAuthValue]);
+
+        const p2 = p.concat(expTsPacked.concat(authLengthPacked));
+
+        const p3 = p2.concat(mockAuth.slice(2));
+
+        const payload = combineHexStrings(p3, txPayload);
+
+        await entryPoint.execute(commandId, sourceChain, SOURCE_ADDRESS, payload);
+
+        // trigger execute after create
+        const initialRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
+
+        const q = new AbiCoder().encode(
+            ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32"],
+            [4, accountAddress, messageHash, r, s, proof]
+        );
+        const qPayload = combineHexStrings(q, txPayload);
+
+        const tx = await entryPoint.execute(commandId, sourceChain, SOURCE_ADDRESS, qPayload);
+        const receipt = await tx.wait(); // Wait for the transaction to be mined
+
+        // Log gas used
+        if (receipt) {
+            console.log("Gas Used for execute icauthz 20 mutable authorization:", receipt.gasUsed.toString());
+        }
+
+        const finalRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
+        expect(finalRecipientBalance).to.equal(initialRecipientBalance + amountToSend);
+    });
 });
 
 function combineHexStrings(hexString1: string, hexString2: string): string {
