@@ -84,10 +84,8 @@ describe("EntryPoint", function () {
         const commandId = encodeBytes32String("commandId");
         const sourceChain = "sourceChain";
 
-        const txPayload = new AbiCoder().encode(
-            ["address", "uint256", "bytes"],
-            [RECIPIENT_ADDRESS, amountToSend, "0x"]
-        );
+        const txPayloadAddress = new AbiCoder().encode(["address", "uint256"], [RECIPIENT_ADDRESS, amountToSend]);
+        const txPayload = combineHexStrings(txPayloadAddress, "0x");
 
         const proof = sha256(combineHexStrings(messageHash, txPayload));
 

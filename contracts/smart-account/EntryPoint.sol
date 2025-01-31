@@ -128,13 +128,14 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
         emit SignatureValidated(messageHash, r, s);
 
         (address dest, uint256 value) = abi.decode(txPayload, (address, uint256));
+        bytes calldata data = txPayload[64:];
 
-        bool success = IAccount(payable(target)).executeTransaction(dest, value, txPayload);
+        bool success = IAccount(payable(target)).executeTransaction(dest, value, data);
         if (!success) {
             revert TransactionFailed();
         }
 
-        emit TransactionExecuted(target, dest, value, txPayload);
+        emit TransactionHandled(target, dest, value, data);
     }
 
     /**
@@ -249,7 +250,7 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
             revert TransactionFailed();
         }
 
-        emit TransactionExecuted(target, dest, value, txPayload);
+        emit TransactionHandled(target, dest, value, txPayload);
     }
 
     /**
