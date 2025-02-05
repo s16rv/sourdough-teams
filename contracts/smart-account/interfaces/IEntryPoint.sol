@@ -41,7 +41,7 @@ interface IEntryPoint {
      * @param value The amount of Ether sent in the transaction.
      * @param data The payload data for the transaction.
      */
-    event TransactionExecuted(address indexed target, address indexed dest, uint256 value, bytes data);
+    event TransactionHandled(address indexed target, address indexed dest, uint256 value, bytes data);
 
     /**
      * @dev Event emitted when a signature is validated successfully.
