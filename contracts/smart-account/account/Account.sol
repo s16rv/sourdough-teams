@@ -13,6 +13,7 @@ contract Account is IAccount {
     bytes32 private immutable x;
     bytes32 private immutable y;
     bytes32 private immutable addrHash;
+    uint256 public accountSequence;
 
     uint32 private expirationTimestamp;
     bytes private contractData;
@@ -93,10 +94,15 @@ contract Account is IAccount {
         bytes32 r,
         bytes32 s,
         bytes32 proof,
+        uint256 sequence,
         bytes calldata data
     ) external view returns (bool) {
         if (!compareSourceAddress(sourceAddress)) {
             revert InvalidSourceAddress();
+        }
+
+        if (sequence != accountSequence) {
+            revert InvalidSequence();
         }
 
         bytes32 expectedProof = sha256(abi.encodePacked(messageHash, data));
@@ -121,6 +127,7 @@ contract Account is IAccount {
         bytes calldata data
     ) external onlyEntryPointOrRecover returns (bool) {
         bool success = _call(dest, value, data);
+        incrementSequence();
         emit TransactionExecuted(dest, value, data);
         return success;
     }
@@ -147,6 +154,13 @@ contract Account is IAccount {
      */
     function getY() public view returns (bytes32) {
         return y;
+    }
+
+    /**
+     * @dev Increments the sequence number.
+     */
+    function incrementSequence() internal {
+        accountSequence++;
     }
 
     /**

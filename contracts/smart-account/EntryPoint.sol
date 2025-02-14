@@ -42,58 +42,58 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
             );
             _createAccount(recover, messageHash, r, s, x, y, _sourceAddress);
         } else if (category == 2) {
-            if (_payload.length < 192 + 20) revert PayloadTooShort();
+            if (_payload.length < 224 + 20) revert PayloadTooShort();
 
-            (address target, bytes32 messageHash, bytes32 r, bytes32 s, bytes32 proof) = abi.decode(
-                _payload[32:192],
-                (address, bytes32, bytes32, bytes32, bytes32)
+            (address target, bytes32 messageHash, bytes32 r, bytes32 s, bytes32 proof, uint256 sequence) = abi.decode(
+                _payload[32:224],
+                (address, bytes32, bytes32, bytes32, bytes32, uint256)
             );
 
-            bytes calldata txPayload = _payload[192:];
+            bytes calldata txPayload = _payload[224:];
 
-            _handleTransaction(target, messageHash, r, s, proof, _sourceAddress, txPayload);
+            _handleTransaction(target, messageHash, r, s, proof, sequence, _sourceAddress, txPayload);
         } else if (category == 3) {
             // 192 is for the proof part
             // 6 is for expiration timestamp and length
             // 10++ is for payload
             // the rest can be optional
-            if (_payload.length < 192 + 6 + 10) revert PayloadTooShort();
+            if (_payload.length < 224 + 6 + 10) revert PayloadTooShort();
 
-            (address target, bytes32 messageHash, bytes32 r, bytes32 s, bytes32 proof) = abi.decode(
-                _payload[32:192],
-                (address, bytes32, bytes32, bytes32, bytes32)
+            (address target, bytes32 messageHash, bytes32 r, bytes32 s, bytes32 proof, uint256 sequence) = abi.decode(
+                _payload[32:224],
+                (address, bytes32, bytes32, bytes32, bytes32, uint256)
             );
 
             // Manually extract and decode
-            uint32 expTs = uint32(bytes4(_payload[192:196]));
-            uint16 authLength = uint16(bytes2(_payload[196:198]));
+            uint32 expTs = uint32(bytes4(_payload[224:228]));
+            uint16 authLength = uint16(bytes2(_payload[228:230]));
 
-            bytes calldata authPayload = _payload[198:(198 + authLength)];
-            bytes calldata txPayload = _payload[(198 + authLength):];
+            bytes calldata authPayload = _payload[230:(230 + authLength)];
+            bytes calldata txPayload = _payload[(230 + authLength):];
 
-            _handleCreateIcauthz(target, messageHash, r, s, proof, _sourceAddress, txPayload, expTs, authPayload);
+            _handleCreateIcauthz(target, messageHash, r, s, proof, sequence, _sourceAddress, txPayload, expTs, authPayload);
         } else if (category == 4) {
-            if (_payload.length < 192 + 20) revert PayloadTooShort();
+            if (_payload.length < 224 + 20) revert PayloadTooShort();
 
-            (address target, bytes32 messageHash, bytes32 r, bytes32 s, bytes32 proof) = abi.decode(
-                _payload[32:192],
-                (address, bytes32, bytes32, bytes32, bytes32)
+            (address target, bytes32 messageHash, bytes32 r, bytes32 s, bytes32 proof, uint256 sequence) = abi.decode(
+                _payload[32:224],
+                (address, bytes32, bytes32, bytes32, bytes32, uint256)
             );
 
-            bytes calldata txPayload = _payload[192:];
+            bytes calldata txPayload = _payload[224:];
 
-            _handleExecuteIcauthz(target, messageHash, r, s, proof, _sourceAddress, txPayload);
+            _handleExecuteIcauthz(target, messageHash, r, s, proof, sequence, _sourceAddress, txPayload);
         } else if (category == 5) {
-            if (_payload.length < 192 + 20) revert PayloadTooShort();
+            if (_payload.length < 224 + 20) revert PayloadTooShort();
 
-            (address target, bytes32 messageHash, bytes32 r, bytes32 s, bytes32 proof) = abi.decode(
-                _payload[32:192],
-                (address, bytes32, bytes32, bytes32, bytes32)
+            (address target, bytes32 messageHash, bytes32 r, bytes32 s, bytes32 proof, uint256 sequence) = abi.decode(
+                _payload[32:224],
+                (address, bytes32, bytes32, bytes32, bytes32, uint256)
             );
 
-            bytes calldata txPayload = _payload[192:];
+            bytes calldata txPayload = _payload[224:];
 
-            _handleRevokeIcauthz(target, messageHash, r, s, proof, _sourceAddress, txPayload);
+            _handleRevokeIcauthz(target, messageHash, r, s, proof, sequence, _sourceAddress, txPayload);
         } else {
             revert UnsupportedCategory();
         }
@@ -116,11 +116,12 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
         bytes32 messageHash,
         bytes32 r,
         bytes32 s,
-        bytes32 proof,
+        bytes32 proof,  
+        uint256 sequence,
         string calldata sourceAddress,
         bytes calldata txPayload
     ) internal {
-        bool valid = IAccount(payable(target)).validateOperation(sourceAddress, messageHash, r, s, proof, txPayload);
+        bool valid = IAccount(payable(target)).validateOperation(sourceAddress, messageHash, r, s, proof, sequence, txPayload);
         if (!valid) {
             revert InvalidSignature();
         }
@@ -191,12 +192,13 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
         bytes32 r,
         bytes32 s,
         bytes32 proof,
+        uint256 sequence,
         string calldata sourceAddress,
         bytes calldata txPayload,
         uint32 expTimestamp,
         bytes calldata authPayload
     ) internal {
-        bool valid = IAccount(payable(target)).validateOperation(sourceAddress, messageHash, r, s, proof, txPayload);
+        bool valid = IAccount(payable(target)).validateOperation(sourceAddress, messageHash, r, s, proof, sequence, txPayload);
         if (!valid) {
             revert InvalidSignature();
         }
@@ -221,6 +223,7 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
         bytes32 r,
         bytes32 s,
         bytes32 proof,
+        uint256 sequence,
         string calldata sourceAddress,
         bytes calldata txPayload
     ) internal {
@@ -230,6 +233,7 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
             r,
             s,
             proof,
+            sequence,
             txPayload
         );
         if (!validOperation) {
@@ -269,6 +273,7 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
         bytes32 r,
         bytes32 s,
         bytes32 proof,
+        uint256 sequence,
         string calldata sourceAddress,
         bytes calldata txPayload
     ) internal {
@@ -278,6 +283,7 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
             r,
             s,
             proof,
+            sequence,
             txPayload
         );
         if (!validOperation) {
