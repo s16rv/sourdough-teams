@@ -25,6 +25,11 @@ interface IAccount {
     error InvalidAuthorization();
 
     /**
+     * @dev Error thrown when the sequence number is invalid.
+     */
+    error InvalidSequence();
+
+    /**
      * @dev Event emitted when the account is initialized.
      * @param verifier The verifier address of the account.
      */
@@ -52,6 +57,7 @@ interface IAccount {
      * @param r Part of the signature (r).
      * @param s Part of the signature (s).
      * @param proof The proof of the transaction.
+     * @param sequence The sequence number of the transaction.
      * @param data The data to pass to the destination contract.
      * @return bool indicating whether the signature is valid.
      */
@@ -61,6 +67,7 @@ interface IAccount {
         bytes32 r,
         bytes32 s,
         bytes32 proof,
+        uint256 sequence,
         bytes calldata data
     ) external view returns (bool);
 

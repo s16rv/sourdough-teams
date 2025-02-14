@@ -91,8 +91,8 @@ describe("EntryPoint", function () {
         const proof = sha256(combineHexStrings(messageHash, txPayload));
 
         const p = new AbiCoder().encode(
-            ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32"],
-            [2, accountAddress, messageHash, r, s, proof]
+            ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32", "uint256"],
+            [2, accountAddress, messageHash, r, s, proof, 0]
         );
         const payload = combineHexStrings(p, txPayload);
 

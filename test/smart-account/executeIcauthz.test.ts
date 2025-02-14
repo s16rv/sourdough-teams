@@ -92,8 +92,8 @@ describe("ExecuteIcauthz", function () {
             .solidityPacked(["uint16"], [2 + 1 + 1 + 2 + 2 + 20 + (2 + 1 + 1 + 2 + 2 + 32) + (2 + 1 + 1 + 2 + 2 + 32)])
             .slice(2);
 
-        let payloadDataType = ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32"];
-        let payloadDataValue = [3, accountAddress, messageHash, r, s, proof];
+        let payloadDataType = ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32", "uint256"];
+        let payloadDataValue = [3, accountAddress, messageHash, r, s, proof, 0];
 
         const addressEqualAuthType = ["uint16", "uint8", "uint8", "uint16", "uint16", "address"];
         const addressEqualAuthValue = [20, 2, 1, 12, 32, RECIPIENT_ADDRESS];
@@ -123,8 +123,8 @@ describe("ExecuteIcauthz", function () {
         const initialRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
 
         const q = new AbiCoder().encode(
-            ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32"],
-            [4, accountAddress, messageHash, r, s, proof]
+            ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32", "uint256"],
+            [4, accountAddress, messageHash, r, s, proof, 0]
         );
         const qPayload = combineHexStrings(q, txPayload);
 
@@ -171,8 +171,8 @@ describe("ExecuteIcauthz", function () {
             .solidityPacked(["uint16"], [(2 + 1 + 1 + 2 + 2 + 20 + (2 + 1 + 1 + 2 + 2 + 32)) * 5])
             .slice(2);
 
-        let payloadDataType = ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32"];
-        let payloadDataValue = [3, accountAddress, messageHash, r, s, proof];
+        let payloadDataType = ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32", "uint256"];
+        let payloadDataValue = [3, accountAddress, messageHash, r, s, proof, 0];
 
         const addressEqualAuthType = ["uint16", "uint8", "uint8", "uint16", "uint16", "address"];
         const addressEqualAuthValue = [20, 2, 1, 12, 32, RECIPIENT_ADDRESS];
@@ -204,8 +204,8 @@ describe("ExecuteIcauthz", function () {
         const initialRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
 
         const q = new AbiCoder().encode(
-            ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32"],
-            [4, accountAddress, messageHash, r, s, proof]
+            ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32", "uint256"],
+            [4, accountAddress, messageHash, r, s, proof, 0]
         );
         const qPayload = combineHexStrings(q, txPayload);
 
@@ -252,8 +252,8 @@ describe("ExecuteIcauthz", function () {
             .solidityPacked(["uint16"], [5 * (2 + 1 + 1 + 2 + 2 + 32 + (2 + 1 + 1 + 2 + 2 + 32))])
             .slice(2);
 
-        let payloadDataType = ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32"];
-        let payloadDataValue = [3, accountAddress, messageHash, r, s, proof];
+        let payloadDataType = ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32", "uint256"];
+        let payloadDataValue = [3, accountAddress, messageHash, r, s, proof, 0];
 
         const balanceLTEAuthType = ["uint16", "uint8", "uint8", "uint16", "uint16", "uint256"];
         const balanceLTEAuthValue = [32, 1, 2, 32, 64, parseEther("5.0")];
@@ -284,8 +284,8 @@ describe("ExecuteIcauthz", function () {
         const initialRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
 
         const q = new AbiCoder().encode(
-            ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32"],
-            [4, accountAddress, messageHash, r, s, proof]
+            ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32", "uint256"],
+            [4, accountAddress, messageHash, r, s, proof, 0]
         );
         const qPayload = combineHexStrings(q, txPayload);
 
@@ -332,8 +332,8 @@ describe("ExecuteIcauthz", function () {
 
         const authLengthPacked = ethers.solidityPacked(["uint16"], [(2 + 1 + 1 + 2 + 2 + 32) * 10]).slice(2);
 
-        let payloadDataType = ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32"];
-        let payloadDataValue = [3, accountAddress, messageHash, r, s, proof];
+        let payloadDataType = ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32", "uint256"];
+        let payloadDataValue = [3, accountAddress, messageHash, r, s, proof, 0];
 
         const balanceSumDailyAuthType = ["uint16", "uint8", "uint8", "uint16", "uint16", "uint256"];
         const balanceSumDailyAuthValue = [32, 1, 4, 32, 64, parseEther("20.0")];
@@ -361,8 +361,8 @@ describe("ExecuteIcauthz", function () {
         const initialRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
 
         const q = new AbiCoder().encode(
-            ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32"],
-            [4, accountAddress, messageHash, r, s, proof]
+            ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32", "uint256"],
+            [4, accountAddress, messageHash, r, s, proof, 0]
         );
         const qPayload = combineHexStrings(q, txPayload);
 
@@ -408,8 +408,8 @@ describe("ExecuteIcauthz", function () {
             .solidityPacked(["uint16"], [(2 + 1 + 1 + 2 + 2 + 20 + (2 + 1 + 1 + 2 + 2 + 32)) * 10])
             .slice(2);
 
-        let payloadDataType = ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32"];
-        let payloadDataValue = [3, accountAddress, messageHash, r, s, proof];
+        let payloadDataType = ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32", "uint256"];
+        let payloadDataValue = [3, accountAddress, messageHash, r, s, proof, 0];
 
         const addressEqualAuthType = ["uint16", "uint8", "uint8", "uint16", "uint16", "address"];
         const addressEqualAuthValue = [20, 2, 1, 12, 32, RECIPIENT_ADDRESS];
@@ -441,8 +441,8 @@ describe("ExecuteIcauthz", function () {
         const initialRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
 
         const q = new AbiCoder().encode(
-            ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32"],
-            [4, accountAddress, messageHash, r, s, proof]
+            ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32", "uint256"],
+            [4, accountAddress, messageHash, r, s, proof, 0]
         );
         const qPayload = combineHexStrings(q, txPayload);
 
@@ -489,8 +489,8 @@ describe("ExecuteIcauthz", function () {
             .solidityPacked(["uint16"], [10 * (2 + 1 + 1 + 2 + 2 + 32 + (2 + 1 + 1 + 2 + 2 + 32))])
             .slice(2);
 
-        let payloadDataType = ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32"];
-        let payloadDataValue = [3, accountAddress, messageHash, r, s, proof];
+        let payloadDataType = ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32", "uint256"];
+        let payloadDataValue = [3, accountAddress, messageHash, r, s, proof, 0];
 
         const balanceLTEAuthType = ["uint16", "uint8", "uint8", "uint16", "uint16", "uint256"];
         const balanceLTEAuthValue = [32, 1, 2, 32, 64, parseEther("5.0")];
@@ -522,8 +522,8 @@ describe("ExecuteIcauthz", function () {
         const initialRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
 
         const q = new AbiCoder().encode(
-            ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32"],
-            [4, accountAddress, messageHash, r, s, proof]
+            ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32", "uint256"],
+            [4, accountAddress, messageHash, r, s, proof, 0]
         );
         const qPayload = combineHexStrings(q, txPayload);
 
@@ -570,8 +570,8 @@ describe("ExecuteIcauthz", function () {
 
         const authLengthPacked = ethers.solidityPacked(["uint16"], [(2 + 1 + 1 + 2 + 2 + 32) * 20]).slice(2);
 
-        let payloadDataType = ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32"];
-        let payloadDataValue = [3, accountAddress, messageHash, r, s, proof];
+        let payloadDataType = ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32", "uint256"];
+        let payloadDataValue = [3, accountAddress, messageHash, r, s, proof, 0];
 
         const balanceSumDailyAuthType = ["uint16", "uint8", "uint8", "uint16", "uint16", "uint256"];
         const balanceSumDailyAuthValue = [32, 1, 4, 32, 64, parseEther("20.0")];
@@ -600,8 +600,8 @@ describe("ExecuteIcauthz", function () {
         const initialRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
 
         const q = new AbiCoder().encode(
-            ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32"],
-            [4, accountAddress, messageHash, r, s, proof]
+            ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32", "uint256"],
+            [4, accountAddress, messageHash, r, s, proof, 0]
         );
         const qPayload = combineHexStrings(q, txPayload);
 

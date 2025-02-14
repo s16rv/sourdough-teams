@@ -13,6 +13,7 @@ const PUBLIC_KEY_Y = "0x87b9efdb5c81e067890e9439bdf717cf1c22adfe29d802050a11414d
 
 const SOURCE_ADDRESS = "neutron1chcktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
 const SOURCE_ADDRESS_HASH = keccak256(toUtf8Bytes(SOURCE_ADDRESS));
+const SEQUENCE = 0;
 
 describe("Account", function () {
     let account: Account;
@@ -61,7 +62,7 @@ describe("Account", function () {
         const data =
             "0x000000000000000000000000aa25aa7a19f9c426e07dee59b12f944f4d9f1dd3000000000000000000000000000000000000000000000000002386f26fc1000000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000000";
 
-        const isValid = await account.validateOperation(SOURCE_ADDRESS, messageHash, r, s, proof, data);
+        const isValid = await account.validateOperation(SOURCE_ADDRESS, messageHash, r, s, proof, SEQUENCE, data);
         expect(isValid).to.be.true;
     });
 
@@ -73,7 +74,7 @@ describe("Account", function () {
         const data = "0x000000000000000000000000";
 
         await expect(
-            account.validateOperation(SOURCE_ADDRESS, messageHash, r, s, proof, data)
+            account.validateOperation(SOURCE_ADDRESS, messageHash, r, s, proof, SEQUENCE, data)
         ).to.be.revertedWithCustomError(account, "InvalidProof");
     });
 
@@ -85,7 +86,7 @@ describe("Account", function () {
         const data =
             "0x000000000000000000000000aa25aa7a19f9c426e07dee59b12f944f4d9f1dd3000000000000000000000000000000000000000000000000002386f26fc1000000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000000";
 
-        const isValid = await account.validateOperation(SOURCE_ADDRESS, messageHash, r, s, proof, data);
+        const isValid = await account.validateOperation(SOURCE_ADDRESS, messageHash, r, s, proof, SEQUENCE, data);
         expect(isValid).to.be.false;
     });
 
@@ -93,12 +94,16 @@ describe("Account", function () {
         const amountToSend = parseEther("0.001");
         const initialRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
 
+        expect(await account.accountSequence()).to.equal(0);
+
         await expect(account.connect(recover).executeTransaction(RECIPIENT_ADDRESS, amountToSend, "0x"))
             .to.emit(account, "TransactionExecuted")
             .withArgs(RECIPIENT_ADDRESS, amountToSend, "0x");
 
         const finalRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
         expect(finalRecipientBalance).to.equal(initialRecipientBalance + amountToSend);
+
+        expect(await account.accountSequence()).to.equal(1);
     });
 
     it("Should not execute transaction using stranger account", async function () {
