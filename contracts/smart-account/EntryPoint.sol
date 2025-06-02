@@ -57,12 +57,12 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
 
             _createAccount(recover, x, y, threshold, _sourceAddress);
         } else if (category == 2) {
-            (address target, bytes32 messageHash, uint256 numberSigners) = abi.decode(
-                _payload[32:128],
-                (address, bytes32, uint256)
+            (address target, bytes32 messageHash, bytes32 proof, uint256 sequence, uint256 numberSigners) = abi.decode(
+                _payload[32:192],
+                (address, bytes32, bytes32, uint256, uint256)
             );
 
-            uint256 offset = 128;
+            uint256 offset = 192;
 
             // Dynamic arrays for r, s, x, y based on the number of signers
             bytes32[] memory r = new bytes32[](numberSigners);
@@ -78,14 +78,9 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
                 (r[i], s[i], x[i], y[i]) = abi.decode(_payload[index:index + 128], (bytes32, bytes32, bytes32, bytes32));
             }
 
-            uint256 start = offset + numberSigners * 128;
+            uint256 txPayloadOffset = offset + numberSigners * 128;
 
-            (bytes32 proof, uint256 sequence) = abi.decode(
-                _payload[start:start + 64],
-                (bytes32, uint256)
-            );
-
-            bytes calldata txPayload = _payload[start + 64:];
+            bytes calldata txPayload = _payload[txPayloadOffset:];
 
             _handleTransaction(target, messageHash, r, s, x, y, proof, sequence, _sourceAddress, txPayload);
         } else if (category == 3) {

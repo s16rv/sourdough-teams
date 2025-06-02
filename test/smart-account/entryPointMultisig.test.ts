@@ -115,6 +115,8 @@ describe("EntryPointMultisig", function () {
                 "uint8",
                 "address",
                 "bytes32",
+                "bytes32",
+                "uint256",
                 "uint256",
                 "bytes32",
                 "bytes32",
@@ -124,13 +126,13 @@ describe("EntryPointMultisig", function () {
                 "bytes32",
                 "bytes32",
                 "bytes32",
-                "bytes32",
-                "uint256",
             ],
             [
                 2,
                 accountAddress,
                 messageHash,
+                proof,
+                0,
                 numberSigners,
                 r[0],
                 s[0],
@@ -140,8 +142,6 @@ describe("EntryPointMultisig", function () {
                 s[1],
                 PUBLIC_KEY_X[1],
                 PUBLIC_KEY_Y[1],
-                proof,
-                0,
             ]
         );
         const payload = combineHexStrings(p, txPayload);
