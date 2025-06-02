@@ -22,39 +22,27 @@ contract AccountFactory is IAccountFactory {
      *      The account is deployed using the CREATE2 opcode for address predictability.
      * @param recover The address with recovery rights for the account.
      * @param entryPoint The address of the entry point contract.
-     * @param messageHash The hash of the message to verify the signer's identity.
-     * @param r The r part of the signature.
-     * @param s The s part of the signature.
      * @param x The x part of the public key.
      * @param y The y part of the public key.
+     * @param threshold The threshold of the account.
      * @param sourceAddress The address on the source chain where the transaction originated.
      * @return accountAddress The address of the newly created account contract.
      */
     function createAccount(
         address recover,
         address entryPoint,
-        bytes32 messageHash,
-        bytes32 r,
-        bytes32 s,
-        bytes32 x,
-        bytes32 y,
+        bytes32[] memory x,
+        bytes32[] memory y,
+        uint256 threshold,
         string calldata sourceAddress
     ) external returns (address) {
-        bool isValidSignature = SignatureVerifier.verifySignature(
-            verifier,
-            messageHash,
-            r,
-            s,
-            x,
-            y
-        );
-        if (!isValidSignature) revert InvalidSignature();
+        if (threshold == 0 || threshold > x.length) revert InvalidThreshold();
 
         bytes32 addrHash = keccak256(abi.encodePacked(sourceAddress));
-        address accAddr = _deployAccount(recover, entryPoint, x, y, addrHash);
+        address accAddr = _deployAccount(recover, entryPoint, x, y, addrHash, threshold);
 
         // Store the new account
-        storeAccount(x, y, addrHash, accAddr);
+        storeAccount(x, y, addrHash, accAddr, threshold);
 
         return accAddr;
     }
@@ -71,13 +59,14 @@ contract AccountFactory is IAccountFactory {
     function _deployAccount(
         address recover,
         address entryPoint,
-        bytes32 x,
-        bytes32 y,
-        bytes32 addrHash
+        bytes32[] memory x,
+        bytes32[] memory y,
+        bytes32 addrHash,
+        uint256 threshold
     ) internal returns (address) {
         bytes memory bytecode = abi.encodePacked(
             type(Account).creationCode,
-            abi.encode(verifier, recover, entryPoint, x, y, addrHash)
+            abi.encode(verifier, recover, entryPoint, x, y, addrHash, threshold)
         );
 
         // Use CREATE2 to deploy the contract with the provided salt
@@ -98,18 +87,20 @@ contract AccountFactory is IAccountFactory {
      * @param x The x part of the public key.
      * @param y The y part of the public key.
      * @param addrHash The hash address on the source chain where the transaction originated.
+     * @param threshold The threshold of the account.
      * @return The address at which the contract would be deployed.
      */
     function computeAddress(
         address recover,
         address entryPoint,
-        bytes32 x,
-        bytes32 y,
-        bytes32 addrHash
+        bytes32[] memory x,
+        bytes32[] memory y,
+        bytes32 addrHash,
+        uint256 threshold
     ) external view returns (address) {
         bytes memory bytecode = abi.encodePacked(
             type(Account).creationCode,
-            abi.encode(verifier, recover, entryPoint, x, y, addrHash)
+            abi.encode(verifier, recover, entryPoint, x, y, addrHash, threshold)
         );
         bytes32 hash = keccak256(abi.encodePacked(bytes1(0xff), address(this), addrHash, keccak256(bytecode)));
         return address(uint160(uint256(hash)));
@@ -123,22 +114,23 @@ contract AccountFactory is IAccountFactory {
      * @return An account address created by the signer.
      */
     function getAccount(
-        bytes32 x,
-        bytes32 y,
-        bytes32 addrHash
+        bytes32[] memory x,
+        bytes32[] memory y,
+        bytes32 addrHash,
+        uint256 threshold
     ) external view returns (address) {
-        bytes32 key = keccak256(abi.encodePacked(x, y, addrHash));
+        bytes32 key = keccak256(abi.encodePacked(x, y, addrHash, threshold));
         return account[key];
     }
 
     function storeAccount(
-        bytes32 x,
-        bytes32 y,
+        bytes32[] memory x,
+        bytes32[] memory y,
         bytes32 addrHash,
-        address accAddr
-        
+        address accAddr,
+        uint256 threshold
     ) internal {
-        bytes32 key = keccak256(abi.encodePacked(x, y, addrHash));
+        bytes32 key = keccak256(abi.encodePacked(x, y, addrHash, threshold));
         account[key] = accAddr;
     }
 }

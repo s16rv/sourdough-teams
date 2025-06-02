@@ -3,7 +3,7 @@ import { expect } from "chai";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { keccak256, toUtf8Bytes } from "ethers";
 
-import { AccountFactory, Secp256k1Verifier } from "../../typechain-types";
+import { AccountFactory2, Secp256k1Verifier } from "../../typechain-types";
 
 const ENTRYPOINT_ADDRESS = "0x3bd70e10d71c6e882e3c1809d26a310d793646eb";
 
@@ -17,8 +17,8 @@ const SOURCE_ADDRESS2_HASH = keccak256(toUtf8Bytes(SOURCE_ADDRESS2));
 
 const THRESHOLD = 1;
 
-describe("AccountFactory", function () {
-    let accountFactory: AccountFactory;
+describe("AccountFactory2", function () {
+    let accountFactory: AccountFactory2;
     let verifier: Secp256k1Verifier;
     let recover: HardhatEthersSigner;
 
@@ -29,7 +29,7 @@ describe("AccountFactory", function () {
         verifier = await Secp256k1VerifierContract.deploy();
         await verifier.waitForDeployment();
 
-        const AccountFactoryContract = await hre.ethers.getContractFactory("AccountFactory");
+        const AccountFactoryContract = await hre.ethers.getContractFactory("AccountFactory2");
         accountFactory = await AccountFactoryContract.deploy(verifier.target);
         await accountFactory.waitForDeployment();
     });
@@ -56,9 +56,14 @@ describe("AccountFactory", function () {
     });
 
     it("Should create account", async function () {
+        const messageHash = "0x87ed53f4eef3fd7cb1497e8671057c2859417487c0ee8b037ebd1be45075c001";
+        const r = ["0xc07088b681723e98dbc11648ffa5646f80cfaff291120e90ffd75337093f4227"];
+        const s = ["0x6ffd64cf200433e89b12036119d2777c92b1903cf8579b70e873d03fa1844aa1"];
+
         await accountFactory.createAccount(
             recover.address,
             ENTRYPOINT_ADDRESS,
+            messageHash,
             PUBLIC_KEY_X,
             PUBLIC_KEY_Y,
             THRESHOLD,
@@ -79,9 +84,14 @@ describe("AccountFactory", function () {
     });
 
     it("Should create two different accounts", async function () {
+        const messageHash = "0x87ed53f4eef3fd7cb1497e8671057c2859417487c0ee8b037ebd1be45075c001";
+        const r = ["0xc07088b681723e98dbc11648ffa5646f80cfaff291120e90ffd75337093f4227"];
+        const s = ["0x6ffd64cf200433e89b12036119d2777c92b1903cf8579b70e873d03fa1844aa1"];
+
         await accountFactory.createAccount(
             recover.address,
             ENTRYPOINT_ADDRESS,
+            messageHash,
             PUBLIC_KEY_X,
             PUBLIC_KEY_Y,
             THRESHOLD,
@@ -91,6 +101,7 @@ describe("AccountFactory", function () {
         await accountFactory.createAccount(
             recover.address,
             ENTRYPOINT_ADDRESS,
+            messageHash,
             PUBLIC_KEY_X,
             PUBLIC_KEY_Y,
             THRESHOLD,

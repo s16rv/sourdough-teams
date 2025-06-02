@@ -5,6 +5,18 @@ import "../util/Authorization.sol";
 
 interface IAccount {
     /**
+     * @dev Error thrown when the signature is invalid.
+     */
+    error InvalidSignature();
+    /**
+     * @dev Error thrown when the threshold is invalid.
+     */
+    error InvalidThreshold();
+    /**
+     * @dev Error thrown when the public key is invalid.
+     */
+    error InvalidPubKey();
+    /**
      * @dev Error thrown when a call is made by an unauthorized address.
      */
     error NotEntryPointOrRecover();
@@ -64,8 +76,10 @@ interface IAccount {
     function validateOperation(
         string calldata sourceAddress,
         bytes32 messageHash,
-        bytes32 r,
-        bytes32 s,
+        bytes32[] memory r,
+        bytes32[] memory s,
+        bytes32[] memory x,
+        bytes32[] memory y,
         bytes32 proof,
         uint256 sequence,
         bytes calldata data

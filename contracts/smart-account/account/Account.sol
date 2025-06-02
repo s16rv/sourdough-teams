@@ -10,9 +10,10 @@ contract Account is IAccount {
     address public immutable recover;
     address private immutable verifier;
     EntryPoint private immutable entryPoint;
-    bytes32 private immutable x;
-    bytes32 private immutable y;
+    bytes32[] private xPubKeys;
+    bytes32[] private yPubKeys;
     bytes32 private immutable addrHash;
+    uint256 private threshold;
     uint256 public accountSequence;
 
     uint32 private expirationTimestamp;
@@ -30,21 +31,24 @@ contract Account is IAccount {
      * @param _x The x part of the public key.
      * @param _y The y part of the public key.
      * @param _addrHash The hash of address on the source chain where the transaction originated.
+     * @param _threshold The threshold of the account.
      */
     constructor(
         address _verifierAddr,
         address _recoverAddr,
         address _entryPointAddr,
-        bytes32 _x,
-        bytes32 _y,
-        bytes32 _addrHash
+        bytes32[] memory _x,
+        bytes32[] memory _y,
+        bytes32 _addrHash,
+        uint256 _threshold
     ) {
         verifier = _verifierAddr;
         recover = _recoverAddr;
         entryPoint = EntryPoint(_entryPointAddr);
-        x = _x;
-        y = _y;
+        xPubKeys = _x;
+        yPubKeys = _y;
         addrHash = _addrHash;
+        threshold = _threshold;
 
         emit AccountInitialized(verifier);
     }
@@ -91,8 +95,10 @@ contract Account is IAccount {
     function validateOperation(
         string calldata sourceAddress,
         bytes32 messageHash,
-        bytes32 r,
-        bytes32 s,
+        bytes32[] memory r,
+        bytes32[] memory s,
+        bytes32[] memory x,
+        bytes32[] memory y,
         bytes32 proof,
         uint256 sequence,
         bytes calldata data
@@ -110,7 +116,45 @@ contract Account is IAccount {
             revert InvalidProof();
         }
 
-        return SignatureVerifier.verifySignature(verifier, messageHash, r, s, x, y);
+        if (x.length != y.length) {
+            revert InvalidPubKey();
+        }
+
+        if (x.length != r.length || x.length != s.length) {
+            revert InvalidSignature();
+        }
+
+        if (x.length < threshold) {
+            revert InvalidThreshold();
+        }
+
+        // check if x and y is included in the xPubKeys and yPubKeys
+        for (uint256 i = 0; i < x.length; i++) {
+            for (uint256 j = 0; j < xPubKeys.length; j++) {
+                if (x[i] == xPubKeys[j] && y[i] == yPubKeys[j]) {
+                    break;
+                }
+                if (j == xPubKeys.length - 1) {
+                    revert InvalidPubKey();
+                }
+            }
+        }
+
+        for (uint256 i = 0; i < x.length; i++) {
+            bool isValidSignature = SignatureVerifier.verifySignature(
+                verifier,
+                messageHash,
+                r[i],
+                s[i],
+                x[i],
+                y[i]
+            );
+            if (!isValidSignature) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
@@ -144,16 +188,16 @@ contract Account is IAccount {
      * @dev Returns the x part of the public key.
      * @return The x part of the public key.
      */
-    function getX() public view returns (bytes32) {
-        return x;
+    function getX() public view returns (bytes32[] memory) {
+        return xPubKeys;
     }
 
     /**
      * @dev Returns the y part of the public key.
      * @return The y part of the public key.
      */
-    function getY() public view returns (bytes32) {
-        return y;
+    function getY() public view returns (bytes32[] memory) {
+        return yPubKeys;
     }
 
     /**

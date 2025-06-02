@@ -3,7 +3,7 @@ import { expect } from "chai";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { encodeBytes32String, AbiCoder, parseEther, sha256, toUtf8Bytes, keccak256 } from "ethers";
 
-import { Account, EntryPoint } from "../../typechain-types";
+import { Account2, EntryPoint2 } from "../../typechain-types";
 import { combineHexStrings } from "../utils/lib";
 
 describe("EntryPoint", function () {
@@ -17,9 +17,9 @@ describe("EntryPoint", function () {
     const SOURCE_ADDRESS = "neutron1chcktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
     const SOURCE_ADDRESS_HASH = keccak256(toUtf8Bytes(SOURCE_ADDRESS));
 
-    let entryPoint: EntryPoint;
+    let entryPoint: EntryPoint2;
     let recover: HardhatEthersSigner;
-    let account: Account;
+    let account: Account2;
 
     beforeEach(async function () {
         [recover] = await hre.ethers.getSigners();
@@ -31,28 +31,30 @@ describe("EntryPoint", function () {
         const verifier = await Secp256k1VerifierContract.deploy();
         await verifier.waitForDeployment();
 
-        const AccountFactoryContract = await hre.ethers.getContractFactory("AccountFactory");
+        const AccountFactoryContract = await hre.ethers.getContractFactory("AccountFactory2");
         const accountFactory = await AccountFactoryContract.deploy(verifier.target);
         await accountFactory.waitForDeployment();
 
-        const EntryPointContract = await hre.ethers.getContractFactory("EntryPoint");
+        const EntryPointContract = await hre.ethers.getContractFactory("EntryPoint2");
         entryPoint = await EntryPointContract.deploy(mockGateway.target, accountFactory.target);
         await entryPoint.waitForDeployment();
 
         const commandId = encodeBytes32String("commandId");
         const sourceChain = "sourceChain";
 
+        const messageHash = "0x87ed53f4eef3fd7cb1497e8671057c2859417487c0ee8b037ebd1be45075c001";
+
         const payload = new AbiCoder().encode(
-            ["uint8", "address", "uint256", "uint256", "bytes32", "bytes32"],
-            [1, recover.address, totalSigners, THRESHOLD, PUBLIC_KEY_X[0], PUBLIC_KEY_Y[0]]
+            ["uint8", "address", "bytes32", "uint256", "uint256", "bytes32", "bytes32"],
+            [1, recover.address, messageHash, totalSigners, THRESHOLD, PUBLIC_KEY_X[0], PUBLIC_KEY_Y[0]]
         );
 
         await mockGateway.setCallValid(true);
         await entryPoint.execute(commandId, sourceChain, SOURCE_ADDRESS, payload);
         const accountAddr = await accountFactory.getAccount(PUBLIC_KEY_X, PUBLIC_KEY_Y, SOURCE_ADDRESS_HASH, THRESHOLD);
 
-        const AccountContract = await hre.ethers.getContractFactory("Account");
-        account = AccountContract.attach(accountAddr) as Account;
+        const AccountContract = await hre.ethers.getContractFactory("Account2");
+        account = AccountContract.attach(accountAddr) as Account2;
 
         await recover.sendTransaction({
             to: accountAddr,

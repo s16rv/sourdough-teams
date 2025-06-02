@@ -6,13 +6,19 @@ import { encodeBytes32String, AbiCoder, parseEther, sha256, toUtf8Bytes, keccak2
 import { Account, EntryPoint } from "../../typechain-types";
 import { combineHexStrings } from "../utils/lib";
 
-describe("EntryPoint", function () {
+describe("EntryPointMultisig", function () {
     const RECIPIENT_ADDRESS = "0xaa25Aa7a19f9c426E07dee59b12f944f4d9f1DD3";
 
-    const totalSigners = 1;
-    const PUBLIC_KEY_X = ["0x90be7fe886c748be80e98b340d1418d0bfe7865675ee597d9d850526520085f0"];
-    const PUBLIC_KEY_Y = ["0x87b9efdb5c81e067890e9439bdf717cf1c22adfe29d802050a11414d66b6e338"];
-    const THRESHOLD = 1;
+    const totalSigners = 2;
+    const PUBLIC_KEY_X = [
+        "0x90be7fe886c748be80e98b340d1418d0bfe7865675ee597d9d850526520085f0",
+        "0x90be7fe886c748be80e98b340d1418d0bfe7865675ee597d9d850526520085f0",
+    ];
+    const PUBLIC_KEY_Y = [
+        "0x87b9efdb5c81e067890e9439bdf717cf1c22adfe29d802050a11414d66b6e338",
+        "0x87b9efdb5c81e067890e9439bdf717cf1c22adfe29d802050a11414d66b6e338",
+    ];
+    const THRESHOLD = 2;
 
     const SOURCE_ADDRESS = "neutron1chcktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
     const SOURCE_ADDRESS_HASH = keccak256(toUtf8Bytes(SOURCE_ADDRESS));
@@ -43,8 +49,17 @@ describe("EntryPoint", function () {
         const sourceChain = "sourceChain";
 
         const payload = new AbiCoder().encode(
-            ["uint8", "address", "uint256", "uint256", "bytes32", "bytes32"],
-            [1, recover.address, totalSigners, THRESHOLD, PUBLIC_KEY_X[0], PUBLIC_KEY_Y[0]]
+            ["uint8", "address", "uint256", "uint256", "bytes32", "bytes32", "bytes32", "bytes32"],
+            [
+                1,
+                recover.address,
+                totalSigners,
+                THRESHOLD,
+                PUBLIC_KEY_X[0],
+                PUBLIC_KEY_Y[0],
+                PUBLIC_KEY_X[1],
+                PUBLIC_KEY_Y[1],
+            ]
         );
 
         await mockGateway.setCallValid(true);
@@ -72,9 +87,15 @@ describe("EntryPoint", function () {
 
     it("should execute transactions from Account contract", async function () {
         const messageHash = "0xcc61a33a7a9ace63fa4c5e74f9db3080c7ef68dd53e75dfb311bc28381830c2f";
-        const r = ["0x87df5d0e314c3fe01b3dc136b3afe1659e02316f8d189f0b68983b7f90cd9b61"];
-        const s = ["0x7d2212755fb0db4f8e9a3343d264942d14c5e75471245b0419f29ce10355b08b"];
-        const numberSigners = 1;
+        const r = [
+            "0x87df5d0e314c3fe01b3dc136b3afe1659e02316f8d189f0b68983b7f90cd9b61",
+            "0x87df5d0e314c3fe01b3dc136b3afe1659e02316f8d189f0b68983b7f90cd9b61",
+        ];
+        const s = [
+            "0x7d2212755fb0db4f8e9a3343d264942d14c5e75471245b0419f29ce10355b08b",
+            "0x7d2212755fb0db4f8e9a3343d264942d14c5e75471245b0419f29ce10355b08b",
+        ];
+        const numberSigners = 2;
 
         const initialRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
         const amountToSend = parseEther("1.0");
@@ -100,9 +121,28 @@ describe("EntryPoint", function () {
                 "bytes32",
                 "bytes32",
                 "bytes32",
+                "bytes32",
+                "bytes32",
+                "bytes32",
+                "bytes32",
                 "uint256",
             ],
-            [2, accountAddress, messageHash, numberSigners, r[0], s[0], PUBLIC_KEY_X[0], PUBLIC_KEY_Y[0], proof, 0]
+            [
+                2,
+                accountAddress,
+                messageHash,
+                numberSigners,
+                r[0],
+                s[0],
+                PUBLIC_KEY_X[0],
+                PUBLIC_KEY_Y[0],
+                r[1],
+                s[1],
+                PUBLIC_KEY_X[1],
+                PUBLIC_KEY_Y[1],
+                proof,
+                0,
+            ]
         );
         const payload = combineHexStrings(p, txPayload);
 

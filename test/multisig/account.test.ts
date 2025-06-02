@@ -3,7 +3,7 @@ import { expect } from "chai";
 import { keccak256, parseEther, toUtf8Bytes } from "ethers";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 
-import { Account, Secp256k1Verifier } from "../../typechain-types";
+import { Account2, Secp256k1Verifier } from "../../typechain-types";
 
 describe("Account", function () {
     const ENTRYPOINT_ADDRESS = "0x3bd70e10d71c6e882e3c1809d26a310d793646eb";
@@ -17,7 +17,7 @@ describe("Account", function () {
     const SEQUENCE = 0;
     const THRESHOLD = 1;
 
-    let account: Account;
+    let account: Account2;
     let verifier: Secp256k1Verifier;
     let recover: HardhatEthersSigner;
     let stranger: HardhatEthersSigner;
@@ -29,7 +29,7 @@ describe("Account", function () {
         verifier = await Secp256k1VerifierContract.deploy();
         await verifier.waitForDeployment();
 
-        const AccountContract = await hre.ethers.getContractFactory("Account");
+        const AccountContract = await hre.ethers.getContractFactory("Account2");
         account = await AccountContract.deploy(
             verifier.target,
             recover.address,
@@ -169,7 +169,7 @@ describe("Account Multisig", function () {
     const SEQUENCE = 0;
     const THRESHOLD = 1;
 
-    let account: Account;
+    let account: Account2;
     let verifier: Secp256k1Verifier;
     let recover: HardhatEthersSigner;
     let stranger: HardhatEthersSigner;
@@ -181,7 +181,7 @@ describe("Account Multisig", function () {
         verifier = await Secp256k1VerifierContract.deploy();
         await verifier.waitForDeployment();
 
-        const AccountContract = await hre.ethers.getContractFactory("Account");
+        const AccountContract = await hre.ethers.getContractFactory("Account2");
         account = await AccountContract.deploy(
             verifier.target,
             recover.address,
