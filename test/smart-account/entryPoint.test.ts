@@ -43,7 +43,7 @@ describe("EntryPoint", function () {
         const sourceChain = "sourceChain";
 
         const payload = new AbiCoder().encode(
-            ["uint8", "address", "uint256", "uint256", "bytes32", "bytes32"],
+            ["uint8", "address", "uint64", "uint64", "bytes32", "bytes32"],
             [1, recover.address, totalSigners, THRESHOLD, PUBLIC_KEY_X[0], PUBLIC_KEY_Y[0]]
         );
 
@@ -90,18 +90,7 @@ describe("EntryPoint", function () {
         const proof = sha256(combineHexStrings(messageHash, txPayload));
 
         const p = new AbiCoder().encode(
-            [
-                "uint8",
-                "address",
-                "bytes32",
-                "bytes32",
-                "uint256",
-                "uint256",
-                "bytes32",
-                "bytes32",
-                "bytes32",
-                "bytes32",
-            ],
+            ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
             [2, accountAddress, messageHash, proof, 0, numberSigners, r[0], s[0], PUBLIC_KEY_X[0], PUBLIC_KEY_Y[0]]
         );
         const payload = combineHexStrings(p, txPayload);

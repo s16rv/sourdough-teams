@@ -33,7 +33,7 @@ contract AccountFactory is IAccountFactory {
         address entryPoint,
         bytes32[] memory x,
         bytes32[] memory y,
-        uint256 threshold,
+        uint64 threshold,
         string calldata sourceAddress
     ) external returns (address) {
         if (threshold == 0 || threshold > x.length) revert InvalidThreshold();
@@ -62,7 +62,7 @@ contract AccountFactory is IAccountFactory {
         bytes32[] memory x,
         bytes32[] memory y,
         bytes32 addrHash,
-        uint256 threshold
+        uint64 threshold
     ) internal returns (address) {
         bytes memory bytecode = abi.encodePacked(
             type(Account).creationCode,
@@ -96,7 +96,7 @@ contract AccountFactory is IAccountFactory {
         bytes32[] memory x,
         bytes32[] memory y,
         bytes32 addrHash,
-        uint256 threshold
+        uint64 threshold
     ) external view returns (address) {
         bytes memory bytecode = abi.encodePacked(
             type(Account).creationCode,
@@ -117,7 +117,7 @@ contract AccountFactory is IAccountFactory {
         bytes32[] memory x,
         bytes32[] memory y,
         bytes32 addrHash,
-        uint256 threshold
+        uint64 threshold
     ) external view returns (address) {
         bytes32 key = keccak256(abi.encodePacked(x, y, addrHash, threshold));
         return account[key];
@@ -128,7 +128,7 @@ contract AccountFactory is IAccountFactory {
         bytes32[] memory y,
         bytes32 addrHash,
         address accAddr,
-        uint256 threshold
+        uint64 threshold
     ) internal {
         bytes32 key = keccak256(abi.encodePacked(x, y, addrHash, threshold));
         account[key] = accAddr;

@@ -13,8 +13,8 @@ contract Account is IAccount {
     bytes32[] private xPubKeys;
     bytes32[] private yPubKeys;
     bytes32 private immutable addrHash;
-    uint256 private threshold;
-    uint256 public accountSequence;
+    uint64 private threshold;
+    uint64 public accountSequence;
 
     uint32 private expirationTimestamp;
     bytes private contractData;
@@ -40,7 +40,7 @@ contract Account is IAccount {
         bytes32[] memory _x,
         bytes32[] memory _y,
         bytes32 _addrHash,
-        uint256 _threshold
+        uint64 _threshold
     ) {
         verifier = _verifierAddr;
         recover = _recoverAddr;
@@ -100,7 +100,7 @@ contract Account is IAccount {
         bytes32[] memory x,
         bytes32[] memory y,
         bytes32 proof,
-        uint256 sequence,
+        uint64 sequence,
         bytes calldata data
     ) external view returns (bool) {
         if (!compareSourceAddress(sourceAddress)) {
@@ -129,8 +129,8 @@ contract Account is IAccount {
         }
 
         // check if x and y is included in the xPubKeys and yPubKeys
-        for (uint256 i = 0; i < x.length; i++) {
-            for (uint256 j = 0; j < xPubKeys.length; j++) {
+        for (uint64 i = 0; i < x.length; i++) {
+            for (uint64 j = 0; j < xPubKeys.length; j++) {
                 if (x[i] == xPubKeys[j] && y[i] == yPubKeys[j]) {
                     break;
                 }
@@ -140,7 +140,7 @@ contract Account is IAccount {
             }
         }
 
-        for (uint256 i = 0; i < x.length; i++) {
+        for (uint64 i = 0; i < x.length; i++) {
             bool isValidSignature = SignatureVerifier.verifySignature(
                 verifier,
                 messageHash,

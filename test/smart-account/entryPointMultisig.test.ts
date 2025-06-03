@@ -49,7 +49,7 @@ describe("EntryPointMultisig", function () {
         const sourceChain = "sourceChain";
 
         const payload = new AbiCoder().encode(
-            ["uint8", "address", "uint256", "uint256", "bytes32", "bytes32", "bytes32", "bytes32"],
+            ["uint8", "address", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
             [
                 1,
                 recover.address,
@@ -116,8 +116,8 @@ describe("EntryPointMultisig", function () {
                 "address",
                 "bytes32",
                 "bytes32",
-                "uint256",
-                "uint256",
+                "uint64",
+                "uint64",
                 "bytes32",
                 "bytes32",
                 "bytes32",

@@ -81,7 +81,7 @@ interface IAccount {
         bytes32[] memory x,
         bytes32[] memory y,
         bytes32 proof,
-        uint256 sequence,
+        uint64 sequence,
         bytes calldata data
     ) external view returns (bool);
 

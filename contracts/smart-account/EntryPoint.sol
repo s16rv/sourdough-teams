@@ -36,20 +36,20 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
         uint8 category = abi.decode(_payload[:32], (uint8));
 
         if (category == 1) {
-            (address recover, uint256 totalSigners, uint256 threshold) = abi.decode(
+            (address recover, uint64 totalSigners, uint64 threshold) = abi.decode(
             _payload[32:128],
-            (address, uint256, uint256)
+            (address, uint64, uint64)
             );
 
-            uint256 offset = 128;
+            uint64 offset = 128;
 
             // Dynamic arrays for x, y based on the total signers
             bytes32[] memory x = new bytes32[](totalSigners);
             bytes32[] memory y = new bytes32[](totalSigners);
 
             // Loop through the total signers to extract their public keys
-            for (uint256 i = 0; i < totalSigners ; i++) {
-                uint256 index = offset + i * 64; // Each signer consists of 64 bytes
+            for (uint64 i = 0; i < totalSigners ; i++) {
+                uint64 index = offset + i * 64; // Each signer consists of 64 bytes
 
                 // Decode x, y for the current signer
                 (x[i], y[i]) = abi.decode(_payload[index:index + 64], (bytes32, bytes32));
@@ -57,12 +57,12 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
 
             _createAccount(recover, x, y, threshold, _sourceAddress);
         } else if (category == 2) {
-            (address target, bytes32 messageHash, bytes32 proof, uint256 sequence, uint256 numberSigners) = abi.decode(
+            (address target, bytes32 messageHash, bytes32 proof, uint64 sequence, uint64 numberSigners) = abi.decode(
                 _payload[32:192],
-                (address, bytes32, bytes32, uint256, uint256)
+                (address, bytes32, bytes32, uint64, uint64)
             );
 
-            uint256 offset = 192;
+            uint64 offset = 192;
 
             // Dynamic arrays for r, s, x, y based on the number of signers
             bytes32[] memory r = new bytes32[](numberSigners);
@@ -71,14 +71,14 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
             bytes32[] memory y = new bytes32[](numberSigners);
 
             // Loop through the total signers to extract their signatures and public keys
-            for (uint256 i = 0; i < numberSigners ; i++) {
-                uint256 index = offset + i * 128; // Each signer consists of 128 bytes
+            for (uint64 i = 0; i < numberSigners ; i++) {
+                uint64 index = offset + i * 128; // Each signer consists of 128 bytes
 
                 // Decode r, s, x, and y for the current signer
                 (r[i], s[i], x[i], y[i]) = abi.decode(_payload[index:index + 128], (bytes32, bytes32, bytes32, bytes32));
             }
 
-            uint256 txPayloadOffset = offset + numberSigners * 128;
+            uint64 txPayloadOffset = offset + numberSigners * 128;
 
             bytes calldata txPayload = _payload[txPayloadOffset:];
 
@@ -90,9 +90,9 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
             // the rest can be optional
             if (_payload.length < 224 + 6 + 10) revert PayloadTooShort();
 
-            (address target, bytes32 messageHash, bytes32 r, bytes32 s, bytes32 proof, uint256 sequence) = abi.decode(
+            (address target, bytes32 messageHash, bytes32 r, bytes32 s, bytes32 proof, uint64 sequence) = abi.decode(
                 _payload[32:224],
-                (address, bytes32, bytes32, bytes32, bytes32, uint256)
+                (address, bytes32, bytes32, bytes32, bytes32, uint64)
             );
 
             // Manually extract and decode
@@ -106,9 +106,9 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
         } else if (category == 4) {
             if (_payload.length < 224 + 20) revert PayloadTooShort();
 
-            (address target, bytes32 messageHash, bytes32 r, bytes32 s, bytes32 proof, uint256 sequence) = abi.decode(
+            (address target, bytes32 messageHash, bytes32 r, bytes32 s, bytes32 proof, uint64 sequence) = abi.decode(
                 _payload[32:224],
-                (address, bytes32, bytes32, bytes32, bytes32, uint256)
+                (address, bytes32, bytes32, bytes32, bytes32, uint64)
             );
 
             bytes calldata txPayload = _payload[224:];
@@ -117,9 +117,9 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
         } else if (category == 5) {
             if (_payload.length < 224 + 20) revert PayloadTooShort();
 
-            (address target, bytes32 messageHash, bytes32 r, bytes32 s, bytes32 proof, uint256 sequence) = abi.decode(
+            (address target, bytes32 messageHash, bytes32 r, bytes32 s, bytes32 proof, uint64 sequence) = abi.decode(
                 _payload[32:224],
-                (address, bytes32, bytes32, bytes32, bytes32, uint256)
+                (address, bytes32, bytes32, bytes32, bytes32, uint64)
             );
 
             bytes calldata txPayload = _payload[224:];
@@ -150,7 +150,7 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
         bytes32[] memory x,
         bytes32[] memory y,
         bytes32 proof,  
-        uint256 sequence,
+        uint64 sequence,
         string calldata sourceAddress,
         bytes calldata txPayload
     ) internal {
@@ -195,7 +195,7 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
         address recover,
         bytes32[] memory x,
         bytes32[] memory y,
-        uint256 threshold,
+        uint64 threshold,
         string calldata sourceAddress
     ) internal returns (address) {
         address accountAddress = accountFactory.createAccount(
@@ -229,7 +229,7 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
         bytes32 r,
         bytes32 s,
         bytes32 proof,
-        uint256 sequence,
+        uint64 sequence,
         string calldata sourceAddress,
         bytes calldata txPayload,
         uint32 expTimestamp,
@@ -265,7 +265,7 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
         bytes32 r,
         bytes32 s,
         bytes32 proof,
-        uint256 sequence,
+        uint64 sequence,
         string calldata sourceAddress,
         bytes calldata txPayload
     ) internal {
@@ -322,7 +322,7 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
         bytes32 r,
         bytes32 s,
         bytes32 proof,
-        uint256 sequence,
+        uint64 sequence,
         string calldata sourceAddress,
         bytes calldata txPayload
     ) internal {

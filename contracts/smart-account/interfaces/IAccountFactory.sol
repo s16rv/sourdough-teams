@@ -36,7 +36,7 @@ interface IAccountFactory {
         address entryPoint,
         bytes32[] memory x,
         bytes32[] memory y,
-        uint256 threshold,
+        uint64 threshold,
         string calldata sourceAddress
     ) external returns (address);
 
@@ -56,7 +56,7 @@ interface IAccountFactory {
         bytes32[] memory x,
         bytes32[] memory y,
         bytes32 addrHash,
-        uint256 threshold
+        uint64 threshold
     ) external view returns (address);
 
     /**
@@ -70,6 +70,6 @@ interface IAccountFactory {
         bytes32[] memory x,
         bytes32[] memory y,
         bytes32 addrHash,
-        uint256 threshold
+        uint64 threshold
     ) external view returns (address);
 }
