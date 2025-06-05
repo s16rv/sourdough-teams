@@ -3,6 +3,10 @@ pragma solidity ^0.8.21;
 
 interface IAccountFactory {
     /**
+     * @dev Error thrown when the threshold is invalid.
+     */
+    error InvalidThreshold();
+    /**
      * @dev Error thrown when the signature is invalid.
      */
     error InvalidSignature();
@@ -21,22 +25,18 @@ interface IAccountFactory {
      * @dev Creates a new account contract using the provided parameters and deploys it using CREATE2.
      * @param recover The address with recovery rights for the account.
      * @param entryPoint The address of the entry point contract.
-     * @param messageHash The hash of the message to verify the signer's identity.
-     * @param r The r part of the signature.
-     * @param s The s part of the signature.
      * @param x The x part of the public key.
      * @param y The y part of the public key.
+     * @param threshold The threshold of the account.
      * @param sourceAddress The address on the source chain where the transaction originated.
      * @return accountAddress The address of the newly created account contract.
      */
     function createAccount(
         address recover,
         address entryPoint,
-        bytes32 messageHash,
-        bytes32 r,
-        bytes32 s,
-        bytes32 x,
-        bytes32 y,
+        bytes32[] memory x,
+        bytes32[] memory y,
+        uint64 threshold,
         string calldata sourceAddress
     ) external returns (address);
 
@@ -47,14 +47,16 @@ interface IAccountFactory {
      * @param x The x part of the public key.
      * @param y The y part of the public key.
      * @param addrHash The hash address on the source chain where the transaction originated.
+     * @param threshold The threshold of the account.
      * @return The address at which the contract would be deployed.
      */
     function computeAddress(
         address recover,
         address entryPoint,
-        bytes32 x,
-        bytes32 y,
-        bytes32 addrHash
+        bytes32[] memory x,
+        bytes32[] memory y,
+        bytes32 addrHash,
+        uint64 threshold
     ) external view returns (address);
 
     /**
@@ -64,5 +66,10 @@ interface IAccountFactory {
      * @param addrHash The hash address on the source chain where the transaction originated.
      * @return An account address created by the signer.
      */
-    function getAccount(bytes32 x, bytes32 y, bytes32 addrHash) external view returns (address);
+    function getAccount(
+        bytes32[] memory x,
+        bytes32[] memory y,
+        bytes32 addrHash,
+        uint64 threshold
+    ) external view returns (address);
 }

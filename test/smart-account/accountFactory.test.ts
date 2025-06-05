@@ -7,13 +7,15 @@ import { AccountFactory, Secp256k1Verifier } from "../../typechain-types";
 
 const ENTRYPOINT_ADDRESS = "0x3bd70e10d71c6e882e3c1809d26a310d793646eb";
 
-const PUBLIC_KEY_X = "0x90be7fe886c748be80e98b340d1418d0bfe7865675ee597d9d850526520085f0";
-const PUBLIC_KEY_Y = "0x87b9efdb5c81e067890e9439bdf717cf1c22adfe29d802050a11414d66b6e338";
+const PUBLIC_KEY_X = ["0x90be7fe886c748be80e98b340d1418d0bfe7865675ee597d9d850526520085f0"];
+const PUBLIC_KEY_Y = ["0x87b9efdb5c81e067890e9439bdf717cf1c22adfe29d802050a11414d66b6e338"];
 
 const SOURCE_ADDRESS = "neutron1chcktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
 const SOURCE_ADDRESS_HASH = keccak256(toUtf8Bytes(SOURCE_ADDRESS));
 const SOURCE_ADDRESS2 = "neutron1klzktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
 const SOURCE_ADDRESS2_HASH = keccak256(toUtf8Bytes(SOURCE_ADDRESS2));
+
+const THRESHOLD = 1;
 
 describe("AccountFactory", function () {
     let accountFactory: AccountFactory;
@@ -38,32 +40,28 @@ describe("AccountFactory", function () {
             ENTRYPOINT_ADDRESS,
             PUBLIC_KEY_X,
             PUBLIC_KEY_Y,
-            SOURCE_ADDRESS_HASH
+            SOURCE_ADDRESS_HASH,
+            THRESHOLD
         );
         const accountAddr2 = await accountFactory.computeAddress(
             recover.address,
             ENTRYPOINT_ADDRESS,
             PUBLIC_KEY_X,
             PUBLIC_KEY_Y,
-            SOURCE_ADDRESS_HASH
+            SOURCE_ADDRESS_HASH,
+            THRESHOLD
         );
 
         expect(accountAddr1).to.equal(accountAddr2);
     });
 
     it("Should create account", async function () {
-        const messageHash = "0x87ed53f4eef3fd7cb1497e8671057c2859417487c0ee8b037ebd1be45075c001";
-        const r = "0xc07088b681723e98dbc11648ffa5646f80cfaff291120e90ffd75337093f4227";
-        const s = "0x6ffd64cf200433e89b12036119d2777c92b1903cf8579b70e873d03fa1844aa1";
-
         await accountFactory.createAccount(
             recover.address,
             ENTRYPOINT_ADDRESS,
-            messageHash,
-            r,
-            s,
             PUBLIC_KEY_X,
             PUBLIC_KEY_Y,
+            THRESHOLD,
             SOURCE_ADDRESS
         );
 
@@ -72,42 +70,45 @@ describe("AccountFactory", function () {
             ENTRYPOINT_ADDRESS,
             PUBLIC_KEY_X,
             PUBLIC_KEY_Y,
-            SOURCE_ADDRESS_HASH
+            SOURCE_ADDRESS_HASH,
+            THRESHOLD
         );
-        const accountAddr = await accountFactory.getAccount(PUBLIC_KEY_X, PUBLIC_KEY_Y, SOURCE_ADDRESS_HASH);
+        const accountAddr = await accountFactory.getAccount(PUBLIC_KEY_X, PUBLIC_KEY_Y, SOURCE_ADDRESS_HASH, THRESHOLD);
 
         expect(addressComputed).to.equal(accountAddr);
     });
 
     it("Should create two different accounts", async function () {
-        const messageHash = "0x87ed53f4eef3fd7cb1497e8671057c2859417487c0ee8b037ebd1be45075c001";
-        const r = "0xc07088b681723e98dbc11648ffa5646f80cfaff291120e90ffd75337093f4227";
-        const s = "0x6ffd64cf200433e89b12036119d2777c92b1903cf8579b70e873d03fa1844aa1";
-
         await accountFactory.createAccount(
             recover.address,
             ENTRYPOINT_ADDRESS,
-            messageHash,
-            r,
-            s,
             PUBLIC_KEY_X,
             PUBLIC_KEY_Y,
+            THRESHOLD,
             SOURCE_ADDRESS
         );
 
         await accountFactory.createAccount(
             recover.address,
             ENTRYPOINT_ADDRESS,
-            messageHash,
-            r,
-            s,
             PUBLIC_KEY_X,
             PUBLIC_KEY_Y,
+            THRESHOLD,
             SOURCE_ADDRESS2
         );
 
-        const accountAddr1 = await accountFactory.getAccount(PUBLIC_KEY_X, PUBLIC_KEY_Y, SOURCE_ADDRESS_HASH);
-        const accountAddr2 = await accountFactory.getAccount(PUBLIC_KEY_X, PUBLIC_KEY_Y, SOURCE_ADDRESS2_HASH);
+        const accountAddr1 = await accountFactory.getAccount(
+            PUBLIC_KEY_X,
+            PUBLIC_KEY_Y,
+            SOURCE_ADDRESS_HASH,
+            THRESHOLD
+        );
+        const accountAddr2 = await accountFactory.getAccount(
+            PUBLIC_KEY_X,
+            PUBLIC_KEY_Y,
+            SOURCE_ADDRESS2_HASH,
+            THRESHOLD
+        );
 
         expect(accountAddr1).to.not.equal(accountAddr2);
     });

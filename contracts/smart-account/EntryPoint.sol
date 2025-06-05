@@ -36,22 +36,53 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
         uint8 category = abi.decode(_payload[:32], (uint8));
 
         if (category == 1) {
-            (address recover, bytes32 messageHash, bytes32 r, bytes32 s, bytes32 x, bytes32 y) = abi.decode(
-                _payload[32:],
-                (address, bytes32, bytes32, bytes32, bytes32, bytes32)
+            (address recover, uint64 totalSigners, uint64 threshold) = abi.decode(
+            _payload[32:128],
+            (address, uint64, uint64)
             );
-            _createAccount(recover, messageHash, r, s, x, y, _sourceAddress);
+
+            uint64 offset = 128;
+
+            // Dynamic arrays for x, y based on the total signers
+            bytes32[] memory x = new bytes32[](totalSigners);
+            bytes32[] memory y = new bytes32[](totalSigners);
+
+            // Loop through the total signers to extract their public keys
+            for (uint64 i = 0; i < totalSigners ; i++) {
+                uint64 index = offset + i * 64; // Each signer consists of 64 bytes
+
+                // Decode x, y for the current signer
+                (x[i], y[i]) = abi.decode(_payload[index:index + 64], (bytes32, bytes32));
+            }
+
+            _createAccount(recover, x, y, threshold, _sourceAddress);
         } else if (category == 2) {
-            if (_payload.length < 224 + 20) revert PayloadTooShort();
-
-            (address target, bytes32 messageHash, bytes32 r, bytes32 s, bytes32 proof, uint256 sequence) = abi.decode(
-                _payload[32:224],
-                (address, bytes32, bytes32, bytes32, bytes32, uint256)
+            (address target, bytes32 messageHash, bytes32 proof, uint64 sequence, uint64 numberSigners) = abi.decode(
+                _payload[32:192],
+                (address, bytes32, bytes32, uint64, uint64)
             );
 
-            bytes calldata txPayload = _payload[224:];
+            uint64 offset = 192;
 
-            _handleTransaction(target, messageHash, r, s, proof, sequence, _sourceAddress, txPayload);
+            // Dynamic arrays for r, s, x, y based on the number of signers
+            bytes32[] memory r = new bytes32[](numberSigners);
+            bytes32[] memory s = new bytes32[](numberSigners);
+            bytes32[] memory x = new bytes32[](numberSigners);
+            bytes32[] memory y = new bytes32[](numberSigners);
+
+            // Loop through the total signers to extract their signatures and public keys
+            for (uint64 i = 0; i < numberSigners ; i++) {
+                uint64 index = offset + i * 128; // Each signer consists of 128 bytes
+
+                // Decode r, s, x, and y for the current signer
+                (r[i], s[i], x[i], y[i]) = abi.decode(_payload[index:index + 128], (bytes32, bytes32, bytes32, bytes32));
+            }
+
+            uint64 txPayloadOffset = offset + numberSigners * 128;
+
+            bytes calldata txPayload = _payload[txPayloadOffset:];
+
+            _handleTransaction(target, messageHash, r, s, x, y, proof, sequence, _sourceAddress, txPayload);
         } else if (category == 3) {
             // 192 is for the proof part
             // 6 is for expiration timestamp and length
@@ -59,9 +90,9 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
             // the rest can be optional
             if (_payload.length < 224 + 6 + 10) revert PayloadTooShort();
 
-            (address target, bytes32 messageHash, bytes32 r, bytes32 s, bytes32 proof, uint256 sequence) = abi.decode(
+            (address target, bytes32 messageHash, bytes32 r, bytes32 s, bytes32 proof, uint64 sequence) = abi.decode(
                 _payload[32:224],
-                (address, bytes32, bytes32, bytes32, bytes32, uint256)
+                (address, bytes32, bytes32, bytes32, bytes32, uint64)
             );
 
             // Manually extract and decode
@@ -75,9 +106,9 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
         } else if (category == 4) {
             if (_payload.length < 224 + 20) revert PayloadTooShort();
 
-            (address target, bytes32 messageHash, bytes32 r, bytes32 s, bytes32 proof, uint256 sequence) = abi.decode(
+            (address target, bytes32 messageHash, bytes32 r, bytes32 s, bytes32 proof, uint64 sequence) = abi.decode(
                 _payload[32:224],
-                (address, bytes32, bytes32, bytes32, bytes32, uint256)
+                (address, bytes32, bytes32, bytes32, bytes32, uint64)
             );
 
             bytes calldata txPayload = _payload[224:];
@@ -86,9 +117,9 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
         } else if (category == 5) {
             if (_payload.length < 224 + 20) revert PayloadTooShort();
 
-            (address target, bytes32 messageHash, bytes32 r, bytes32 s, bytes32 proof, uint256 sequence) = abi.decode(
+            (address target, bytes32 messageHash, bytes32 r, bytes32 s, bytes32 proof, uint64 sequence) = abi.decode(
                 _payload[32:224],
-                (address, bytes32, bytes32, bytes32, bytes32, uint256)
+                (address, bytes32, bytes32, bytes32, bytes32, uint64)
             );
 
             bytes calldata txPayload = _payload[224:];
@@ -114,14 +145,26 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
     function _handleTransaction(
         address target,
         bytes32 messageHash,
-        bytes32 r,
-        bytes32 s,
+        bytes32[] memory r,
+        bytes32[] memory s,
+        bytes32[] memory x,
+        bytes32[] memory y,
         bytes32 proof,  
-        uint256 sequence,
+        uint64 sequence,
         string calldata sourceAddress,
         bytes calldata txPayload
     ) internal {
-        bool valid = IAccount(payable(target)).validateOperation(sourceAddress, messageHash, r, s, proof, sequence, txPayload);
+        bool valid = IAccount(payable(target)).validateOperation(
+            sourceAddress,
+            messageHash,
+            r,
+            s,
+            x,
+            y,
+            proof,
+            sequence,
+            txPayload
+        );
         if (!valid) {
             revert InvalidSignature();
         }
@@ -142,31 +185,25 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
     /**
      * @dev Creates a new account by calling the `createAccount` function in the account factory.
      * @param recover The address that has recovery rights for the new account.
-     * @param messageHash The hash of the message used for signature verification.
-     * @param r Part of the signature (r).
-     * @param s Part of the signature (s).
      * @param x The x part of the public key.
      * @param y The y part of the public key.
+     * @param threshold The threshold of the account.
      * @param sourceAddress The address on the source chain where the transaction originated.
      * @return accountAddress The address of the newly created account.
      */
     function _createAccount(
         address recover,
-        bytes32 messageHash,
-        bytes32 r,
-        bytes32 s,
-        bytes32 x,
-        bytes32 y,
+        bytes32[] memory x,
+        bytes32[] memory y,
+        uint64 threshold,
         string calldata sourceAddress
     ) internal returns (address) {
         address accountAddress = accountFactory.createAccount(
             recover,
             address(this),
-            messageHash,
-            r,
-            s,
             x,
             y,
+            threshold,
             sourceAddress
         );
 
@@ -192,18 +229,23 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
         bytes32 r,
         bytes32 s,
         bytes32 proof,
-        uint256 sequence,
+        uint64 sequence,
         string calldata sourceAddress,
         bytes calldata txPayload,
         uint32 expTimestamp,
         bytes calldata authPayload
     ) internal {
-        bool valid = IAccount(payable(target)).validateOperation(sourceAddress, messageHash, r, s, proof, sequence, txPayload);
+        bytes32[] memory r1 = new bytes32[](1);
+        bytes32[] memory s1 = new bytes32[](1);
+        bytes32[] memory x1 = new bytes32[](1);
+        bytes32[] memory y1 = new bytes32[](1);
+
+        bool valid = IAccount(payable(target)).validateOperation(sourceAddress, messageHash, r1, s1, x1, y1, proof, sequence, txPayload);
         if (!valid) {
             revert InvalidSignature();
         }
 
-        emit SignatureValidated(messageHash, r, s);
+        emit SignatureValidated(messageHash, r1, s1);
         IAccount(payable(target)).createStoredContract(txPayload, expTimestamp, authPayload);
     }
 
@@ -223,15 +265,22 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
         bytes32 r,
         bytes32 s,
         bytes32 proof,
-        uint256 sequence,
+        uint64 sequence,
         string calldata sourceAddress,
         bytes calldata txPayload
     ) internal {
+        bytes32[] memory r1 = new bytes32[](1);
+        bytes32[] memory s1 = new bytes32[](1);
+        bytes32[] memory x1 = new bytes32[](1);
+        bytes32[] memory y1 = new bytes32[](1);
+
         bool validOperation = IAccount(payable(target)).validateOperation(
             sourceAddress,
             messageHash,
-            r,
-            s,
+            r1,
+            s1,
+            x1,
+            y1,
             proof,
             sequence,
             txPayload
@@ -240,7 +289,7 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
             revert InvalidSignature();
         }
 
-        emit SignatureValidated(messageHash, r, s);
+        emit SignatureValidated(messageHash, r1, s1);
 
         (address dest, uint256 value) = abi.decode(txPayload, (address, uint256));
 
@@ -273,15 +322,22 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
         bytes32 r,
         bytes32 s,
         bytes32 proof,
-        uint256 sequence,
+        uint64 sequence,
         string calldata sourceAddress,
         bytes calldata txPayload
     ) internal {
+        bytes32[] memory r1 = new bytes32[](1);
+        bytes32[] memory s1 = new bytes32[](1);
+        bytes32[] memory x1 = new bytes32[](1);
+        bytes32[] memory y1 = new bytes32[](1);
+
         bool validOperation = IAccount(payable(target)).validateOperation(
             sourceAddress,
             messageHash,
-            r,
-            s,
+            r1,
+            s1,
+            x1,
+            y1,
             proof,
             sequence,
             txPayload
@@ -290,7 +346,7 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
             revert InvalidSignature();
         }
 
-        emit SignatureValidated(messageHash, r, s);
+        emit SignatureValidated(messageHash, r1, s1);
 
         IAccount(payable(target)).revokeStoredContract();
     }

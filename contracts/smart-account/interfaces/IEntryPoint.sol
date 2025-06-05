@@ -49,7 +49,7 @@ interface IEntryPoint {
      * @param r Part of the signature (r).
      * @param s Part of the signature (s).
      */
-    event SignatureValidated(bytes32 indexed messageHash, bytes32 indexed r, bytes32 indexed s);
+    event SignatureValidated(bytes32 indexed messageHash, bytes32[] indexed r, bytes32[] indexed s);
 
     /**
      * @dev Event emitted when a cross-chain transaction is executed successfully.
