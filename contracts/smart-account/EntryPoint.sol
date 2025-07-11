@@ -10,14 +10,38 @@ import "./interfaces/IAccountFactory.sol";
 
 contract EntryPoint is IEntryPoint, AxelarExecutable {
     IAccountFactory public immutable accountFactory;
+    address[] public executors;
 
     /**
      * @dev Constructor to initialize the EntryPoint contract with the Axelar gateway and account factory addresses.
      * @param _gateway Address of the Axelar gateway on the deployed chain.
      * @param _accountFactory Address of the account factory that manages account creation.
      */
-    constructor(address _gateway, address _accountFactory) AxelarExecutable(_gateway) {
+    constructor(address _gateway, address _accountFactory, address[] memory _executors) AxelarExecutable(_gateway) {
         accountFactory = IAccountFactory(_accountFactory);
+        executors = _executors;
+    }
+
+    /**
+     * @notice Executes a payload on the destination chain.
+     * @dev This function is called by the relayer on the destination chain to execute a payload.
+     * It verifies the executor and then calls the internal `_execute` function.
+     * @param _sourceChain The blockchain where the transaction originated.
+     * @param _sourceAddress The address on the source chain where the transaction originated.
+     * @param _payload The encoded GMP (General Message Passing) message sent from the source chain.
+     */
+    function executePayload(
+        string calldata _sourceChain,
+        string calldata _sourceAddress,
+        bytes calldata _payload
+    ) external returns (bool) {
+        if (!isExecutor(msg.sender)) {
+            return false;
+        }
+        
+        _execute(_sourceChain, _sourceAddress, _payload);
+
+        return true;
     }
 
     /**
@@ -349,5 +373,19 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
         emit SignatureValidated(messageHash, r1, s1);
 
         IAccount(payable(target)).revokeStoredContract();
+    }
+
+    /**
+     * @dev Checks if an address is an executor.
+     * @param sender The address to check.
+     * @return True if the address is an executor, false otherwise.
+     */
+    function isExecutor(address sender) internal view returns (bool) {
+        for (uint256 i = 0; i < executors.length; i++) {
+            if (sender == executors[i]) {
+                return true;
+            }
+        }
+        return false;
     }
 }

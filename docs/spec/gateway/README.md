@@ -125,7 +125,6 @@ class GatewayContract {
     private verifierAddress: string;
     private entryPointAddress: string;
     private ownerAddress: string;
-    private mpcPublicKey: string;
 
     constructor(ownerAddress: string, entryPointAddress: string, verifierAddress: string) {
         this.ownerAddress = ownerAddress;
