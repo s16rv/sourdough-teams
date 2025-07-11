@@ -71,4 +71,12 @@ interface IEntryPoint {
         string calldata _sourceAddress,
         bytes calldata _payload
     ) external returns (bool);
+
+    /**
+     * @notice Sets the executor status for a given address.
+     * @dev Only the owner can set the executor status.
+     * @param _executor The address to be set as an executor.
+     * @param _isExecutor The boolean value indicating whether the address should be an executor.
+     */
+    function setExecutor(address _executor, bool _isExecutor) external;
 }

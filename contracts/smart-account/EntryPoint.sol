@@ -10,16 +10,17 @@ import "./interfaces/IAccountFactory.sol";
 
 contract EntryPoint is IEntryPoint, AxelarExecutable {
     IAccountFactory public immutable accountFactory;
-    address[] public executors;
+    address public immutable ownerAddress;
+    mapping(address => bool) public executor;
 
     /**
      * @dev Constructor to initialize the EntryPoint contract with the Axelar gateway and account factory addresses.
      * @param _gateway Address of the Axelar gateway on the deployed chain.
      * @param _accountFactory Address of the account factory that manages account creation.
      */
-    constructor(address _gateway, address _accountFactory, address[] memory _executors) AxelarExecutable(_gateway) {
+    constructor(address _gateway, address _accountFactory, address _ownerAddress) AxelarExecutable(_gateway) {
         accountFactory = IAccountFactory(_accountFactory);
-        executors = _executors;
+        ownerAddress = _ownerAddress;
     }
 
     /**
@@ -36,12 +37,33 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
         bytes calldata _payload
     ) external returns (bool) {
         if (!isExecutor(msg.sender)) {
-            return false;
+            require(msg.sender == ownerAddress, "Only owner can execute");
         }
-        
+
         _execute(_sourceChain, _sourceAddress, _payload);
 
         return true;
+    }
+
+    /**
+     * @notice Sets the executor status for a given address.
+     * @dev Only the owner can set the executor status.
+     * @param _executor The address to be set as an executor.
+     * @param _isExecutor The boolean value indicating whether the address should be an executor.
+     */
+    function setExecutor(address _executor, bool _isExecutor) external {
+        require(msg.sender == ownerAddress, "Only owner can set executor");
+        executor[_executor] = _isExecutor;
+    }
+
+    /**
+     * @notice Retrieves the executor status for a given address.
+     * @dev This function can be called by anyone.
+     * @param _executor The address to check the executor status.
+     * @return bool Returns true if the address is an executor, otherwise returns false.
+     */
+    function isExecutor(address _executor) public view returns (bool) {
+        return executor[_executor];
     }
 
     /**
@@ -373,19 +395,5 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
         emit SignatureValidated(messageHash, r1, s1);
 
         IAccount(payable(target)).revokeStoredContract();
-    }
-
-    /**
-     * @dev Checks if an address is an executor.
-     * @param sender The address to check.
-     * @return True if the address is an executor, false otherwise.
-     */
-    function isExecutor(address sender) internal view returns (bool) {
-        for (uint256 i = 0; i < executors.length; i++) {
-            if (sender == executors[i]) {
-                return true;
-            }
-        }
-        return false;
     }
 }
