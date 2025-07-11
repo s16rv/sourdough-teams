@@ -3,6 +3,21 @@ pragma solidity ^0.8.21;
 
 interface IMPCGateway {
     /**
+     * @dev Error thrown when the transaction has already been executed.
+     */
+    error TransactionAlreadyExecuted();
+
+    /**
+     * @dev Error thrown when the transaction has not been approved.
+     */
+    error TransactionNotApproved();
+
+    /**
+     * @dev Error thrown when the transaction execution failed.
+     */
+    error TransactionFailed();
+
+    /**
      * @notice Approves the execution of a contract call on the destination chain.
      * @dev This function is called by the relayer on the source chain to approve the execution of a contract call on the destination chain.
      * @param sourceChain Identifier of the chain where the transaction originated

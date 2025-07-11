@@ -68,13 +68,13 @@ contract MPCGateway is IMPCGateway {
 
         // Check if already executed to prevent replay attacks
         if (executedCalls[txHash]) {
-            revert("Transaction already executed");
+            revert TransactionAlreadyExecuted();
         }
 
         // Ensure transaction is approved
         bool isApproved = _approveContractCall(txHash, mpcSignatureR, mpcSignatureS, params);
         if (!isApproved) {
-            revert("Transaction not approved");
+            revert TransactionNotApproved();
         }
 
         // Forward payload to smart account for execution
@@ -85,7 +85,7 @@ contract MPCGateway is IMPCGateway {
             params.payload
         );
         if (!success) {
-            revert("Smart account execution failed");
+            revert TransactionFailed();
         }
 
         // Mark transaction as executed to prevent replay
