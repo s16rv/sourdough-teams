@@ -23,7 +23,11 @@ This protocol establishes a unified communication mechanism that operates seamle
 ## Definitions
 
 - `Gateway`: A smart contract that facilitates secure and verifiable message passing between different blockchain networks.
-- `GMP Module`: The module that build GMP messages with the user's signatures.
+- `GMP Module`: The module that builds GMP (General Message Passing) messages with the user's signatures.
+- `MPC`: Multi-Party Computation, a cryptographic service that validates and signs cross-chain messages.
+- `Relayer`: An entity responsible for transmitting approved messages between chains.
+- `Smart Account`: A contract that receives and executes the cross-chain payload on the destination chain.
+- `Verifier`: A contract responsible for validating MPC signatures and transaction authenticity.
 
 ## Desired Properties
 
@@ -55,10 +59,10 @@ sequenceDiagram
     MPC->>MPC: Validate userSignature, Sign payloadHash
     MPC->>MPC: Store MPC-signed payloadHash
     MPC->>Relayer: Emit ContractCall(sourceAddress, destinationChain, contractAddress, payloadHash, payload, transactionId)
-    Relayer->>GatewayDest: approveContractCall(params, transactionId)
+    Relayer->>GatewayDest: executeContractCall(params, transactionId)
     GatewayDest->>GatewayDest: Verify MPC Signature, Store Approval
     GatewayDest->>GatewayDest: Emit ContractCallApproved(transactionId, sourceChain, sourceAddress, contractAddress, payloadHash)
-    GatewayDest->>GatewayDest: executeContractCall(transactionId, sourceChain, sourceAddress, contractAddress, payload, payloadHash)
+    GatewayDest->>GatewayDest: execute(transactionId, sourceChain, sourceAddress, contractAddress, payload, payloadHash)
     GatewayDest->>GatewayDest: Validate Approval
     GatewayDest->>SmartAccount: Forward payload to execute
     SmartAccount->>SmartAccount: Verify User Signature
@@ -73,12 +77,12 @@ Gateway Contract is a smart contract that receives and processes cross-chain mes
 
 ```typescript
 interface Gateway {
-    private approvedCalls: Map<string, boolean> = new Map(); // mapping of tx hash to approval status
-    private executedCalls: Map<string, boolean> = new Map(); // mapping of tx hash to execution status
-    private verifiers: Map<string, string> = new Map(); // mapping of method to verifier address
+    private approvedCalls: Map<string, boolean>; // mapping of transaction key to approval status
+    private executedCalls: Map<string, boolean>; // mapping of transaction key to execution status
+    private verifierAddress: string; // verifier contract address
     private entryPointAddress: string; // smart account entrypoint contract address
     private ownerAddress: string; // Owner address of the Gateway contract
-    private mpcPublicKey: string; // MPC public key encoded
+    private mpcPublicKey: string; // Public key of the MPC service for signature verification
 }
 ```
 
@@ -90,21 +94,21 @@ interface Gateway {
 
 ```typescript
 interface ContractCallParams {
-    transactionId: string;
-    sourceChain: string;
-    sourceAddress: string;
-    destinationChain: string;
-    contractAddress: string;
-    payload: string; // Hex string
-    mpcSignature: string; // Hex string
-    verifierType: string;
+    transactionId: string; // Unique identifier for the cross-chain transaction
+    sourceChain: string; // Identifier of the chain where the transaction originated
+    sourceAddress: string; // Address of the sender on the source chain
+    mpcSignature: string; // Signature from the MPC service (Hex string)
+    destinationChain: string; // Identifier of the target chain
+    destinationAddress: string; // Address of the contract to call on the destination chain
+    payload: string; // Encoded call data to be executed (Hex string)
+    payloadHash: string; // Hash of the payload for verification (Hex string)
 }
 
 interface ContractCallApprovedEvent {
     transactionId: string;
     sourceChain: string;
     sourceAddress: string;
-    contractAddress: string;
+    destinationAddress: string;
     payloadHash: string;
 }
 
@@ -112,57 +116,51 @@ interface ContractCallExecutedEvent {
     transactionId: string;
     sourceChain: string;
     sourceAddress: string;
-    contractAddress: string;
+    destinationAddress: string;
     payloadHash: string;
 }
 
 class GatewayContract {
-    private approvedCalls: Map<string, boolean> = new Map();
     private executedCalls: Map<string, boolean> = new Map();
-    private verifiers: Map<string, string> = new Map();
+    private verifierAddress: string;
     private entryPointAddress: string;
     private ownerAddress: string;
     private mpcPublicKey: string;
 
-    constructor(ownerAddress: string, entryPointAddress: string, mpcPublicKey: string, verifiers: Map<string, string>) {
+    constructor(ownerAddress: string, entryPointAddress: string, verifierAddress: string) {
         this.ownerAddress = ownerAddress;
         this.entryPointAddress = entryPointAddress;
-        this.mpcPublicKey = mpcPublicKey;
-        this.verifiers = verifiers;
+        this.verifierAddress = verifierAddress;
     }
 
     // Approve a cross-chain contract call
-    async approveContractCall(params: ContractCallParams, transactionId: string): Promise<bool> {
-        const { sourceChain, sourceAddress, contractAddress, payloadHash, mpcSignature, verifierType } = params;
+    async approveContractCall(params: ContractCallParams): Promise<boolean> {
+        const { transactionId, sourceChain, sourceAddress, destinationAddress, payloadHash, mpcSignature } = params;
 
-        // Call Verifier to validate MPC signature and transaction ID
-        const verifierAddress = this.verifiers.get(verifierType);
-        if (!verifierAddress) {
-            throw new Error("Verifier not found");
+        // Generate unique key for this transaction
+        const key = this.generateKey(params);
+
+        // Check if already approved
+        if (this.approvedCalls.get(key)) {
+            return true; // Already approved
         }
-        const verifier = new Verifier(verifierAddress);
+
+        // Call Verifier to validate MPC signature
+        const verifier = new Verifier(this.verifierAddress);
         const isValidSignature = await verifier.validateMPCSignature(payloadHash, mpcSignature);
         if (!isValidSignature) {
             return false;
         }
 
-        // Generate key for approval
-        const key = this.generateKey(transactionId, sourceChain, sourceAddress, contractAddress, payloadHash);
-
-        // Verify transaction ID is unique
-        if (this.approvedCalls.get(key)) {
-            throw new Error("Transaction ID already used");
-        }
-
-        // Mark transaction as approved
+        // Mark as approved
         this.approvedCalls.set(key, true);
 
-        // Emit ContractCallApproved event (simulated)
+        // Emit ContractCallApproved event
         this.emitEvent<ContractCallApprovedEvent>("ContractCallApproved", {
             transactionId,
             sourceChain,
             sourceAddress,
-            contractAddress,
+            destinationAddress,
             payloadHash,
         });
 
@@ -170,91 +168,84 @@ class GatewayContract {
     }
 
     // Execute a contract call (called by relayer)
-    async executeContractCall(
-        transactionId: string,
-        sourceChain: string,
-        sourceAddress: string,
-        contractAddress: string,
-        payload: string, // Hex string
-        payloadHash: string // Hex string
-    ): Promise<void> {
-        // Generate key for approval
-        const key = this.generateKey(transactionId, sourceChain, sourceAddress, contractAddress, payloadHash);
+    async executeContractCall(params: ContractCallParams): Promise<void> {
+        const { transactionId, sourceChain, sourceAddress, destinationAddress, payload, payloadHash } = params;
 
-        const isApproved = await this.approveContractCall(params, transactionId);
-        if (!isApproved) {
-            throw new Error("Transaction not approved");
-        }
+        // Generate unique key for this transaction
+        const key = this.generateKey(params);
 
-        // Verify transaction is approved and not executed
-        if (!this.approvedCalls.get(key)) {
-            throw new Error("Transaction not approved");
-        }
+        // Check if already executed to prevent replay attacks
         if (this.executedCalls.get(key)) {
             throw new Error("Transaction already executed");
         }
 
-        // Verify payload hash
+        // Ensure transaction is approved
+        const isApproved = await this.approveContractCall(params);
+        if (!isApproved) {
+            throw new Error("Transaction not approved");
+        }
+
+        // Verify payload hash to ensure data integrity
         const computedHash = keccak256(payload);
         if (computedHash !== payloadHash) {
             throw new Error("Invalid payload hash");
         }
 
-        // Mark transaction as executed
+        // Mark transaction as executed to prevent replay
         this.executedCalls.set(key, true);
-        this.approvedCalls.set(key, false); // Clear approval
 
-        // Forward payload to smart account
-        const success = await this.callSmartAccount(payload);
+        // Forward payload to smart account for execution
+        const success = await this.callSmartAccount(destinationAddress, payload);
         if (!success) {
             throw new Error("Smart account execution failed");
         }
 
-        // Emit ContractCallExecuted event
+        // Emit ContractCallExecuted event for tracking
         this.emitEvent<ContractCallExecutedEvent>("ContractCallExecuted", {
             transactionId,
             sourceChain,
             sourceAddress,
-            contractAddress,
+            destinationAddress,
             payloadHash,
         });
     }
 
     // Update Verifier address (for upgradability)
-    async updateVerifier(type: string, address: string): Promise<void> {
+    async updateVerifier(address: string): Promise<void> {
         if (!this.isOwner()) {
             throw new Error("Only owner can update verifier");
         }
-        this.verifiers.set(type, address);
+        this.verifierAddress = address;
     }
 
-    // Helper: Generate key for approval/executed mapping
-    private generateKey(
-        transactionId: string,
-        sourceChain: string,
-        sourceAddress: string,
-        contractAddress: string,
-        payloadHash: string
-    ): string {
+    // Helper: Generate unique key for approval/executed mapping
+    private generateKey(params: ContractCallParams): string {
+        const { transactionId, sourceChain, sourceAddress, destinationChain, destinationAddress, payloadHash } = params;
+
+        // Create a unique key using essential transaction parameters
+        // Note: We exclude mpcSignature to allow different signatures for the same transaction
         return keccak256(
             JSON.stringify({
                 transactionId,
                 sourceChain,
                 sourceAddress,
-                contractAddress,
+                destinationChain,
+                destinationAddress,
                 payloadHash,
             })
         );
     }
 
-    // Helper: Simulate calling smart account
-    private async callSmartAccount(payload: string): Promise<boolean> {
+    // Helper: Call smart account to execute the payload
+    private async callSmartAccount(destinationAddress: string, payload: string): Promise<boolean> {
         // Pseudo-code: Call smart account's executePayload function
         // In a real implementation, use ethers.js or similar to call contract
         try {
-            await callContract(this.smartAccountAddress, "executePayload", [payload]);
+            // Call the EntryPoint contract which will route to the appropriate smart account
+            await callContract(this.entryPointAddress, "executePayload", [destinationAddress, payload]);
             return true;
-        } catch {
+        } catch (error) {
+            console.error("Smart account execution failed:", error);
             return false;
         }
     }
@@ -276,11 +267,12 @@ Verifier contract is responsible for validating the MPC signature and transactio
 
 ```typescript
 class Verifier {
-    private usedTransactionIds: Map<string, boolean> = new Map();
     private mpcPublicKey: string; // Hex string
+    private ownerAddress: string;
 
-    constructor(mpcPublicKey: string) {
+    constructor(mpcPublicKey: string, ownerAddress: string) {
         this.mpcPublicKey = mpcPublicKey;
+        this.ownerAddress = ownerAddress;
     }
 
     // Validate MPC signature
@@ -288,15 +280,6 @@ class Verifier {
         // Verify threshold signature (e.g., BLS or Schnorr)
         const signer = await this.recoverSigner(payloadHash, mpcSignature);
         return this.verifyThresholdSignature(signer, this.mpcPublicKey);
-    }
-
-    // Check transaction ID uniqueness
-    async isTransactionUnique(transactionId: string): Promise<boolean> {
-        if (this.usedTransactionIds.get(transactionId)) {
-            return false;
-        }
-        this.usedTransactionIds.set(transactionId, true);
-        return true;
     }
 
     // Update MPC public key (for upgradability)
@@ -323,7 +306,7 @@ class Verifier {
 
     // Helper: Check if caller is owner (placeholder)
     private isOwner(): boolean {
-        return true; // Implement actual owner check
+        return this.ownerAddress === this.sender;
     }
 }
 ```
@@ -331,7 +314,7 @@ class Verifier {
 ## Example Implementations
 
 - GMP Module [Go Implementation](https://github.com/s16rv/sourdough/tree/main/x/gmp)
-- Gateway [Solidity Implementation](https://github.com/s16rv/sourdough-solidity-contracts/tree/main/contracts/gateway) (Placeholder - assuming a gateway contract exists or will exist)
+- Gateway [Solidity Implementation](https://github.com/s16rv/sourdough-solidity-contracts/tree/main/contracts/gateway)
 
 ## History
 
