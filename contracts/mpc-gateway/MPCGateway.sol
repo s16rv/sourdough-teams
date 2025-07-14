@@ -8,15 +8,12 @@ import "../smart-account/interfaces/IEntryPoint.sol";
 contract MPCGateway is IMPCGateway {
     mapping(bytes32 => bool) private executedCalls;
     IMPCVerifier private verifier;
-    address private ownerAddress;
 
     /**
      * @dev Constructor that initializes the contract.
-     * @param _ownerAddress The address of the owner.
      * @param _verifierAddress The address of the secp256k1 verifier contract.
      */
-    constructor(address _ownerAddress, address _verifierAddress) {
-        ownerAddress = _ownerAddress;
+    constructor(address _verifierAddress) {
         verifier = IMPCVerifier(_verifierAddress);
     }
 
