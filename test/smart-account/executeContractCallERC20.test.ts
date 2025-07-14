@@ -8,8 +8,11 @@ import { combineHexStrings } from "../utils/lib";
 
 const RECIPIENT_ADDRESS = "0x390dc2368bfde7e7a370af46c0b834b718d570c1";
 
-const PUBLIC_KEY_X = "0x90be7fe886c748be80e98b340d1418d0bfe7865675ee597d9d850526520085f0";
-const PUBLIC_KEY_Y = "0x87b9efdb5c81e067890e9439bdf717cf1c22adfe29d802050a11414d66b6e338";
+const PUBLIC_KEY_X = ["0x90be7fe886c748be80e98b340d1418d0bfe7865675ee597d9d850526520085f0"];
+const PUBLIC_KEY_Y = ["0x87b9efdb5c81e067890e9439bdf717cf1c22adfe29d802050a11414d66b6e338"];
+
+const THRESHOLD = 1;
+const totalSigners = 1;
 
 const SOURCE_ADDRESS = "neutron1chcktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
 const SOURCE_ADDRESS_HASH = keccak256(toUtf8Bytes(SOURCE_ADDRESS));
@@ -35,24 +38,20 @@ describe("ExecuteContractCallERC20", function () {
         await accountFactory.waitForDeployment();
 
         const EntryPointContract = await hre.ethers.getContractFactory("EntryPoint");
-        entryPoint = await EntryPointContract.deploy(mockGateway.target, accountFactory.target);
+        entryPoint = await EntryPointContract.deploy(mockGateway.target, accountFactory.target, recover.address);
         await entryPoint.waitForDeployment();
 
         const commandId = encodeBytes32String("commandId");
         const sourceChain = "sourceChain";
 
-        const messageHash = "0x87ed53f4eef3fd7cb1497e8671057c2859417487c0ee8b037ebd1be45075c001";
-        const r = "0xc07088b681723e98dbc11648ffa5646f80cfaff291120e90ffd75337093f4227";
-        const s = "0x6ffd64cf200433e89b12036119d2777c92b1903cf8579b70e873d03fa1844aa1";
-
         const payload = new AbiCoder().encode(
-            ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32", "bytes32"],
-            [1, recover.address, messageHash, r, s, PUBLIC_KEY_X, PUBLIC_KEY_Y]
+            ["uint8", "address", "uint64", "uint64", "bytes32", "bytes32"],
+            [1, recover.address, totalSigners, THRESHOLD, PUBLIC_KEY_X[0], PUBLIC_KEY_Y[0]]
         );
 
         await mockGateway.setCallValid(true);
         await entryPoint.execute(commandId, sourceChain, SOURCE_ADDRESS, payload);
-        const accountAddr = await accountFactory.getAccount(PUBLIC_KEY_X, PUBLIC_KEY_Y, SOURCE_ADDRESS_HASH);
+        const accountAddr = await accountFactory.getAccount(PUBLIC_KEY_X, PUBLIC_KEY_Y, SOURCE_ADDRESS_HASH, THRESHOLD);
 
         const AccountContract = await hre.ethers.getContractFactory("Account");
         account = AccountContract.attach(accountAddr) as Account;
@@ -80,8 +79,9 @@ describe("ExecuteContractCallERC20", function () {
 
     it("should execute erc20 transfer from Account contract", async function () {
         const messageHash = "0xcc61a33a7a9ace63fa4c5e74f9db3080c7ef68dd53e75dfb311bc28381830c2f";
-        const r = "0x87df5d0e314c3fe01b3dc136b3afe1659e02316f8d189f0b68983b7f90cd9b61";
-        const s = "0x7d2212755fb0db4f8e9a3343d264942d14c5e75471245b0419f29ce10355b08b";
+        const r = ["0x87df5d0e314c3fe01b3dc136b3afe1659e02316f8d189f0b68983b7f90cd9b61"];
+        const s = ["0x7d2212755fb0db4f8e9a3343d264942d14c5e75471245b0419f29ce10355b08b"];
+        const numberSigners = 1;
 
         const initialRecipientBalance = await myToken.balanceOf(RECIPIENT_ADDRESS);
         const amountToSend = parseEther("0.001");
@@ -98,8 +98,8 @@ describe("ExecuteContractCallERC20", function () {
         const proof = sha256(combineHexStrings(messageHash, txPayload));
 
         const p = new AbiCoder().encode(
-            ["uint8", "address", "bytes32", "bytes32", "bytes32", "bytes32", "uint256"],
-            [2, accountAddress, messageHash, r, s, proof, 0]
+            ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
+            [2, accountAddress, messageHash, proof, 0, numberSigners, r[0], s[0], PUBLIC_KEY_X[0], PUBLIC_KEY_Y[0]]
         );
         const payload = combineHexStrings(p, txPayload);
 

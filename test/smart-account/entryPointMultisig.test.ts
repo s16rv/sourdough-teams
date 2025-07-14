@@ -42,7 +42,7 @@ describe("EntryPointMultisig 2 of 2", function () {
         await accountFactory.waitForDeployment();
 
         const EntryPointContract = await hre.ethers.getContractFactory("EntryPoint");
-        entryPoint = await EntryPointContract.deploy(mockGateway.target, accountFactory.target);
+        entryPoint = await EntryPointContract.deploy(mockGateway.target, accountFactory.target, recover.address);
         await entryPoint.waitForDeployment();
 
         const commandId = encodeBytes32String("commandId");
@@ -189,7 +189,7 @@ describe("EntryPointMultisig 1 of 2", function () {
         await accountFactory.waitForDeployment();
 
         const EntryPointContract = await hre.ethers.getContractFactory("EntryPoint");
-        entryPoint = await EntryPointContract.deploy(mockGateway.target, accountFactory.target);
+        entryPoint = await EntryPointContract.deploy(mockGateway.target, accountFactory.target, recover.address);
         await entryPoint.waitForDeployment();
 
         const commandId = encodeBytes32String("commandId");
