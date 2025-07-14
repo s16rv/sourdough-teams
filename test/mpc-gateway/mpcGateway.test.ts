@@ -16,8 +16,8 @@ describe("MPCGateway", function () {
     const signatureS = "0x7143dfd748a847b8961a4a57902c4f3198e80d94b165a63625ae8b227fdb649e";
 
     // Test values for contract call parameters
-    const sourceChain = "ethereum";
-    const sourceAddress = "0x1234567890123456789012345678901234567890";
+    const sourceChain = "sourdough-1";
+    const sourceAddress = "cosmos1zypqa76je7pxsdwkfah6mu9a583sju6xqt3mv6";
     const destinationChain = "polygon";
     const payload = "0x1234";
 
