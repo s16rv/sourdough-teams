@@ -10,17 +10,17 @@ describe("MPCVerifier", function () {
     let nonOwner: any;
 
     // Test values for MPC public key
-    const publicKeyX = "0xc9e0bc01d127e2d245dc261a5aba5db8e0c9d12343405c2c865e8f82dcf0f6cb";
-    const publicKeyY = "0x93819edf5fe5aad653c150d4ec70b4c0e0c3921e2f08aee3b3855ee402d5feb0";
+    const publicKeyX = "0xf8beefb970589c6e2a7105c161b51661463ea39bf5360222d42e5a3eb5033e19";
+    const publicKeyY = "0x9e90e07eb23e01251a5493be008c70758e5275c56a6d79ed2223d8aeb38a431f";
 
     // Test values for updated MPC public key
     const newPublicKeyX = "0xef6c6462995f147e3909e50ecc1ad9b202a787737aabc660e0252851406afa8b";
     const newPublicKeyY = "0x87195b498efd817adc092da3d171f81d8f9f97293d52701f3b87fdd6e8056066";
 
     // Test values for signature validation
-    const payloadHash = "0x17a0b0a71185ed7511bf55ef568d7c069dcbc886f993c01e07ff26aaf808a76e";
-    const signatureR = "0x9272896f66ef96f4516bbea12ee7e04673060df8dc07b2b79b261ed611ac8b08";
-    const signatureS = "0x7143dfd748a847b8961a4a57902c4f3198e80d94b165a63625ae8b227fdb649e";
+    const payloadHash = "0xe8d5f331abc21a1233cc7a05136298ab3d5227455a8bd02428e671d7e938e2fd";
+    const signatureR = "0x1ca6139aa0e2478829484c51ffa9c1154de1d9d80818575fb96bbee4199e3873";
+    const signatureS = "0x6488dde45d8e4efd1a859e6f3b07fc7943d858d1a159bd0d684cf543f2d870a0";
 
     beforeEach(async function () {
         [owner, nonOwner] = await ethers.getSigners();

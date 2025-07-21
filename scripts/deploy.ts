@@ -1,6 +1,6 @@
 import { ethers } from "hardhat";
 import dotenv from "dotenv";
-import { Secp256k1Verifier } from "../typechain-types";
+import { MPCVerifier, Secp256k1Verifier } from "../typechain-types";
 
 dotenv.config();
 
@@ -22,6 +22,25 @@ async function main() {
         console.log("Secp256k1Verifier Address:", await secp256k1Verifier.getAddress());
     }
 
+    var MpcVerifierContract = await ethers.getContractFactory("MPCVerifier");
+    var mpcVerifier: MPCVerifier;
+    const mpcVerifierAddress = process.env.MPC_VERIFIER_ADDRESS as string;
+    if (!mpcVerifierAddress) {
+        const mpcPublicKeyX = process.env.MPC_PUBLIC_KEY_X as string;
+        const mpcPublicKeyY = process.env.MPC_PUBLIC_KEY_Y as string;
+        mpcVerifier = await MpcVerifierContract.deploy(
+            deployer.address,
+            secp256k1Verifier.target,
+            mpcPublicKeyX,
+            mpcPublicKeyY
+        );
+        await mpcVerifier.waitForDeployment();
+        console.log("MPCVerifier deployed to:", mpcVerifier.target);
+    } else {
+        mpcVerifier = MpcVerifierContract.attach(mpcVerifierAddress) as MPCVerifier;
+        console.log("MPCVerifier Address:", await secp256k1Verifier.getAddress());
+    }
+
     var AccountFactoryContract = await ethers.getContractFactory("AccountFactory");
     var accountFactory;
     const accountFactoryAddress = process.env.ACCOUNT_FACTORY_ADDRESS as string;
@@ -34,13 +53,20 @@ async function main() {
         console.log("AccountFactory Address:", await accountFactory.getAddress());
     }
 
-    const EntryPoint = await ethers.getContractFactory("EntryPoint");
-    const entryPoint = await EntryPoint.deploy(axelarGatewayAddress, accountFactory.target, deployer.address);
-    await entryPoint.waitForDeployment();
-    console.log("EntryPoint deployed to:", entryPoint.target);
+    var EntryPointContract = await ethers.getContractFactory("EntryPoint");
+    var entryPoint;
+    const entryPointAddress = process.env.ENTRY_POINT_ADDRESS as string;
+    if (!entryPointAddress) {
+        entryPoint = await EntryPointContract.deploy(axelarGatewayAddress, accountFactory.target, deployer.address);
+        await entryPoint.waitForDeployment();
+        console.log("EntryPoint deployed to:", entryPoint.target);
+    } else {
+        entryPoint = EntryPointContract.attach(entryPointAddress);
+        console.log("EntryPoint Address:", await entryPoint.getAddress());
+    }
 
     const MpcGateway = await ethers.getContractFactory("MPCGateway");
-    const mpcGateway = await MpcGateway.deploy(secp256k1Verifier.target);
+    const mpcGateway = await MpcGateway.deploy(mpcVerifier.target);
     await mpcGateway.waitForDeployment();
     console.log("MPCGateway deployed to:", mpcGateway.target);
 
