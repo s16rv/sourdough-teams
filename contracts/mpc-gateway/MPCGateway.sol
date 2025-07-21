@@ -103,7 +103,7 @@ contract MPCGateway is IMPCGateway {
      * @param params The contract call parameters containing source/destination info and payload
      * @return bytes32 The generated transaction hash
      */
-    function generateTxHash(ContractCallParams calldata params) private pure returns (bytes32) {
+    function generateTxHash(ContractCallParams calldata params) public pure returns (bytes32) {
         return sha256(abi.encode(
             params.sourceChain,
             params.sourceAddress,
