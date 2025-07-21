@@ -51,7 +51,7 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
      * @param _executor The address to be set as an executor.
      * @param _isExecutor The boolean value indicating whether the address should be an executor.
      */
-    function setExecutor(address _executor, bool _isExecutor) external {
+    function setExecutor(address _executor, bool _isExecutor) public {
         require(msg.sender == ownerAddress, "Only owner can set executor");
         executor[_executor] = _isExecutor;
     }
