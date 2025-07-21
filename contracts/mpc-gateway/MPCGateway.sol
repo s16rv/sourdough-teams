@@ -61,7 +61,15 @@ contract MPCGateway is IMPCGateway {
         bytes32 mpcSignatureS,
         ContractCallParams calldata params
     ) public {
+        emit ContractCallExecuting(
+            mpcSignatureR,
+            mpcSignatureS,
+            params.sourceChain,
+            params.sourceAddress,
+            params.destinationAddress
+        );
         bytes32 txHash = generateTxHash(params);
+        emit DebugTxHash(txHash);
 
         // Check if already executed to prevent replay attacks
         if (executedCalls[txHash]) {
@@ -70,6 +78,7 @@ contract MPCGateway is IMPCGateway {
 
         // Ensure transaction is approved
         bool isApproved = _approveContractCall(txHash, mpcSignatureR, mpcSignatureS, params);
+        emit DebugIsApproved(isApproved);
         if (!isApproved) {
             revert TransactionNotApproved();
         }
@@ -81,6 +90,7 @@ contract MPCGateway is IMPCGateway {
             params.sourceAddress,
             params.payload
         );
+        emit DebugSuccess(success);
         if (!success) {
             revert TransactionFailed();
         }

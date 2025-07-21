@@ -38,7 +38,7 @@ async function main() {
         console.log("MPCVerifier deployed to:", mpcVerifier.target);
     } else {
         mpcVerifier = MpcVerifierContract.attach(mpcVerifierAddress) as MPCVerifier;
-        console.log("MPCVerifier Address:", await secp256k1Verifier.getAddress());
+        console.log("MPCVerifier Address:", await mpcVerifier.getAddress());
     }
 
     var AccountFactoryContract = await ethers.getContractFactory("AccountFactory");

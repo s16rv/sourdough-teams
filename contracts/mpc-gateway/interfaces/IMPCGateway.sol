@@ -46,6 +46,41 @@ interface IMPCGateway {
         address destinationAddress,
         bytes32 txHash
     );
+    
+    /**
+     * @notice Emitted when a contract call is being executed.
+     * @dev This event is emitted at the beginning of the executeContractCall function.
+     * @param mpcSignatureR The r component of the MPC signature
+     * @param mpcSignatureS The s component of the MPC signature
+     * @param sourceChain Identifier of the chain where the transaction originated
+     * @param sourceAddress Address of the sender on the source chain
+     * @param destinationAddress Address of the contract to call on the destination chain
+     */
+    event ContractCallExecuting(
+        bytes32 mpcSignatureR,
+        bytes32 mpcSignatureS,
+        string sourceChain,
+        string sourceAddress,
+        address destinationAddress
+    );
+    
+    /**
+     * @notice Debug event emitted with the transaction hash.
+     * @param txHash Hash of the transaction
+     */
+    event DebugTxHash(bytes32 txHash);
+    
+    /**
+     * @notice Debug event emitted with the approval status.
+     * @param isApproved Whether the transaction is approved
+     */
+    event DebugIsApproved(bool isApproved);
+    
+    /**
+     * @notice Debug event emitted with the execution success status.
+     * @param success Whether the execution was successful
+     */
+    event DebugSuccess(bool success);
 
     struct ContractCallParams {
         string sourceChain; // Identifier of the chain where the transaction originated
