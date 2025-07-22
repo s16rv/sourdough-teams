@@ -82,24 +82,26 @@ interface IMPCGateway {
      */
     event DebugSuccess(bool success);
 
-    struct ContractCallParams {
-        string sourceChain; // Identifier of the chain where the transaction originated
-        string sourceAddress; // Address of the sender on the source chain
-        string destinationChain; // Identifier of the target chain
-        address destinationAddress; // Address of the contract to call on the destination chain
-        bytes payload; // Encoded call data to be executed (Hex bytes)
-    }
+    // ContractCallParams struct has been removed in favor of using individual parameters directly
 
     /**
      * @notice Executes a contract call on the destination chain.
      * @dev This function is called by the relayer on the destination chain to execute a contract call.
      * @param mpcSignatureR Signature from the MPC service (Hex bytes)
      * @param mpcSignatureS Signature from the MPC service (Hex bytes)
-     * @param params ContractCallParams struct containing the parameters for the contract call
+     * @param sourceChain Identifier of the chain where the transaction originated
+     * @param sourceAddress Address of the sender on the source chain
+     * @param destinationChain Identifier of the target chain
+     * @param destinationAddress Address of the contract to call on the destination chain
+     * @param payload Encoded call data to be executed
      */
     function executeContractCall(
         bytes32 mpcSignatureR, // Signature from the MPC service (Hex bytes)
         bytes32 mpcSignatureS, // Signature from the MPC service (Hex bytes)
-        ContractCallParams calldata params
+        string calldata sourceChain,
+        string calldata sourceAddress,
+        string calldata destinationChain,
+        address destinationAddress,
+        bytes calldata payload
     ) external;
 }

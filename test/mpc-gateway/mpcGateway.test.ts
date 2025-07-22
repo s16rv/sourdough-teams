@@ -45,21 +45,22 @@ describe("MPCGateway", function () {
             // We can't directly check private variables, but we can test the behavior
             // that depends on them being set correctly
 
-            // Create contract call params
-            const params = {
-                sourceChain,
-                sourceAddress,
-                destinationChain,
-                destinationAddress: mockEntryPoint.target,
-                payload,
-            };
-
             // Set MockMPCVerifier to fail validation
             await mockMPCVerifier.setShouldValidate(false);
 
             // This should fail because the signature validation fails
             await expect(
-                mpcGateway.connect(relayer).executeContractCall(signatureR, signatureS, params)
+                mpcGateway
+                    .connect(relayer)
+                    .executeContractCall(
+                        signatureR,
+                        signatureS,
+                        sourceChain,
+                        sourceAddress,
+                        destinationChain,
+                        mockEntryPoint.target,
+                        payload
+                    )
             ).to.be.revertedWithCustomError(mpcGateway, "TransactionNotApproved");
 
             // Set MockMPCVerifier to pass validation
@@ -69,22 +70,24 @@ describe("MPCGateway", function () {
             await mockEntryPoint.setShouldSucceed(true);
 
             // Now the call should succeed
-            await expect(mpcGateway.connect(relayer).executeContractCall(signatureR, signatureS, params)).to.not.be
-                .reverted;
+            await expect(
+                mpcGateway
+                    .connect(relayer)
+                    .executeContractCall(
+                        signatureR,
+                        signatureS,
+                        sourceChain,
+                        sourceAddress,
+                        destinationChain,
+                        mockEntryPoint.target,
+                        payload
+                    )
+            ).to.not.be.reverted;
         });
     });
 
     describe("Contract Call Execution", function () {
         it("Should prevent replay attacks", async function () {
-            // Create contract call params
-            const params = {
-                sourceChain,
-                sourceAddress,
-                destinationChain,
-                destinationAddress: mockEntryPoint.target,
-                payload,
-            };
-
             // Set MockMPCVerifier to pass validation
             await mockMPCVerifier.setShouldValidate(true);
 
@@ -92,26 +95,39 @@ describe("MPCGateway", function () {
             await mockEntryPoint.setShouldSucceed(true);
 
             // First execution should succeed
-            await expect(mpcGateway.connect(relayer).executeContractCall(signatureR, signatureS, params))
+            await expect(
+                mpcGateway
+                    .connect(relayer)
+                    .executeContractCall(
+                        signatureR,
+                        signatureS,
+                        sourceChain,
+                        sourceAddress,
+                        destinationChain,
+                        mockEntryPoint.target,
+                        payload
+                    )
+            )
                 .to.emit(mockEntryPoint, "Executed")
                 .withArgs(sourceChain, sourceAddress);
 
             // Second execution with the same parameters should fail due to replay protection
             await expect(
-                mpcGateway.connect(relayer).executeContractCall(signatureR, signatureS, params)
+                mpcGateway
+                    .connect(relayer)
+                    .executeContractCall(
+                        signatureR,
+                        signatureS,
+                        sourceChain,
+                        sourceAddress,
+                        destinationChain,
+                        mockEntryPoint.target,
+                        payload
+                    )
             ).to.be.revertedWithCustomError(mpcGateway, "TransactionAlreadyExecuted");
         });
 
         it("Should fail when destination contract execution fails", async function () {
-            // Create contract call params
-            const params = {
-                sourceChain,
-                sourceAddress,
-                destinationChain,
-                destinationAddress: mockEntryPoint.target,
-                payload,
-            };
-
             // Set MockMPCVerifier to pass validation
             await mockMPCVerifier.setShouldValidate(true);
 
@@ -120,20 +136,21 @@ describe("MPCGateway", function () {
 
             // Execution should fail because the destination contract returns false
             await expect(
-                mpcGateway.connect(relayer).executeContractCall(signatureR, signatureS, params)
+                mpcGateway
+                    .connect(relayer)
+                    .executeContractCall(
+                        signatureR,
+                        signatureS,
+                        sourceChain,
+                        sourceAddress,
+                        destinationChain,
+                        mockEntryPoint.target,
+                        payload
+                    )
             ).to.be.revertedWithCustomError(mpcGateway, "TransactionFailed");
         });
 
         it("Should emit ContractCallApproved and ContractCallExecuted events", async function () {
-            // Create contract call params
-            const params = {
-                sourceChain,
-                sourceAddress,
-                destinationChain,
-                destinationAddress: mockEntryPoint.target,
-                payload,
-            };
-
             // Set MockMPCVerifier to pass validation
             await mockMPCVerifier.setShouldValidate(true);
 
@@ -143,18 +160,24 @@ describe("MPCGateway", function () {
             // Generate transaction hash using sha256 and abi.encode to match the contract implementation
             const encodedParams = ethers.AbiCoder.defaultAbiCoder().encode(
                 ["string", "string", "string", "address", "bytes"],
-                [
-                    params.sourceChain,
-                    params.sourceAddress,
-                    params.destinationChain,
-                    params.destinationAddress,
-                    params.payload,
-                ]
+                [sourceChain, sourceAddress, destinationChain, mockEntryPoint.target, payload]
             );
             const txHash = ethers.sha256(encodedParams);
 
             // Execution should emit both events
-            await expect(mpcGateway.connect(relayer).executeContractCall(signatureR, signatureS, params))
+            await expect(
+                mpcGateway
+                    .connect(relayer)
+                    .executeContractCall(
+                        signatureR,
+                        signatureS,
+                        sourceChain,
+                        sourceAddress,
+                        destinationChain,
+                        mockEntryPoint.target,
+                        payload
+                    )
+            )
                 .to.emit(mpcGateway, "ContractCallApproved")
                 .withArgs(sourceChain, sourceAddress, mockEntryPoint.target, txHash)
                 .and.to.emit(mpcGateway, "ContractCallExecuted")
@@ -162,15 +185,6 @@ describe("MPCGateway", function () {
         });
 
         it("Should fail when signature validation fails", async function () {
-            // Create contract call params
-            const params = {
-                sourceChain,
-                sourceAddress,
-                destinationChain,
-                destinationAddress: mockEntryPoint.target,
-                payload,
-            };
-
             // Set MockMPCVerifier to fail validation
             await mockMPCVerifier.setShouldValidate(false);
 
@@ -179,7 +193,17 @@ describe("MPCGateway", function () {
 
             // Execution should fail because the signature validation fails
             await expect(
-                mpcGateway.connect(relayer).executeContractCall(signatureR, signatureS, params)
+                mpcGateway
+                    .connect(relayer)
+                    .executeContractCall(
+                        signatureR,
+                        signatureS,
+                        sourceChain,
+                        sourceAddress,
+                        destinationChain,
+                        mockEntryPoint.target,
+                        payload
+                    )
             ).to.be.revertedWithCustomError(mpcGateway, "TransactionNotApproved");
         });
     });

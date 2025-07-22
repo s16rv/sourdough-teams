@@ -23,14 +23,18 @@ contract MPCGateway is IMPCGateway {
      * @param txHash The hash of the transaction parameters
      * @param r The r component of the MPC signature
      * @param s The s component of the MPC signature  
-     * @param params The contract call parameters containing source/destination info and payload
+     * @param sourceChain Identifier of the chain where the transaction originated
+     * @param sourceAddress Address of the sender on the source chain
+     * @param destinationAddress Address of the contract to call on the destination chain
      * @return bool Returns true if signature is valid and call is approved
      */
     function _approveContractCall(
         bytes32 txHash,
         bytes32 r,
         bytes32 s,
-        ContractCallParams calldata params
+        string calldata sourceChain,
+        string calldata sourceAddress,
+        address destinationAddress
     ) internal returns (bool) {
         // Call Verifier to validate MPC signature
         bool isValidSignature = verifier.validateMPCSignature(txHash, r, s);
@@ -40,9 +44,9 @@ contract MPCGateway is IMPCGateway {
 
         // Emit ContractCallApproved event
         emit ContractCallApproved(
-            params.sourceChain,
-            params.sourceAddress,
-            params.destinationAddress,
+            sourceChain,
+            sourceAddress,
+            destinationAddress,
             txHash
         );
 
@@ -54,21 +58,35 @@ contract MPCGateway is IMPCGateway {
      * @dev This function is called by the relayer on the destination chain to execute a contract call.
      * @param mpcSignatureR The r component of the MPC signature.
      * @param mpcSignatureS The s component of the MPC signature.
-     * @param params The contract call parameters containing source/destination info and payload
+     * @param sourceChain Identifier of the chain where the transaction originated
+     * @param sourceAddress Address of the sender on the source chain
+     * @param destinationChain Identifier of the target chain
+     * @param destinationAddress Address of the contract to call on the destination chain
+     * @param payload Encoded call data to be executed
      */
     function executeContractCall(
         bytes32 mpcSignatureR,
         bytes32 mpcSignatureS,
-        ContractCallParams calldata params
-    ) public {
+        string calldata sourceChain,
+        string calldata sourceAddress,
+        string calldata destinationChain,
+        address destinationAddress,
+        bytes calldata payload
+    ) external {
         emit ContractCallExecuting(
             mpcSignatureR,
             mpcSignatureS,
-            params.sourceChain,
-            params.sourceAddress,
-            params.destinationAddress
+            sourceChain,
+            sourceAddress,
+            destinationAddress
         );
-        bytes32 txHash = generateTxHash(params);
+        bytes32 txHash = generateTxHash(
+            sourceChain,
+            sourceAddress,
+            destinationChain,
+            destinationAddress,
+            payload
+        );
         emit DebugTxHash(txHash);
 
         // Check if already executed to prevent replay attacks
@@ -77,7 +95,14 @@ contract MPCGateway is IMPCGateway {
         }
 
         // Ensure transaction is approved
-        bool isApproved = _approveContractCall(txHash, mpcSignatureR, mpcSignatureS, params);
+        bool isApproved = _approveContractCall(
+            txHash, 
+            mpcSignatureR, 
+            mpcSignatureS, 
+            sourceChain,
+            sourceAddress,
+            destinationAddress
+        );
         emit DebugIsApproved(isApproved);
         if (!isApproved) {
             revert TransactionNotApproved();
@@ -85,10 +110,10 @@ contract MPCGateway is IMPCGateway {
 
         // Forward payload to smart account for execution
         bool success = callDestinationContract(
-            params.destinationAddress,
-            params.sourceChain,
-            params.sourceAddress,
-            params.payload
+            destinationAddress,
+            sourceChain,
+            sourceAddress,
+            payload
         );
         emit DebugSuccess(success);
         if (!success) {
@@ -100,9 +125,9 @@ contract MPCGateway is IMPCGateway {
 
         // Emit ContractCallExecuted event for tracking
         emit ContractCallExecuted(
-            params.sourceChain,
-            params.sourceAddress,
-            params.destinationAddress,
+            sourceChain,
+            sourceAddress,
+            destinationAddress,
             txHash
         );
     }
@@ -110,16 +135,26 @@ contract MPCGateway is IMPCGateway {
     /**
      * @notice Generates a transaction hash from the contract call parameters.
      * @dev This function is used to generate a unique hash for each contract call.
-     * @param params The contract call parameters containing source/destination info and payload
+     * @param sourceChain Identifier of the chain where the transaction originated
+     * @param sourceAddress Address of the sender on the source chain
+     * @param destinationChain Identifier of the target chain
+     * @param destinationAddress Address of the contract to call on the destination chain
+     * @param payload Encoded call data to be executed
      * @return bytes32 The generated transaction hash
      */
-    function generateTxHash(ContractCallParams calldata params) public pure returns (bytes32) {
+    function generateTxHash(
+        string calldata sourceChain,
+        string calldata sourceAddress,
+        string calldata destinationChain,
+        address destinationAddress,
+        bytes calldata payload
+    ) public pure returns (bytes32) {
         return sha256(abi.encode(
-            params.sourceChain,
-            params.sourceAddress,
-            params.destinationChain,
-            params.destinationAddress,
-            params.payload
+            sourceChain,
+            sourceAddress,
+            destinationChain,
+            destinationAddress,
+            payload
         ));
     }
 
