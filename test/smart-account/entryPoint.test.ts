@@ -5,6 +5,8 @@ import { encodeBytes32String, AbiCoder, parseEther, sha256, toUtf8Bytes, keccak2
 
 import { Account, EntryPoint } from "../../typechain-types";
 import { combineHexStrings } from "../utils/lib";
+import { MockGateway } from "../../typechain-types/contracts/mock-contracts";
+import { AccountFactory } from "../../typechain-types/contracts/smart-account";
 
 describe("EntryPoint", function () {
     const RECIPIENT_ADDRESS = "0xaa25Aa7a19f9c426E07dee59b12f944f4d9f1DD3";
@@ -19,20 +21,23 @@ describe("EntryPoint", function () {
 
     let entryPoint: EntryPoint;
     let recover: HardhatEthersSigner;
+    let executor: HardhatEthersSigner;
     let account: Account;
+    let mockGateway: MockGateway;
+    let accountFactory: AccountFactory;
 
     beforeEach(async function () {
-        [recover] = await hre.ethers.getSigners();
+        [recover, executor] = await hre.ethers.getSigners();
 
         const MockGatewayContract = await hre.ethers.getContractFactory("MockGateway");
-        const mockGateway = await MockGatewayContract.deploy();
+        mockGateway = await MockGatewayContract.deploy();
 
         const Secp256k1VerifierContract = await hre.ethers.getContractFactory("Secp256k1Verifier");
         const verifier = await Secp256k1VerifierContract.deploy();
         await verifier.waitForDeployment();
 
         const AccountFactoryContract = await hre.ethers.getContractFactory("AccountFactory");
-        const accountFactory = await AccountFactoryContract.deploy(verifier.target);
+        accountFactory = await AccountFactoryContract.deploy(verifier.target);
         await accountFactory.waitForDeployment();
 
         const EntryPointContract = await hre.ethers.getContractFactory("EntryPoint");
@@ -99,5 +104,123 @@ describe("EntryPoint", function () {
 
         const finalRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
         expect(finalRecipientBalance).to.equal(initialRecipientBalance + amountToSend);
+    });
+
+    it("should execute payload directly when called by owner", async function () {
+        const messageHash = "0xcc61a33a7a9ace63fa4c5e74f9db3080c7ef68dd53e75dfb311bc28381830c2f";
+        const r = ["0x87df5d0e314c3fe01b3dc136b3afe1659e02316f8d189f0b68983b7f90cd9b61"];
+        const s = ["0x7d2212755fb0db4f8e9a3343d264942d14c5e75471245b0419f29ce10355b08b"];
+        const numberSigners = 1;
+
+        const initialRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
+        const amountToSend = parseEther("1.0");
+        const accountAddress = await account.getAddress();
+
+        // Prepare payload for executePayload
+        const sourceChain = "sourceChain";
+
+        const txPayloadAddress = new AbiCoder().encode(["address", "uint256"], [RECIPIENT_ADDRESS, amountToSend]);
+        const txPayload = combineHexStrings(txPayloadAddress, "0x");
+
+        const proof = sha256(combineHexStrings(messageHash, txPayload));
+
+        const p = new AbiCoder().encode(
+            ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
+            [2, accountAddress, messageHash, proof, 0, numberSigners, r[0], s[0], PUBLIC_KEY_X[0], PUBLIC_KEY_Y[0]]
+        );
+        const payload = combineHexStrings(p, txPayload);
+
+        // Call executePayload directly as owner
+        await entryPoint.executePayload(sourceChain, SOURCE_ADDRESS, payload);
+
+        const finalRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
+        expect(finalRecipientBalance).to.equal(initialRecipientBalance + amountToSend);
+    });
+
+    it("should execute payload when called by authorized executor", async function () {
+        // Set executor as authorized
+        await entryPoint.setExecutor(executor.address, true);
+        expect(await entryPoint.isExecutor(executor.address)).to.equal(true);
+
+        const messageHash = "0xcc61a33a7a9ace63fa4c5e74f9db3080c7ef68dd53e75dfb311bc28381830c2f";
+        const r = ["0x87df5d0e314c3fe01b3dc136b3afe1659e02316f8d189f0b68983b7f90cd9b61"];
+        const s = ["0x7d2212755fb0db4f8e9a3343d264942d14c5e75471245b0419f29ce10355b08b"];
+        const numberSigners = 1;
+
+        const initialRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
+        const amountToSend = parseEther("1.0");
+        const accountAddress = await account.getAddress();
+
+        // Prepare payload for executePayload
+        const sourceChain = "sourceChain";
+
+        const txPayloadAddress = new AbiCoder().encode(["address", "uint256"], [RECIPIENT_ADDRESS, amountToSend]);
+        const txPayload = combineHexStrings(txPayloadAddress, "0x");
+
+        const proof = sha256(combineHexStrings(messageHash, txPayload));
+
+        const p = new AbiCoder().encode(
+            ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
+            [2, accountAddress, messageHash, proof, 0, numberSigners, r[0], s[0], PUBLIC_KEY_X[0], PUBLIC_KEY_Y[0]]
+        );
+        const payload = combineHexStrings(p, txPayload);
+
+        // Call executePayload as executor
+        await entryPoint.connect(executor).executePayload(sourceChain, SOURCE_ADDRESS, payload);
+
+        const finalRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
+        expect(finalRecipientBalance).to.equal(initialRecipientBalance + amountToSend);
+    });
+
+    it("should revert when executePayload is called by unauthorized address", async function () {
+        const messageHash = "0xcc61a33a7a9ace63fa4c5e74f9db3080c7ef68dd53e75dfb311bc28381830c2f";
+        const r = ["0x87df5d0e314c3fe01b3dc136b3afe1659e02316f8d189f0b68983b7f90cd9b61"];
+        const s = ["0x7d2212755fb0db4f8e9a3343d264942d14c5e75471245b0419f29ce10355b08b"];
+        const numberSigners = 1;
+
+        const amountToSend = parseEther("1.0");
+        const accountAddress = await account.getAddress();
+
+        // Prepare payload for executePayload
+        const sourceChain = "sourceChain";
+
+        const txPayloadAddress = new AbiCoder().encode(["address", "uint256"], [RECIPIENT_ADDRESS, amountToSend]);
+        const txPayload = combineHexStrings(txPayloadAddress, "0x");
+
+        const proof = sha256(combineHexStrings(messageHash, txPayload));
+
+        const p = new AbiCoder().encode(
+            ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
+            [2, accountAddress, messageHash, proof, 0, numberSigners, r[0], s[0], PUBLIC_KEY_X[0], PUBLIC_KEY_Y[0]]
+        );
+        const payload = combineHexStrings(p, txPayload);
+
+        // Verify executor is not authorized
+        expect(await entryPoint.isExecutor(executor.address)).to.equal(false);
+
+        // Call executePayload as unauthorized executor should revert
+        await expect(
+            entryPoint.connect(executor).executePayload(sourceChain, SOURCE_ADDRESS, payload)
+        ).to.be.revertedWith("Only owner can execute");
+    });
+
+    it("should allow setting and removing executors by owner", async function () {
+        // Initially executor should not be authorized
+        expect(await entryPoint.isExecutor(executor.address)).to.equal(false);
+
+        // Set executor as authorized
+        await entryPoint.setExecutor(executor.address, true);
+        expect(await entryPoint.isExecutor(executor.address)).to.equal(true);
+
+        // Remove executor authorization
+        await entryPoint.setExecutor(executor.address, false);
+        expect(await entryPoint.isExecutor(executor.address)).to.equal(false);
+    });
+
+    it("should revert when non-owner tries to set executor", async function () {
+        // Try to set executor as authorized from non-owner account
+        await expect(entryPoint.connect(executor).setExecutor(executor.address, true)).to.be.revertedWith(
+            "Only owner can set executor"
+        );
     });
 });
