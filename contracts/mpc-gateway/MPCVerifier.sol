@@ -5,8 +5,8 @@ import "../smart-account/util/SignatureVerifier.sol";
 
 contract MPCVerifier {
     address private ownerAddress;
-    bytes32 private publicKeyX;
-    bytes32 private publicKeyY;
+    bytes32 public publicKeyX;
+    bytes32 public publicKeyY;
     address private immutable verifierAddress; // Secp256k1 verifier address
 
     /**

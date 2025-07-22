@@ -18,9 +18,9 @@ describe("MPCVerifier", function () {
     const newPublicKeyY = "0x87195b498efd817adc092da3d171f81d8f9f97293d52701f3b87fdd6e8056066";
 
     // Test values for signature validation
-    const payloadHash = "0xe8d5f331abc21a1233cc7a05136298ab3d5227455a8bd02428e671d7e938e2fd";
-    const signatureR = "0x1ca6139aa0e2478829484c51ffa9c1154de1d9d80818575fb96bbee4199e3873";
-    const signatureS = "0x6488dde45d8e4efd1a859e6f3b07fc7943d858d1a159bd0d684cf543f2d870a0";
+    const payloadHash = "0xc27f816427f4f248c53e3662439f4e80d62775bff2f219747e0cd696e4ede1d1";
+    const signatureR = "0xd9d9d77db6e734f1d2a1428bfd92b0f2969e5eb03759843e0330b413964eb177";
+    const signatureS = "0x4deaa3be2edb551dbb07102b0a88b510170154df6a1f5ed58101abe99440dda5";
 
     beforeEach(async function () {
         [owner, nonOwner] = await ethers.getSigners();
