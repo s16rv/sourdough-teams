@@ -19,6 +19,12 @@ const config: HardhatUserConfig = {
         sepolia: {
             url: "https://ethereum-sepolia-rpc.publicnode.com",
             accounts: [process.env.EVM_PRIVATE_KEY as string],
+            gasMultiplier: 1.5,
+        },
+        polygon: {
+            url: "https://rpc-amoy.polygon.technology",
+            accounts: [process.env.EVM_PRIVATE_KEY as string],
+            gasMultiplier: 1.5,
         },
     },
     gasReporter: {

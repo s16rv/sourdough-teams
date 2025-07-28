@@ -6,7 +6,7 @@ import "./interfaces/IMPCVerifier.sol";
 import "../smart-account/interfaces/IEntryPoint.sol";
 
 contract MPCGateway is IMPCGateway {
-    mapping(bytes32 => bool) private executedCalls;
+    mapping(bytes32 => bool) public executedCalls;
     IMPCVerifier private verifier;
 
     /**
@@ -72,7 +72,7 @@ contract MPCGateway is IMPCGateway {
         string calldata destinationChain,
         address destinationAddress,
         bytes calldata payload
-    ) external {
+    ) external returns (bool success, string memory errorMessage) {
         emit ContractCallExecuting(
             mpcSignatureR,
             mpcSignatureS,
@@ -91,7 +91,8 @@ contract MPCGateway is IMPCGateway {
 
         // Check if already executed to prevent replay attacks
         if (executedCalls[txHash]) {
-            revert TransactionAlreadyExecuted();
+            emit DebugError("TransactionAlreadyExecuted");
+            return (false, "TransactionAlreadyExecuted");
         }
 
         // Ensure transaction is approved
@@ -103,21 +104,21 @@ contract MPCGateway is IMPCGateway {
             sourceAddress,
             destinationAddress
         );
-        emit DebugIsApproved(isApproved);
         if (!isApproved) {
-            revert TransactionNotApproved();
+            emit DebugError("TransactionNotApproved");
+            return (false, "TransactionNotApproved");
         }
 
         // Forward payload to smart account for execution
-        bool success = callDestinationContract(
+        bool result = callDestinationContract(
             destinationAddress,
             sourceChain,
             sourceAddress,
             payload
         );
-        emit DebugSuccess(success);
-        if (!success) {
-            revert TransactionFailed();
+        if (!result) {
+            emit DebugError("CallFailed");
+            return (false, "CallFailed");
         }
 
         // Mark transaction as executed to prevent replay
@@ -130,6 +131,7 @@ contract MPCGateway is IMPCGateway {
             destinationAddress,
             txHash
         );
+        return (true, "");
     }
 
     /**

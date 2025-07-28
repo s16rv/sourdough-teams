@@ -16,6 +16,9 @@ async function main() {
 
     const sequence = await account.accountSequence();
     console.log("sequence", sequence);
+
+    console.log("X :", await account.getX());
+    console.log("Y :", await account.getY());
 }
 
 main().catch((error) => {
