@@ -13,9 +13,11 @@ library SignatureVerifier {
         bytes32 x,
         bytes32 y
     ) internal view returns (bool) {
-        bytes memory args = abi.encode(message_hash, r, s, x, y);
+        bytes memory args = abi.encodePacked(message_hash, r, s, x, y);
         (bool success, bytes memory ret) = verifier.staticcall(args);
-        assert(success);
+        if (!success) {
+            return false;
+        }
 
         return abi.decode(ret, (uint256)) == 1;
     }

@@ -42,7 +42,7 @@ describe("EntryPointMultisig 2 of 2", function () {
         await accountFactory.waitForDeployment();
 
         const EntryPointContract = await hre.ethers.getContractFactory("EntryPoint");
-        entryPoint = await EntryPointContract.deploy(mockGateway.target, accountFactory.target);
+        entryPoint = await EntryPointContract.deploy(mockGateway.target, accountFactory.target, recover.address);
         await entryPoint.waitForDeployment();
 
         const commandId = encodeBytes32String("commandId");
@@ -189,7 +189,7 @@ describe("EntryPointMultisig 1 of 2", function () {
         await accountFactory.waitForDeployment();
 
         const EntryPointContract = await hre.ethers.getContractFactory("EntryPoint");
-        entryPoint = await EntryPointContract.deploy(mockGateway.target, accountFactory.target);
+        entryPoint = await EntryPointContract.deploy(mockGateway.target, accountFactory.target, recover.address);
         await entryPoint.waitForDeployment();
 
         const commandId = encodeBytes32String("commandId");
@@ -262,6 +262,7 @@ describe("EntryPointMultisig 1 of 2", function () {
             [2, accountAddress, messageHash, proof, 0, numberSigners, r[0], s[0], PUBLIC_KEY_X[0], PUBLIC_KEY_Y[0]]
         );
         const payload = combineHexStrings(p, txPayload);
+        console.log("payload", payload);
 
         await entryPoint.execute(commandId, sourceChain, SOURCE_ADDRESS, payload);
 

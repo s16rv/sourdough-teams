@@ -88,11 +88,11 @@ describe("SignatureVerifier", function () {
     });
 
     it("Should verify signature send account tx using hex", async function () {
-        const messageHash = "0xdc8c11d51d653ac6baef8e1ae1bbddda8910d0d0abd0e0edeef0a67bef590e0a";
-        const r = "0x2100b47091a86403304ac0f71a57c185b41c7de0262c21800e04c3bb0e9d655e";
-        const s = "0x5161a2c18d41771776c43eb261ede3ce0d9981e13bcea1ddc2622ae20eeabab9";
-        const publicKeyX = "0x90be7fe886c748be80e98b340d1418d0bfe7865675ee597d9d850526520085f0";
-        const publicKeyY = "0x87b9efdb5c81e067890e9439bdf717cf1c22adfe29d802050a11414d66b6e338";
+        const messageHash = "0x26e93b676131b3f1ba03a347553eaae450ff9dbfb02ee1768a111b3047009f3b";
+        const r = "0xed86049f9ef13b46828c3c8b5e9ad81f19fe5133602c4a165d1a6c6664c1ae20";
+        const s = "0x35211a040bf2543fc189e6334271b2074ba5118541552cb406271e9bba60952a";
+        const publicKeyX = "0x1b0841965bd89903d3a64c8432d1c05481e6cab29ba45fc889fbb28ca9148448";
+        const publicKeyY = "0x05da5b7949996cbba89a9225375838b333c07c00c045b3a8936b4eb67db05948";
 
         const signer = await signatureVerifier.verifySignature(
             secp256k1Verifier.target,

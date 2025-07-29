@@ -57,4 +57,26 @@ interface IEntryPoint {
      * @param sourceAddress The address on the source chain that initiated the transaction.
      */
     event Executed(string sourceChain, string sourceAddress);
+
+       /**
+     * @notice Executes a payload on the destination chain.
+     * @dev This function is called by the relayer on the destination chain to execute a payload.
+     * It verifies the executor and then calls the internal `_execute` function.
+     * @param _sourceChain The blockchain where the transaction originated.
+     * @param _sourceAddress The address on the source chain where the transaction originated.
+     * @param _payload The encoded GMP (General Message Passing) message sent from the source chain.
+     */
+    function executePayload(
+        string calldata _sourceChain,
+        string calldata _sourceAddress,
+        bytes calldata _payload
+    ) external returns (bool);
+
+    /**
+     * @notice Sets the executor status for a given address.
+     * @dev Only the owner can set the executor status.
+     * @param _executor The address to be set as an executor.
+     * @param _isExecutor The boolean value indicating whether the address should be an executor.
+     */
+    function setExecutor(address _executor, bool _isExecutor) external;
 }

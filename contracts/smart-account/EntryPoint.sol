@@ -10,14 +10,60 @@ import "./interfaces/IAccountFactory.sol";
 
 contract EntryPoint is IEntryPoint, AxelarExecutable {
     IAccountFactory public immutable accountFactory;
+    address public immutable ownerAddress;
+    mapping(address => bool) public executor;
 
     /**
      * @dev Constructor to initialize the EntryPoint contract with the Axelar gateway and account factory addresses.
      * @param _gateway Address of the Axelar gateway on the deployed chain.
      * @param _accountFactory Address of the account factory that manages account creation.
      */
-    constructor(address _gateway, address _accountFactory) AxelarExecutable(_gateway) {
+    constructor(address _gateway, address _accountFactory, address _ownerAddress) AxelarExecutable(_gateway) {
         accountFactory = IAccountFactory(_accountFactory);
+        ownerAddress = _ownerAddress;
+    }
+
+    /**
+     * @notice Executes a payload on the destination chain.
+     * @dev This function is called by the relayer on the destination chain to execute a payload.
+     * It verifies the executor and then calls the internal `_execute` function.
+     * @param _sourceChain The blockchain where the transaction originated.
+     * @param _sourceAddress The address on the source chain where the transaction originated.
+     * @param _payload The encoded GMP (General Message Passing) message sent from the source chain.
+     */
+    function executePayload(
+        string calldata _sourceChain,
+        string calldata _sourceAddress,
+        bytes calldata _payload
+    ) external returns (bool) {
+        if (!isExecutor(msg.sender)) {
+            require(msg.sender == ownerAddress, "Only owner can execute");
+        }
+
+        _execute(_sourceChain, _sourceAddress, _payload);
+
+        return true;
+    }
+
+    /**
+     * @notice Sets the executor status for a given address.
+     * @dev Only the owner can set the executor status.
+     * @param _executor The address to be set as an executor.
+     * @param _isExecutor The boolean value indicating whether the address should be an executor.
+     */
+    function setExecutor(address _executor, bool _isExecutor) public {
+        require(msg.sender == ownerAddress, "Only owner can set executor");
+        executor[_executor] = _isExecutor;
+    }
+
+    /**
+     * @notice Retrieves the executor status for a given address.
+     * @dev This function can be called by anyone.
+     * @param _executor The address to check the executor status.
+     * @return bool Returns true if the address is an executor, otherwise returns false.
+     */
+    function isExecutor(address _executor) public view returns (bool) {
+        return executor[_executor];
     }
 
     /**

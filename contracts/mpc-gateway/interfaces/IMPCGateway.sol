@@ -1,0 +1,101 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.21;
+
+interface IMPCGateway {
+    /**
+     * @dev Error thrown when the transaction has already been executed.
+     */
+    error TransactionAlreadyExecuted();
+
+    /**
+     * @dev Error thrown when the transaction has not been approved.
+     */
+    error TransactionNotApproved();
+
+    /**
+     * @dev Error thrown when the transaction execution failed.
+     */
+    error TransactionFailed();
+
+    /**
+     * @notice Approves the execution of a contract call on the destination chain.
+     * @dev This function is called by the relayer on the source chain to approve the execution of a contract call on the destination chain.
+     * @param sourceChain Identifier of the chain where the transaction originated
+     * @param sourceAddress Address of the sender on the source chain
+     * @param destinationAddress Address of the contract to call on the destination chain
+     * @param txHash Hash of the transaction
+     */
+    event ContractCallApproved(
+        string sourceChain,
+        string sourceAddress,
+        address destinationAddress,
+        bytes32 txHash
+    );
+
+    /**
+     * @notice Executes a contract call on the destination chain.
+     * @dev This function is called by the relayer on the destination chain to execute a contract call.
+     * @param sourceChain Identifier of the chain where the transaction originated
+     * @param sourceAddress Address of the sender on the source chain
+     * @param destinationAddress Address of the contract to call on the destination chain
+     * @param txHash Hash of the transaction
+     */
+    event ContractCallExecuted(
+        string sourceChain,
+        string sourceAddress,
+        address destinationAddress,
+        bytes32 txHash
+    );
+    
+    /**
+     * @notice Emitted when a contract call is being executed.
+     * @dev This event is emitted at the beginning of the executeContractCall function.
+     * @param mpcSignatureR The r component of the MPC signature
+     * @param mpcSignatureS The s component of the MPC signature
+     * @param sourceChain Identifier of the chain where the transaction originated
+     * @param sourceAddress Address of the sender on the source chain
+     * @param destinationAddress Address of the contract to call on the destination chain
+     */
+    event ContractCallExecuting(
+        bytes32 mpcSignatureR,
+        bytes32 mpcSignatureS,
+        string sourceChain,
+        string sourceAddress,
+        address destinationAddress
+    );
+    
+    /**
+     * @notice Debug event emitted with the transaction hash.
+     * @param txHash Hash of the transaction
+     */
+    event DebugTxHash(bytes32 txHash);
+
+    /**
+     * @notice Debug event emitted with the error message.
+     * @param errorMessage The error message
+     */
+    event DebugError(string errorMessage);
+
+    // ContractCallParams struct has been removed in favor of using individual parameters directly
+
+    /**
+     * @notice Executes a contract call on the destination chain.
+     * @dev This function is called by the relayer on the destination chain to execute a contract call.
+     * @param mpcSignatureR Signature from the MPC service (Hex bytes)
+     * @param mpcSignatureS Signature from the MPC service (Hex bytes)
+     * @param sourceChain Identifier of the chain where the transaction originated
+     * @param sourceAddress Address of the sender on the source chain
+     * @param destinationChain Identifier of the target chain
+     * @param destinationAddress Address of the contract to call on the destination chain
+     * @param payload Encoded call data to be executed
+     */
+    function executeContractCall(
+        bytes32 mpcSignatureR, // Signature from the MPC service (Hex bytes)
+        bytes32 mpcSignatureS, // Signature from the MPC service (Hex bytes)
+        string calldata sourceChain,
+        string calldata sourceAddress,
+        string calldata destinationChain,
+        address destinationAddress,
+        bytes calldata payload
+    ) external returns (bool success, string memory errorMessage);
+}
