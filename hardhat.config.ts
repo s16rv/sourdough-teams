@@ -32,6 +32,25 @@ const config: HardhatUserConfig = {
         coinmarketcap: process.env.COINMARKETCAP_API_KEY,
         gasPriceApi: process.env.ETHERSCAN_API_KEY,
     },
+    etherscan: {
+        apiKey: {
+            sepolia: process.env.ETHERSCAN_API_KEY as string,
+            polygonAmoy: process.env.ETHERSCAN_API_KEY as string,
+        },
+        customChains: [
+            {
+                network: "polygonAmoy",
+                chainId: 80002, // Polygon Amoy chain ID
+                urls: {
+                    apiURL: "https://api-amoy.polygonscan.com/api",
+                    browserURL: "https://amoy.polygonscan.com",
+                },
+            },
+        ],
+    },
+    sourcify: {
+        enabled: false, // Suppress Sourcify warning
+    },
 };
 
 export default config;

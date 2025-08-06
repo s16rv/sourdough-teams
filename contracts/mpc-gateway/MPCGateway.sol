@@ -72,7 +72,7 @@ contract MPCGateway is IMPCGateway {
         string calldata destinationChain,
         address destinationAddress,
         bytes calldata payload
-    ) external returns (bool success, string memory errorMessage) {
+    ) external returns (bool) {
         emit ContractCallExecuting(
             mpcSignatureR,
             mpcSignatureS,
@@ -92,7 +92,7 @@ contract MPCGateway is IMPCGateway {
         // Check if already executed to prevent replay attacks
         if (executedCalls[txHash]) {
             emit DebugError("TransactionAlreadyExecuted");
-            return (false, "TransactionAlreadyExecuted");
+            revert TransactionAlreadyExecuted();
         }
 
         // Ensure transaction is approved
@@ -106,7 +106,7 @@ contract MPCGateway is IMPCGateway {
         );
         if (!isApproved) {
             emit DebugError("TransactionNotApproved");
-            return (false, "TransactionNotApproved");
+            revert TransactionNotApproved();
         }
 
         // Forward payload to smart account for execution
@@ -118,7 +118,7 @@ contract MPCGateway is IMPCGateway {
         );
         if (!result) {
             emit DebugError("CallFailed");
-            return (false, "CallFailed");
+            revert TransactionFailed();
         }
 
         // Mark transaction as executed to prevent replay
@@ -131,7 +131,7 @@ contract MPCGateway is IMPCGateway {
             destinationAddress,
             txHash
         );
-        return (true, "");
+        return true;
     }
 
     /**

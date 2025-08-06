@@ -97,5 +97,5 @@ interface IMPCGateway {
         string calldata destinationChain,
         address destinationAddress,
         bytes calldata payload
-    ) external returns (bool success, string memory errorMessage);
+    ) external returns (bool);
 }
