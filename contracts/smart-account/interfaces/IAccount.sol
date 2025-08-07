@@ -83,7 +83,7 @@ interface IAccount {
         bytes32 proof,
         uint64 sequence,
         bytes calldata data
-    ) external view returns (bool);
+    ) external view returns (bool, string memory);
 
     /**
      * @dev Executes a transaction to a specified destination address.

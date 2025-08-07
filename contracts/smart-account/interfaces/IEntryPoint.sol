@@ -58,6 +58,12 @@ interface IEntryPoint {
      */
     event Executed(string sourceChain, string sourceAddress);
 
+    /**
+     * @dev Event emitted when a debug string is logged.
+     * @param str The debug string.
+     */
+    event DebugReason(string str);
+
        /**
      * @notice Executes a payload on the destination chain.
      * @dev This function is called by the relayer on the destination chain to execute a payload.

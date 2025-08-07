@@ -200,7 +200,7 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
         string calldata sourceAddress,
         bytes calldata txPayload
     ) internal {
-        bool valid = IAccount(payable(target)).validateOperation(
+        (bool valid, string memory reason) = IAccount(payable(target)).validateOperation(
             sourceAddress,
             messageHash,
             r,
@@ -212,7 +212,8 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
             txPayload
         );
         if (!valid) {
-            revert InvalidSignature();
+            emit DebugReason(reason);
+            return;
         }
 
         emit SignatureValidated(messageHash, r, s);
@@ -286,7 +287,7 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
         bytes32[] memory x1 = new bytes32[](1);
         bytes32[] memory y1 = new bytes32[](1);
 
-        bool valid = IAccount(payable(target)).validateOperation(sourceAddress, messageHash, r1, s1, x1, y1, proof, sequence, txPayload);
+        (bool valid, string memory reason) = IAccount(payable(target)).validateOperation(sourceAddress, messageHash, r1, s1, x1, y1, proof, sequence, txPayload);
         if (!valid) {
             revert InvalidSignature();
         }
@@ -320,7 +321,7 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
         bytes32[] memory x1 = new bytes32[](1);
         bytes32[] memory y1 = new bytes32[](1);
 
-        bool validOperation = IAccount(payable(target)).validateOperation(
+        (bool validOperation, string memory reason) = IAccount(payable(target)).validateOperation(
             sourceAddress,
             messageHash,
             r1,
@@ -377,7 +378,7 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
         bytes32[] memory x1 = new bytes32[](1);
         bytes32[] memory y1 = new bytes32[](1);
 
-        bool validOperation = IAccount(payable(target)).validateOperation(
+        (bool validOperation, string memory reason) = IAccount(payable(target)).validateOperation(
             sourceAddress,
             messageHash,
             r1,

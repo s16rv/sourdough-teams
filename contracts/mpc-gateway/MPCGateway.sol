@@ -92,7 +92,7 @@ contract MPCGateway is IMPCGateway {
         // Check if already executed to prevent replay attacks
         if (executedCalls[txHash]) {
             emit DebugError("TransactionAlreadyExecuted");
-            revert TransactionAlreadyExecuted();
+            return false;
         }
 
         // Ensure transaction is approved
@@ -106,7 +106,7 @@ contract MPCGateway is IMPCGateway {
         );
         if (!isApproved) {
             emit DebugError("TransactionNotApproved");
-            revert TransactionNotApproved();
+            return false;
         }
 
         // Forward payload to smart account for execution
@@ -118,7 +118,7 @@ contract MPCGateway is IMPCGateway {
         );
         if (!result) {
             emit DebugError("CallFailed");
-            revert TransactionFailed();
+            return false;
         }
 
         // Mark transaction as executed to prevent replay

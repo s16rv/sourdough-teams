@@ -102,30 +102,30 @@ contract Account is IAccount {
         bytes32 proof,
         uint64 sequence,
         bytes calldata data
-    ) external view returns (bool) {
+    ) external view returns (bool, string memory) {
         if (!compareSourceAddress(sourceAddress)) {
-            revert InvalidSourceAddress();
+            return (false, "InvalidSourceAddress");
         }
 
         if (sequence != accountSequence) {
-            revert InvalidSequence();
+            return (false, "InvalidSequence");
         }
 
         bytes32 expectedProof = sha256(abi.encodePacked(messageHash, data));
         if (proof != expectedProof) {
-            revert InvalidProof();
+            return (false, "InvalidProof");
         }
 
         if (x.length != y.length) {
-            revert InvalidPubKey();
+            return (false, "InvalidPubKeyLength");
         }
 
         if (x.length != r.length || x.length != s.length) {
-            revert InvalidSignature();
+            return (false, "InvalidSignatureLength");
         }
 
         if (x.length < threshold) {
-            revert InvalidThreshold();
+            return (false, "InvalidThreshold");
         }
 
         // check if x and y is included in the xPubKeys and yPubKeys
@@ -135,7 +135,7 @@ contract Account is IAccount {
                     break;
                 }
                 if (j == xPubKeys.length - 1) {
-                    revert InvalidPubKey();
+                    return (false, "InvalidPubKey");
                 }
             }
         }
@@ -150,11 +150,11 @@ contract Account is IAccount {
                 y[i]
             );
             if (!isValidSignature) {
-                return false;
+                return (false, "InvalidSignature");
             }
         }
 
-        return true;
+        return (true, "");
     }
 
     /**
