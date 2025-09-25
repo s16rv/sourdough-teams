@@ -26,6 +26,11 @@ const config: HardhatUserConfig = {
             accounts: [process.env.EVM_PRIVATE_KEY as string],
             gasMultiplier: 1.2,
         },
+        base: {
+            url: "https://base-sepolia-rpc.publicnode.com",
+            accounts: [process.env.EVM_PRIVATE_KEY as string],
+            gasMultiplier: 1.2,
+        },
     },
     gasReporter: {
         enabled: process.env.REPORT_GAS ? true : false,
