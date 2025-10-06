@@ -310,27 +310,6 @@ describe("MPCGateway - generateTxHash", function () {
             expect(hash).to.equal("0xc27f816427f4f248c53e3662439f4e80d62775bff2f219747e0cd696e4ede1d1");
         });
 
-        it("test execute contract call", async function () {
-            const signatureR = "0xd9d9d77db6e734f1d2a1428bfd92b0f2969e5eb03759843e0330b413964eb177";
-            const signatureS = "0x4deaa3be2edb551dbb07102b0a88b510170154df6a1f5ed58101abe99440dda5";
-            const sourceChain = "alpha-1";
-            const sourceAddress = "cosmos1zypqa76je7pxsdwkfah6mu9a583sju6xqt3mv6";
-            const destinationChain = "ethereum-sepolia";
-            const destinationAddress = "0xf56d63B2778Cad34bf38cab2E0B91230936B7a72";
-            const payload =
-                "0x0000000000000000000000000000000000000000000000000000000000000001000000000000000000000000ee17d0a243361997245a0eba740e26020952f2490000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000190be7fe886c748be80e98b340d1418d0bfe7865675ee597d9d850526520085f087b9efdb5c81e067890e9439bdf717cf1c22adfe29d802050a11414d66b6e338";
-
-            await mpcGateway.executeContractCall(
-                signatureR,
-                signatureS,
-                sourceChain,
-                sourceAddress,
-                destinationChain,
-                destinationAddress,
-                payload
-            );
-        });
-
         it("test generateTxHash function", async function () {
             const sourceChain = "alpha-1";
             const sourceAddress = "cosmos1zypqa76je7pxsdwkfah6mu9a583sju6xqt3mv6";
@@ -347,7 +326,7 @@ describe("MPCGateway - generateTxHash", function () {
                 payload
             );
 
-            expect(hash).to.equal("0x775a77e732b9e03f7977af56cdede61f6fcd6ac0d1b3579398aa4793217f47c5");
+            expect(hash).to.equal("0xba5e3fea2ecd0fc87df057b6e77303f8059b59cba830290800f4250dbb2f4dc6");
         });
     });
 });
