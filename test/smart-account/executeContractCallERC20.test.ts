@@ -1,7 +1,7 @@
 import hre from "hardhat";
 import { expect } from "chai";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
-import { encodeBytes32String, AbiCoder, parseEther, sha256, toUtf8Bytes, keccak256 } from "ethers";
+import { AbiCoder, parseEther, sha256, toUtf8Bytes, keccak256 } from "ethers";
 
 import { Account, EntryPoint, MyToken } from "../../typechain-types";
 import { combineHexStrings } from "../utils/lib";
@@ -93,7 +93,7 @@ describe("ExecuteContractCallERC20", function () {
 
         const p = new AbiCoder().encode(
             ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
-            [2, accountAddress, messageHash, proof, 0, numberSigners, r[0], s[0], PUBLIC_KEY_X[0], PUBLIC_KEY_Y[0]]
+            [2, accountAddress, messageHash, proof, 1, numberSigners, r[0], s[0], PUBLIC_KEY_X[0], PUBLIC_KEY_Y[0]]
         );
         const payload = combineHexStrings(p, txPayload);
 

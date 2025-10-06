@@ -98,7 +98,6 @@ describe("EntryPointMultisig 2 of 2", function () {
         const accountAddress = await account.getAddress();
 
         // Execute transaction from the Account contract
-        const commandId = encodeBytes32String("commandId");
         const sourceChain = "sourceChain";
 
         const txPayloadAddress = new AbiCoder().encode(["address", "uint256"], [RECIPIENT_ADDRESS, amountToSend]);
@@ -128,7 +127,7 @@ describe("EntryPointMultisig 2 of 2", function () {
                 accountAddress,
                 messageHash,
                 proof,
-                0,
+                1,
                 numberSigners,
                 r[0],
                 s[0],
@@ -185,7 +184,6 @@ describe("EntryPointMultisig 1 of 2", function () {
         entryPoint = await EntryPointContract.deploy(accountFactory.target, recover.address);
         await entryPoint.waitForDeployment();
 
-        const commandId = encodeBytes32String("commandId");
         const sourceChain = "sourceChain";
 
         const payload = new AbiCoder().encode(
@@ -250,7 +248,7 @@ describe("EntryPointMultisig 1 of 2", function () {
 
         const p = new AbiCoder().encode(
             ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
-            [2, accountAddress, messageHash, proof, 0, numberSigners, r[0], s[0], PUBLIC_KEY_X[0], PUBLIC_KEY_Y[0]]
+            [2, accountAddress, messageHash, proof, 1, numberSigners, r[0], s[0], PUBLIC_KEY_X[0], PUBLIC_KEY_Y[0]]
         );
         const payload = combineHexStrings(p, txPayload);
         console.log("payload", payload);
@@ -287,7 +285,7 @@ describe("EntryPointMultisig 1 of 2", function () {
 
         const p = new AbiCoder().encode(
             ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
-            [2, accountAddress, messageHash, proof, 0, numberSigners, r[1], s[1], PUBLIC_KEY_X[1], PUBLIC_KEY_Y[1]]
+            [2, accountAddress, messageHash, proof, 1, numberSigners, r[1], s[1], PUBLIC_KEY_X[1], PUBLIC_KEY_Y[1]]
         );
         const payload = combineHexStrings(p, txPayload);
 
