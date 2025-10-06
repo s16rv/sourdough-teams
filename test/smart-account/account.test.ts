@@ -14,7 +14,7 @@ describe("Account", function () {
 
     const SOURCE_ADDRESS = "neutron1chcktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
     const SOURCE_ADDRESS_HASH = keccak256(toUtf8Bytes(SOURCE_ADDRESS));
-    const SEQUENCE = 0;
+    const SEQUENCE = 1;
     const THRESHOLD = 1;
 
     let account: Account;
@@ -57,14 +57,14 @@ describe("Account", function () {
     });
 
     it("Should validate operation", async function () {
-        const messageHash = "0xcc61a33a7a9ace63fa4c5e74f9db3080c7ef68dd53e75dfb311bc28381830c2f";
-        const r = ["0x87df5d0e314c3fe01b3dc136b3afe1659e02316f8d189f0b68983b7f90cd9b61"];
-        const s = ["0x7d2212755fb0db4f8e9a3343d264942d14c5e75471245b0419f29ce10355b08b"];
-        const proof = "0x878ca931506cebeb0388fc31f82f2ed5daefa3b18576fe9536a46795cdb384a1";
+        const messageHash = "0x87a9afdf384bb934b0b7b383cab20a2f472d0e64bd0603f2072066be6796faf0";
+        const r = ["0x1d59ffe13a4c317e0346d6791f29ada0ff012451649e1c5670348d04a65c8afd"];
+        const s = ["0x7e6c637f57928d095dcc052a22da0c09b4c87614e91e21ff428840e93b90b13c"];
+        const proof = "0x557072bab6f803255768af1241504525bf58ade4438b23fd0f52909fa748e1f9";
         const data =
             "0x000000000000000000000000aa25aa7a19f9c426e07dee59b12f944f4d9f1dd3000000000000000000000000000000000000000000000000002386f26fc1000000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000000";
 
-        const isValid = await account.validateOperation(
+        const [isValid] = await account.validateOperation(
             SOURCE_ADDRESS,
             messageHash,
             r,
@@ -79,36 +79,37 @@ describe("Account", function () {
     });
 
     it("Should not validate operation, invalid proof", async function () {
-        const messageHash = "0xcc61a33a7a9ace63fa4c5e74f9db3080c7ef68dd53e75dfb311bc28381830c2f";
-        const r = ["0x87df5d0e314c3fe01b3dc136b3afe1659e02316f8d189f0b68983b7f90cd9b61"];
-        const s = ["0x7d2212755fb0db4f8e9a3343d264942d14c5e75471245b0419f29ce10355b08b"];
-        const proof = "0x878ca931506cebeb0388fc31f82f2ed5daefa3b18576fe9536a46795cdb384a1";
+        const messageHash = "0x87a9afdf384bb934b0b7b383cab20a2f472d0e64bd0603f2072066be6796faf0";
+        const r = ["0x1d59ffe13a4c317e0346d6791f29ada0ff012451649e1c5670348d04a65c8afd"];
+        const s = ["0x7e6c637f57928d095dcc052a22da0c09b4c87614e91e21ff428840e93b90b13c"];
+        const proof = "0x557072bab6f803255768af1241504525bf58ade4438b23fd0f52909fa748e1f9";
         const data = "0x000000000000000000000000";
 
-        await expect(
-            account.validateOperation(
-                SOURCE_ADDRESS,
-                messageHash,
-                r,
-                s,
-                PUBLIC_KEY_X,
-                PUBLIC_KEY_Y,
-                proof,
-                SEQUENCE,
-                data
-            )
-        ).to.be.revertedWithCustomError(account, "InvalidProof");
+        const [isValid, msg] = await account.validateOperation(
+            SOURCE_ADDRESS,
+            messageHash,
+            r,
+            s,
+            PUBLIC_KEY_X,
+            PUBLIC_KEY_Y,
+            proof,
+            SEQUENCE,
+            data
+        );
+
+        expect(isValid).to.be.false;
+        expect(msg).to.equal("InvalidProof");
     });
 
     it("Should not validate operation, invalid signature", async function () {
-        const messageHash = "0xcc61a33a7a9ace63fa4c5e74f9db3080c7ef68dd53e75dfb311bc28381830c2f";
-        const r = ["0x87df5d0e314c3fe01b3dc136b3afe1659e02316f8d189f0b68983b7f90cd9b62"];
-        const s = ["0x7d2212755fb0db4f8e9a3343d264942d14c5e75471245b0419f29ce10355b08b"];
-        const proof = "0x878ca931506cebeb0388fc31f82f2ed5daefa3b18576fe9536a46795cdb384a1";
+        const messageHash = "0x87a9afdf384bb934b0b7b383cab20a2f472d0e64bd0603f2072066be6796faf0";
+        const r = ["0x2d59ffe13a4c317e0346d6791f29ada0ff012451649e1c5670348d04a65c8afd"];
+        const s = ["0x8e6c637f57928d095dcc052a22da0c09b4c87614e91e21ff428840e93b90b13c"];
+        const proof = "0x557072bab6f803255768af1241504525bf58ade4438b23fd0f52909fa748e1f9";
         const data =
             "0x000000000000000000000000aa25aa7a19f9c426e07dee59b12f944f4d9f1dd3000000000000000000000000000000000000000000000000002386f26fc1000000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000000";
 
-        const isValid = await account.validateOperation(
+        const [isValid, msg] = await account.validateOperation(
             SOURCE_ADDRESS,
             messageHash,
             r,
@@ -120,6 +121,7 @@ describe("Account", function () {
             data
         );
         expect(isValid).to.be.false;
+        expect(msg).to.equal("InvalidSignature");
     });
 
     it("Should execute transaction using recover account", async function () {
@@ -166,7 +168,7 @@ describe("Account Multisig", function () {
 
     const SOURCE_ADDRESS = "neutron1chcktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
     const SOURCE_ADDRESS_HASH = keccak256(toUtf8Bytes(SOURCE_ADDRESS));
-    const SEQUENCE = 0;
+    const SEQUENCE = 1;
     const THRESHOLD = 1;
 
     let account: Account;
@@ -209,20 +211,19 @@ describe("Account Multisig", function () {
     });
 
     it("Should validate operation", async function () {
-        const messageHash = "0xcc61a33a7a9ace63fa4c5e74f9db3080c7ef68dd53e75dfb311bc28381830c2f";
+        const messageHash = "0x87a9afdf384bb934b0b7b383cab20a2f472d0e64bd0603f2072066be6796faf0";
         const r = [
-            "0x87df5d0e314c3fe01b3dc136b3afe1659e02316f8d189f0b68983b7f90cd9b61",
-            "0x87df5d0e314c3fe01b3dc136b3afe1659e02316f8d189f0b68983b7f90cd9b61",
+            "0x1d59ffe13a4c317e0346d6791f29ada0ff012451649e1c5670348d04a65c8afd",
+            "0x1d59ffe13a4c317e0346d6791f29ada0ff012451649e1c5670348d04a65c8afd",
         ];
         const s = [
-            "0x7d2212755fb0db4f8e9a3343d264942d14c5e75471245b0419f29ce10355b08b",
-            "0x7d2212755fb0db4f8e9a3343d264942d14c5e75471245b0419f29ce10355b08b",
+            "0x7e6c637f57928d095dcc052a22da0c09b4c87614e91e21ff428840e93b90b13c",
+            "0x7e6c637f57928d095dcc052a22da0c09b4c87614e91e21ff428840e93b90b13c",
         ];
-        const proof = "0x878ca931506cebeb0388fc31f82f2ed5daefa3b18576fe9536a46795cdb384a1";
+        const proof = "0x557072bab6f803255768af1241504525bf58ade4438b23fd0f52909fa748e1f9";
         const data =
             "0x000000000000000000000000aa25aa7a19f9c426e07dee59b12f944f4d9f1dd3000000000000000000000000000000000000000000000000002386f26fc1000000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000000";
-
-        const isValid = await account.validateOperation(
+        const [isValid] = await account.validateOperation(
             SOURCE_ADDRESS,
             messageHash,
             r,

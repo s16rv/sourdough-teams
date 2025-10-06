@@ -5,6 +5,8 @@ import "./interfaces/IEntryPoint.sol";
 import "./interfaces/IAccount.sol";
 import "./interfaces/IAccountFactory.sol";
 
+import "hardhat/console.sol";
+
 contract EntryPoint is IEntryPoint {
     IAccountFactory public immutable accountFactory;
     address public immutable ownerAddress;

@@ -23,14 +23,10 @@ describe("EntryPoint", function () {
     let recover: HardhatEthersSigner;
     let executor: HardhatEthersSigner;
     let account: Account;
-    let mockGateway: MockGateway;
     let accountFactory: AccountFactory;
 
     beforeEach(async function () {
         [recover, executor] = await hre.ethers.getSigners();
-
-        const MockGatewayContract = await hre.ethers.getContractFactory("MockGateway");
-        mockGateway = await MockGatewayContract.deploy();
 
         const Secp256k1VerifierContract = await hre.ethers.getContractFactory("Secp256k1Verifier");
         const verifier = await Secp256k1VerifierContract.deploy();
@@ -41,10 +37,11 @@ describe("EntryPoint", function () {
         await accountFactory.waitForDeployment();
 
         const EntryPointContract = await hre.ethers.getContractFactory("EntryPoint");
-        entryPoint = await EntryPointContract.deploy(mockGateway.target, accountFactory.target, recover.address);
+        entryPoint = await EntryPointContract.deploy(accountFactory.target, recover.address);
         await entryPoint.waitForDeployment();
 
-        const commandId = encodeBytes32String("commandId");
+        await entryPoint.setExecutor(recover.address, true);
+
         const sourceChain = "sourceChain";
 
         const payload = new AbiCoder().encode(
@@ -52,8 +49,7 @@ describe("EntryPoint", function () {
             [1, recover.address, totalSigners, THRESHOLD, PUBLIC_KEY_X[0], PUBLIC_KEY_Y[0]]
         );
 
-        await mockGateway.setCallValid(true);
-        await entryPoint.execute(commandId, sourceChain, SOURCE_ADDRESS, payload);
+        await entryPoint.executePayload(sourceChain, SOURCE_ADDRESS, payload);
         const accountAddr = await accountFactory.getAccount(PUBLIC_KEY_X, PUBLIC_KEY_Y, SOURCE_ADDRESS_HASH, THRESHOLD);
 
         const AccountContract = await hre.ethers.getContractFactory("Account");
@@ -86,7 +82,6 @@ describe("EntryPoint", function () {
         const accountAddress = await account.getAddress();
 
         // Execute transaction from the Account contract
-        const commandId = encodeBytes32String("commandId");
         const sourceChain = "sourceChain";
 
         const txPayloadAddress = new AbiCoder().encode(["address", "uint256"], [RECIPIENT_ADDRESS, amountToSend]);
@@ -100,9 +95,10 @@ describe("EntryPoint", function () {
         );
         const payload = combineHexStrings(p, txPayload);
 
-        await entryPoint.execute(commandId, sourceChain, SOURCE_ADDRESS, payload);
+        await entryPoint.executePayload(sourceChain, SOURCE_ADDRESS, payload);
 
         const finalRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
+        console.log("accountAddress", accountAddress);
         expect(finalRecipientBalance).to.equal(initialRecipientBalance + amountToSend);
     });
 

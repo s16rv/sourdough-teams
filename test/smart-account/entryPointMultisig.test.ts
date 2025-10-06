@@ -30,9 +30,6 @@ describe("EntryPointMultisig 2 of 2", function () {
     beforeEach(async function () {
         [recover] = await hre.ethers.getSigners();
 
-        const MockGatewayContract = await hre.ethers.getContractFactory("MockGateway");
-        const mockGateway = await MockGatewayContract.deploy();
-
         const Secp256k1VerifierContract = await hre.ethers.getContractFactory("Secp256k1Verifier");
         const verifier = await Secp256k1VerifierContract.deploy();
         await verifier.waitForDeployment();
@@ -42,7 +39,7 @@ describe("EntryPointMultisig 2 of 2", function () {
         await accountFactory.waitForDeployment();
 
         const EntryPointContract = await hre.ethers.getContractFactory("EntryPoint");
-        entryPoint = await EntryPointContract.deploy(mockGateway.target, accountFactory.target, recover.address);
+        entryPoint = await EntryPointContract.deploy(accountFactory.target, recover.address);
         await entryPoint.waitForDeployment();
 
         const commandId = encodeBytes32String("commandId");
@@ -62,8 +59,7 @@ describe("EntryPointMultisig 2 of 2", function () {
             ]
         );
 
-        await mockGateway.setCallValid(true);
-        await entryPoint.execute(commandId, sourceChain, SOURCE_ADDRESS, payload);
+        await entryPoint.executePayload(sourceChain, SOURCE_ADDRESS, payload);
         const accountAddr = await accountFactory.getAccount(PUBLIC_KEY_X, PUBLIC_KEY_Y, SOURCE_ADDRESS_HASH, THRESHOLD);
 
         const AccountContract = await hre.ethers.getContractFactory("Account");
@@ -146,7 +142,7 @@ describe("EntryPointMultisig 2 of 2", function () {
         );
         const payload = combineHexStrings(p, txPayload);
 
-        await entryPoint.execute(commandId, sourceChain, SOURCE_ADDRESS, payload);
+        await entryPoint.executePayload(sourceChain, SOURCE_ADDRESS, payload);
 
         const finalRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
         expect(finalRecipientBalance).to.equal(initialRecipientBalance + amountToSend);
@@ -177,9 +173,6 @@ describe("EntryPointMultisig 1 of 2", function () {
     beforeEach(async function () {
         [recover] = await hre.ethers.getSigners();
 
-        const MockGatewayContract = await hre.ethers.getContractFactory("MockGateway");
-        const mockGateway = await MockGatewayContract.deploy();
-
         const Secp256k1VerifierContract = await hre.ethers.getContractFactory("Secp256k1Verifier");
         const verifier = await Secp256k1VerifierContract.deploy();
         await verifier.waitForDeployment();
@@ -189,7 +182,7 @@ describe("EntryPointMultisig 1 of 2", function () {
         await accountFactory.waitForDeployment();
 
         const EntryPointContract = await hre.ethers.getContractFactory("EntryPoint");
-        entryPoint = await EntryPointContract.deploy(mockGateway.target, accountFactory.target, recover.address);
+        entryPoint = await EntryPointContract.deploy(accountFactory.target, recover.address);
         await entryPoint.waitForDeployment();
 
         const commandId = encodeBytes32String("commandId");
@@ -209,8 +202,7 @@ describe("EntryPointMultisig 1 of 2", function () {
             ]
         );
 
-        await mockGateway.setCallValid(true);
-        await entryPoint.execute(commandId, sourceChain, SOURCE_ADDRESS, payload);
+        await entryPoint.executePayload(sourceChain, SOURCE_ADDRESS, payload);
         const accountAddr = await accountFactory.getAccount(PUBLIC_KEY_X, PUBLIC_KEY_Y, SOURCE_ADDRESS_HASH, THRESHOLD);
 
         const AccountContract = await hre.ethers.getContractFactory("Account");
@@ -249,7 +241,6 @@ describe("EntryPointMultisig 1 of 2", function () {
         const accountAddress = await account.getAddress();
 
         // Execute transaction from the Account contract
-        const commandId = encodeBytes32String("commandId");
         const sourceChain = "sourceChain";
 
         const txPayloadAddress = new AbiCoder().encode(["address", "uint256"], [RECIPIENT_ADDRESS, amountToSend]);
@@ -264,7 +255,7 @@ describe("EntryPointMultisig 1 of 2", function () {
         const payload = combineHexStrings(p, txPayload);
         console.log("payload", payload);
 
-        await entryPoint.execute(commandId, sourceChain, SOURCE_ADDRESS, payload);
+        await entryPoint.executePayload(sourceChain, SOURCE_ADDRESS, payload);
 
         const finalRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
         expect(finalRecipientBalance).to.equal(initialRecipientBalance + amountToSend);
@@ -287,7 +278,6 @@ describe("EntryPointMultisig 1 of 2", function () {
         const accountAddress = await account.getAddress();
 
         // Execute transaction from the Account contract
-        const commandId = encodeBytes32String("commandId");
         const sourceChain = "sourceChain";
 
         const txPayloadAddress = new AbiCoder().encode(["address", "uint256"], [RECIPIENT_ADDRESS, amountToSend]);
@@ -301,7 +291,7 @@ describe("EntryPointMultisig 1 of 2", function () {
         );
         const payload = combineHexStrings(p, txPayload);
 
-        await entryPoint.execute(commandId, sourceChain, SOURCE_ADDRESS, payload);
+        await entryPoint.executePayload(sourceChain, SOURCE_ADDRESS, payload);
 
         const finalRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
         expect(finalRecipientBalance).to.equal(initialRecipientBalance + amountToSend);
