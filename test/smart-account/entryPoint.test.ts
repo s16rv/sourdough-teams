@@ -1,12 +1,11 @@
 import hre from "hardhat";
 import { expect } from "chai";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
-import { encodeBytes32String, AbiCoder, parseEther, sha256, toUtf8Bytes, keccak256 } from "ethers";
+import { AbiCoder, parseEther, sha256, toUtf8Bytes, keccak256 } from "ethers";
 
 import { Account, EntryPoint } from "../../typechain-types";
 import { combineHexStrings } from "../utils/lib";
-import { MockGateway } from "../../typechain-types/contracts/mock-contracts";
-import { AccountFactory } from "../../typechain-types/contracts/smart-account";
+import { AccountFactory } from "../../typechain-types";
 
 describe("EntryPoint", function () {
     const RECIPIENT_ADDRESS = "0xaa25Aa7a19f9c426E07dee59b12f944f4d9f1DD3";
@@ -51,7 +50,7 @@ describe("EntryPoint", function () {
         );
 
         await entryPoint.executePayload(sourceChain, SOURCE_ADDRESS, payload);
-        const accountAddr = await accountFactory.getAccount(PUBLIC_KEY_X, PUBLIC_KEY_Y, SOURCE_ADDRESS_HASH, THRESHOLD);
+        const accountAddr = await accountFactory.getAccount(SOURCE_ADDRESS);
 
         const AccountContract = await hre.ethers.getContractFactory("Account");
         account = AccountContract.attach(accountAddr) as Account;

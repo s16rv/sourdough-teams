@@ -49,7 +49,7 @@ describe("ExecuteContractCallERC20", function () {
         );
 
         await entryPoint.executePayload(sourceChain, SOURCE_ADDRESS, payload);
-        const accountAddr = await accountFactory.getAccount(PUBLIC_KEY_X, PUBLIC_KEY_Y, SOURCE_ADDRESS_HASH, THRESHOLD);
+        const accountAddr = await accountFactory.getAccount(SOURCE_ADDRESS);
 
         const AccountContract = await hre.ethers.getContractFactory("Account");
         account = AccountContract.attach(accountAddr) as Account;

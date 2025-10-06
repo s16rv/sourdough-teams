@@ -42,7 +42,7 @@ contract AccountFactory is IAccountFactory {
         address accAddr = _deployAccount(recover, entryPoint, x, y, addrHash, threshold);
 
         // Store the new account
-        storeAccount(x, y, addrHash, accAddr, threshold);
+        storeAccount(addrHash, accAddr);
 
         return accAddr;
     }
@@ -69,7 +69,7 @@ contract AccountFactory is IAccountFactory {
             abi.encode(verifier, recover, entryPoint, x, y, addrHash, threshold)
         );
 
-        // Use CREATE2 to deploy the contract with the provided salt
+        // Use CREATE2 with addrHash as salt - address depends only on addrHash
         address accountAddress;
         assembly {
             accountAddress := create2(0, add(bytecode, 0x20), mload(bytecode), addrHash)
@@ -108,29 +108,20 @@ contract AccountFactory is IAccountFactory {
 
     /**
      * @dev Returns the list of accounts created by a particular signer.
-     * @param x The x part of the public key.
-     * @param y The y part of the public key.
-     * @param addrHash The hash address on the source chain where the transaction originated.
+     * @param sourceAddress The address on the source chain where the transaction originated.
      * @return An account address created by the signer.
      */
     function getAccount(
-        bytes32[] memory x,
-        bytes32[] memory y,
-        bytes32 addrHash,
-        uint64 threshold
+        string calldata sourceAddress
     ) external view returns (address) {
-        bytes32 key = keccak256(abi.encodePacked(x, y, addrHash, threshold));
-        return account[key];
+        bytes32 addrHash = keccak256(abi.encodePacked(sourceAddress));
+        return account[addrHash];
     }
 
     function storeAccount(
-        bytes32[] memory x,
-        bytes32[] memory y,
         bytes32 addrHash,
-        address accAddr,
-        uint64 threshold
+        address accAddr
     ) internal {
-        bytes32 key = keccak256(abi.encodePacked(x, y, addrHash, threshold));
-        account[key] = accAddr;
+        account[addrHash] = accAddr;
     }
 }
