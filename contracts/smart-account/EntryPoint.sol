@@ -1,24 +1,21 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.21;
 
-import {AxelarExecutable} from "@axelar-network/axelar-gmp-sdk-solidity/contracts/executable/AxelarExecutable.sol";
-import {IAxelarGateway} from "@axelar-network/axelar-gmp-sdk-solidity/contracts/interfaces/IAxelarGateway.sol";
-import {IAxelarGasService} from "@axelar-network/axelar-gmp-sdk-solidity/contracts/interfaces/IAxelarGasService.sol";
 import "./interfaces/IEntryPoint.sol";
 import "./interfaces/IAccount.sol";
 import "./interfaces/IAccountFactory.sol";
 
-contract EntryPoint is IEntryPoint, AxelarExecutable {
+contract EntryPoint is IEntryPoint {
     IAccountFactory public immutable accountFactory;
     address public immutable ownerAddress;
     mapping(address => bool) public executor;
 
     /**
      * @dev Constructor to initialize the EntryPoint contract with the Axelar gateway and account factory addresses.
-     * @param _gateway Address of the Axelar gateway on the deployed chain.
      * @param _accountFactory Address of the account factory that manages account creation.
+     * @param _ownerAddress Address of the owner that has the ability to set executors.
      */
-    constructor(address _gateway, address _accountFactory, address _ownerAddress) AxelarExecutable(_gateway) {
+    constructor(address _accountFactory, address _ownerAddress) {
         accountFactory = IAccountFactory(_accountFactory);
         ownerAddress = _ownerAddress;
     }
@@ -78,7 +75,7 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
         string calldata _sourceChain,
         string calldata _sourceAddress,
         bytes calldata _payload
-    ) internal override {
+    ) internal {
         uint8 category = abi.decode(_payload[:32], (uint8));
 
         if (category == 1) {
@@ -129,50 +126,6 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
             bytes calldata txPayload = _payload[txPayloadOffset:];
 
             _handleTransaction(target, messageHash, r, s, x, y, proof, sequence, _sourceAddress, txPayload);
-        } else if (category == 3) {
-            // 192 is for the proof part
-            // 6 is for expiration timestamp and length
-            // 10++ is for payload
-            // the rest can be optional
-            if (_payload.length < 224 + 6 + 10) revert PayloadTooShort();
-
-            (address target, bytes32 messageHash, bytes32 r, bytes32 s, bytes32 proof, uint64 sequence) = abi.decode(
-                _payload[32:224],
-                (address, bytes32, bytes32, bytes32, bytes32, uint64)
-            );
-
-            // Manually extract and decode
-            uint32 expTs = uint32(bytes4(_payload[224:228]));
-            uint16 authLength = uint16(bytes2(_payload[228:230]));
-
-            bytes calldata authPayload = _payload[230:(230 + authLength)];
-            bytes calldata txPayload = _payload[(230 + authLength):];
-
-            _handleCreateIcauthz(target, messageHash, r, s, proof, sequence, _sourceAddress, txPayload, expTs, authPayload);
-        } else if (category == 4) {
-            if (_payload.length < 224 + 20) revert PayloadTooShort();
-
-            (address target, bytes32 messageHash, bytes32 r, bytes32 s, bytes32 proof, uint64 sequence) = abi.decode(
-                _payload[32:224],
-                (address, bytes32, bytes32, bytes32, bytes32, uint64)
-            );
-
-            bytes calldata txPayload = _payload[224:];
-
-            _handleExecuteIcauthz(target, messageHash, r, s, proof, sequence, _sourceAddress, txPayload);
-        } else if (category == 5) {
-            if (_payload.length < 224 + 20) revert PayloadTooShort();
-
-            (address target, bytes32 messageHash, bytes32 r, bytes32 s, bytes32 proof, uint64 sequence) = abi.decode(
-                _payload[32:224],
-                (address, bytes32, bytes32, bytes32, bytes32, uint64)
-            );
-
-            bytes calldata txPayload = _payload[224:];
-
-            _handleRevokeIcauthz(target, messageHash, r, s, proof, sequence, _sourceAddress, txPayload);
-        } else {
-            revert UnsupportedCategory();
         }
 
         emit Executed(_sourceChain, _sourceAddress);
@@ -256,145 +209,5 @@ contract EntryPoint is IEntryPoint, AxelarExecutable {
 
         emit AccountCreated(accountAddress, recover);
         return accountAddress;
-    }
-
-    /**
-     * @dev Handles the creation of icauthz on the destination chain by validating the signature and store the tx details.
-     * @param target The target address to execute the transaction.
-     * @param messageHash The hash of the message used for signature verification.
-     * @param r Part of the signature (r).
-     * @param s Part of the signature (s).
-     * @param proof The proof of the transaction.
-     * @param sourceAddress The address on the source chain where the transaction originated.
-     * @param txPayload The transaction payload containing the destination address and value.
-     * @param expTimestamp Expiration Timestamp
-     * @param authPayload Auth Payload
-     */
-    function _handleCreateIcauthz(
-        address target,
-        bytes32 messageHash,
-        bytes32 r,
-        bytes32 s,
-        bytes32 proof,
-        uint64 sequence,
-        string calldata sourceAddress,
-        bytes calldata txPayload,
-        uint32 expTimestamp,
-        bytes calldata authPayload
-    ) internal {
-        bytes32[] memory r1 = new bytes32[](1);
-        bytes32[] memory s1 = new bytes32[](1);
-        bytes32[] memory x1 = new bytes32[](1);
-        bytes32[] memory y1 = new bytes32[](1);
-
-        (bool valid, string memory reason) = IAccount(payable(target)).validateOperation(sourceAddress, messageHash, r1, s1, x1, y1, proof, sequence, txPayload);
-        if (!valid) {
-            revert InvalidSignature();
-        }
-
-        emit SignatureValidated(messageHash, r1, s1);
-        IAccount(payable(target)).createStoredContract(txPayload, expTimestamp, authPayload);
-    }
-
-    /**
-     * @dev Handles the execution of a transaction on the destination chain by validating the signature and calling the target account's `executeTransaction` function.
-     * @param target The target address to execute the transaction.
-     * @param messageHash The hash of the message used for signature verification.
-     * @param r Part of the signature (r).
-     * @param s Part of the signature (s).
-     * @param proof The proof of the transaction.
-     * @param sourceAddress The address on the source chain where the transaction originated.
-     * @param txPayload The transaction payload containing the destination address and value.
-     */
-    function _handleExecuteIcauthz(
-        address target,
-        bytes32 messageHash,
-        bytes32 r,
-        bytes32 s,
-        bytes32 proof,
-        uint64 sequence,
-        string calldata sourceAddress,
-        bytes calldata txPayload
-    ) internal {
-        bytes32[] memory r1 = new bytes32[](1);
-        bytes32[] memory s1 = new bytes32[](1);
-        bytes32[] memory x1 = new bytes32[](1);
-        bytes32[] memory y1 = new bytes32[](1);
-
-        (bool validOperation, string memory reason) = IAccount(payable(target)).validateOperation(
-            sourceAddress,
-            messageHash,
-            r1,
-            s1,
-            x1,
-            y1,
-            proof,
-            sequence,
-            txPayload
-        );
-        if (!validOperation) {
-            revert InvalidSignature();
-        }
-
-        emit SignatureValidated(messageHash, r1, s1);
-
-        (address dest, uint256 value) = abi.decode(txPayload, (address, uint256));
-
-        bool validAuth = IAccount(payable(target)).validateAuthorization(txPayload);
-        if (!validAuth) {
-            revert InvalidAuthorization();
-        }
-
-        bool success = IAccount(payable(target)).executeTransaction(dest, value, txPayload);
-        if (!success) {
-            revert TransactionFailed();
-        }
-
-        emit TransactionHandled(target, dest, value, txPayload);
-    }
-
-    /**
-     * @dev Handles the execution of a transaction on the destination chain by validating the signature and calling the target account's `executeTransaction` function.
-     * @param target The target address to execute the transaction.
-     * @param messageHash The hash of the message used for signature verification.
-     * @param r Part of the signature (r).
-     * @param s Part of the signature (s).
-     * @param proof The proof of the transaction.
-     * @param sourceAddress The address on the source chain where the transaction originated.
-     * @param txPayload The transaction payload containing the destination address and value.
-     */
-    function _handleRevokeIcauthz(
-        address target,
-        bytes32 messageHash,
-        bytes32 r,
-        bytes32 s,
-        bytes32 proof,
-        uint64 sequence,
-        string calldata sourceAddress,
-        bytes calldata txPayload
-    ) internal {
-        bytes32[] memory r1 = new bytes32[](1);
-        bytes32[] memory s1 = new bytes32[](1);
-        bytes32[] memory x1 = new bytes32[](1);
-        bytes32[] memory y1 = new bytes32[](1);
-
-        (bool validOperation, string memory reason) = IAccount(payable(target)).validateOperation(
-            sourceAddress,
-            messageHash,
-            r1,
-            s1,
-            x1,
-            y1,
-            proof,
-            sequence,
-            txPayload
-        );
-        if (!validOperation) {
-            revert InvalidSignature();
-        }
-
-        emit SignatureValidated(messageHash, r1, s1);
-
-        IAccount(payable(target)).revokeStoredContract();
     }
 }

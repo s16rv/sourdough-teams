@@ -98,40 +98,4 @@ interface IAccount {
      * @dev The fallback function to allow the contract to receive Ether.
      */
     receive() external payable;
-
-    /**
-     * @dev Returns the stored contract information.
-     * @return cData The contract data.
-     * @return cExpTs The expiration time.
-     * @return cStatus The status.
-     * @return cAuthorization The authorization.
-     */
-    function getStoredContract()
-        external
-        returns (
-            bytes memory cData,
-            uint256 cExpTs,
-            Authorization.Status cStatus,
-            Authorization.Details[] memory cAuthorization
-        );
-
-    /**
-     * @dev Compares the source address with the stored source address hash.
-     * @param cData The contract data stored on chain to be executed later.
-     * @param cExpTs The contract expiration time stored on chain to be executed later.
-     * @param authPayload The authorization payload, can be empty
-     */
-    function createStoredContract(bytes calldata cData, uint32 cExpTs, bytes calldata authPayload) external;
-
-    /**
-     * @dev Validates an operation by verifying the provided authorization against the stored data.
-     * @param cData The contract data.
-     * @return A boolean indicating whether the authorization is valid.
-     */
-    function validateAuthorization(bytes calldata cData) external returns (bool);
-
-    /**
-     * @dev Compares the source address with the stored source address hash.
-     */
-    function revokeStoredContract() external;
 }
