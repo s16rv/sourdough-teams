@@ -40,6 +40,9 @@ describe("EntryPoint", function () {
         entryPoint = await EntryPointContract.deploy(accountFactory.target, recover.address);
         await entryPoint.waitForDeployment();
 
+        // Set recover as an executor so it can call executePayload
+        await entryPoint.setExecutor(recover.address, true);
+
         const sourceChain = "sourceChain";
 
         const payload = new AbiCoder().encode(
@@ -194,7 +197,7 @@ describe("EntryPoint", function () {
         // Call executePayload as unauthorized executor should revert
         await expect(
             entryPoint.connect(executor).executePayload(sourceChain, SOURCE_ADDRESS, payload)
-        ).to.be.revertedWith("Only owner can execute");
+        ).to.be.revertedWithCustomError(entryPoint, "NotExecutor");
     });
 
     it("should allow setting and removing executors by owner", async function () {

@@ -42,6 +42,9 @@ describe("EntryPointMultisig 2 of 2", function () {
         entryPoint = await EntryPointContract.deploy(accountFactory.target, recover.address);
         await entryPoint.waitForDeployment();
 
+        // Set recover as an executor so it can call executePayload
+        await entryPoint.setExecutor(recover.address, true);
+
         const commandId = encodeBytes32String("commandId");
         const sourceChain = "sourceChain";
 
@@ -183,6 +186,9 @@ describe("EntryPointMultisig 1 of 2", function () {
         const EntryPointContract = await hre.ethers.getContractFactory("EntryPoint");
         entryPoint = await EntryPointContract.deploy(accountFactory.target, recover.address);
         await entryPoint.waitForDeployment();
+
+        // Set recover as an executor so it can call executePayload
+        await entryPoint.setExecutor(recover.address, true);
 
         const sourceChain = "sourceChain";
 

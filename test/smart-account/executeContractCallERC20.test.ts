@@ -38,6 +38,9 @@ describe("ExecuteContractCallERC20", function () {
         entryPoint = await EntryPointContract.deploy(accountFactory.target, recover.address);
         await entryPoint.waitForDeployment();
 
+        // Set recover as an executor so it can call executePayload
+        await entryPoint.setExecutor(recover.address, true);
+
         const sourceChain = "sourceChain";
 
         const payload = new AbiCoder().encode(

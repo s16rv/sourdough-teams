@@ -36,7 +36,7 @@ contract EntryPoint is IEntryPoint {
         bytes calldata _payload
     ) external returns (bool) {
         if (!isExecutor(msg.sender)) {
-            require(msg.sender == ownerAddress, "Only owner can execute");
+            revert NotExecutor();
         }
 
         _execute(_sourceChain, _sourceAddress, _payload);
