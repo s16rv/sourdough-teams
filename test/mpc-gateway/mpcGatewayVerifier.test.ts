@@ -143,20 +143,19 @@ describe("MPCGatewayVerifier", function () {
             // With the real MPCVerifier, the signature validation will fail naturally
             // because the provided signature doesn't match the public key
 
-            // Execution should fail because the signature validation fails
-            await expect(
-                mpcGateway
-                    .connect(relayer)
-                    .executeContractCall(
-                        params.signatureR,
-                        params.signatureS,
-                        params.sourceChain,
-                        params.sourceAddress,
-                        params.destinationChain,
-                        mockEntryPoint.target,
-                        params.payload
-                    )
-            ).to.be.revertedWithCustomError(mpcGateway, "TransactionNotApproved");
+            // Execution should return false because the signature validation fails
+            const result = await mpcGateway
+                .connect(relayer)
+                .executeContractCall.staticCall(
+                    params.signatureR,
+                    params.signatureS,
+                    params.sourceChain,
+                    params.sourceAddress,
+                    params.destinationChain,
+                    mockEntryPoint.target,
+                    params.payload
+                );
+            expect(result).to.be.false;
         });
     });
 });

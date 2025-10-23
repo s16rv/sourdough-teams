@@ -30,9 +30,6 @@ describe("MPCGatewayEntrypoint", function () {
         mockMPCVerifier = await MockMPCVerifierFactory.deploy();
         await mockMPCVerifier.waitForDeployment();
 
-        const MockGatewayContract = await hre.ethers.getContractFactory("MockGateway");
-        const mockGateway = await MockGatewayContract.deploy();
-
         const Secp256k1VerifierContract = await hre.ethers.getContractFactory("Secp256k1Verifier");
         const verifier = await Secp256k1VerifierContract.deploy();
         await verifier.waitForDeployment();
@@ -42,7 +39,7 @@ describe("MPCGatewayEntrypoint", function () {
         await accountFactory.waitForDeployment();
 
         const EntryPointContract = await hre.ethers.getContractFactory("EntryPoint");
-        entryPoint = await EntryPointContract.deploy(mockGateway.target, accountFactory.target, owner.address);
+        entryPoint = await EntryPointContract.deploy(accountFactory.target, owner.address);
         await entryPoint.waitForDeployment();
 
         // Deploy MPCGateway with MockMPCVerifier
@@ -58,28 +55,10 @@ describe("MPCGatewayEntrypoint", function () {
             // Set MockMPCVerifier to fail validation
             await mockMPCVerifier.setShouldValidate(false);
 
-            // This should fail because the signature validation fails
-            await expect(
-                mpcGateway
-                    .connect(relayer)
-                    .executeContractCall(
-                        signatureR,
-                        signatureS,
-                        sourceChain,
-                        sourceAddress,
-                        destinationChain,
-                        entryPoint.target,
-                        payload
-                    )
-            ).to.be.revertedWithCustomError(mpcGateway, "TransactionNotApproved");
-
-            // Set MockMPCVerifier to pass validation
-            await mockMPCVerifier.setShouldValidate(true);
-
-            // Now the call should succeed
-            const res = await mpcGateway
+            // This should return false because the signature validation fails
+            const result1 = await mpcGateway
                 .connect(relayer)
-                .executeContractCall(
+                .executeContractCall.staticCall(
                     signatureR,
                     signatureS,
                     sourceChain,
@@ -88,9 +67,24 @@ describe("MPCGatewayEntrypoint", function () {
                     entryPoint.target,
                     payload
                 );
-            expect(res).to.not.be.reverted;
+            expect(result1).to.be.false;
 
-            console.log(res);
+            // Set MockMPCVerifier to pass validation
+            await mockMPCVerifier.setShouldValidate(true);
+
+            // Now the call should return true
+            const result2 = await mpcGateway
+                .connect(relayer)
+                .executeContractCall.staticCall(
+                    signatureR,
+                    signatureS,
+                    sourceChain,
+                    sourceAddress,
+                    destinationChain,
+                    entryPoint.target,
+                    payload
+                );
+            expect(result2).to.be.true;
         });
     });
 });

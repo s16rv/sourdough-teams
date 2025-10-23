@@ -61,15 +61,10 @@ interface IAccountFactory {
 
     /**
      * @dev Returns the list of accounts created by a particular signer.
-     * @param x The x part of the public key.
-     * @param y The y part of the public key.
-     * @param addrHash The hash address on the source chain where the transaction originated.
+     * @param sourceAddress The address on the source chain where the transaction originated.
      * @return An account address created by the signer.
      */
     function getAccount(
-        bytes32[] memory x,
-        bytes32[] memory y,
-        bytes32 addrHash,
-        uint64 threshold
+        string calldata sourceAddress
     ) external view returns (address);
 }

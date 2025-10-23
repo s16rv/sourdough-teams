@@ -1,12 +1,11 @@
 import hre from "hardhat";
 import { expect } from "chai";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
-import { encodeBytes32String, AbiCoder, parseEther, sha256, toUtf8Bytes, keccak256 } from "ethers";
+import { AbiCoder, parseEther, sha256, toUtf8Bytes, keccak256 } from "ethers";
 
 import { Account, EntryPoint } from "../../typechain-types";
 import { combineHexStrings } from "../utils/lib";
-import { MockGateway } from "../../typechain-types/contracts/mock-contracts";
-import { AccountFactory } from "../../typechain-types/contracts/smart-account";
+import { AccountFactory } from "../../typechain-types";
 
 describe("EntryPoint", function () {
     const RECIPIENT_ADDRESS = "0xaa25Aa7a19f9c426E07dee59b12f944f4d9f1DD3";
@@ -23,14 +22,10 @@ describe("EntryPoint", function () {
     let recover: HardhatEthersSigner;
     let executor: HardhatEthersSigner;
     let account: Account;
-    let mockGateway: MockGateway;
     let accountFactory: AccountFactory;
 
     beforeEach(async function () {
         [recover, executor] = await hre.ethers.getSigners();
-
-        const MockGatewayContract = await hre.ethers.getContractFactory("MockGateway");
-        mockGateway = await MockGatewayContract.deploy();
 
         const Secp256k1VerifierContract = await hre.ethers.getContractFactory("Secp256k1Verifier");
         const verifier = await Secp256k1VerifierContract.deploy();
@@ -41,10 +36,12 @@ describe("EntryPoint", function () {
         await accountFactory.waitForDeployment();
 
         const EntryPointContract = await hre.ethers.getContractFactory("EntryPoint");
-        entryPoint = await EntryPointContract.deploy(mockGateway.target, accountFactory.target, recover.address);
+        entryPoint = await EntryPointContract.deploy(accountFactory.target, recover.address);
         await entryPoint.waitForDeployment();
 
-        const commandId = encodeBytes32String("commandId");
+        // Set recover as an executor so it can call executePayload
+        await entryPoint.setExecutor(recover.address, true);
+
         const sourceChain = "sourceChain";
 
         const payload = new AbiCoder().encode(
@@ -52,9 +49,8 @@ describe("EntryPoint", function () {
             [1, recover.address, totalSigners, THRESHOLD, PUBLIC_KEY_X[0], PUBLIC_KEY_Y[0]]
         );
 
-        await mockGateway.setCallValid(true);
-        await entryPoint.execute(commandId, sourceChain, SOURCE_ADDRESS, payload);
-        const accountAddr = await accountFactory.getAccount(PUBLIC_KEY_X, PUBLIC_KEY_Y, SOURCE_ADDRESS_HASH, THRESHOLD);
+        await entryPoint.executePayload(sourceChain, SOURCE_ADDRESS, payload);
+        const accountAddr = await accountFactory.getAccount(SOURCE_ADDRESS);
 
         const AccountContract = await hre.ethers.getContractFactory("Account");
         account = AccountContract.attach(accountAddr) as Account;
@@ -76,9 +72,9 @@ describe("EntryPoint", function () {
     });
 
     it("should execute transactions from Account contract", async function () {
-        const messageHash = "0xcc61a33a7a9ace63fa4c5e74f9db3080c7ef68dd53e75dfb311bc28381830c2f";
-        const r = ["0x87df5d0e314c3fe01b3dc136b3afe1659e02316f8d189f0b68983b7f90cd9b61"];
-        const s = ["0x7d2212755fb0db4f8e9a3343d264942d14c5e75471245b0419f29ce10355b08b"];
+        const messageHash = "0x87a9afdf384bb934b0b7b383cab20a2f472d0e64bd0603f2072066be6796faf0";
+        const r = ["0x1d59ffe13a4c317e0346d6791f29ada0ff012451649e1c5670348d04a65c8afd"];
+        const s = ["0x7e6c637f57928d095dcc052a22da0c09b4c87614e91e21ff428840e93b90b13c"];
         const numberSigners = 1;
 
         const initialRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
@@ -86,7 +82,6 @@ describe("EntryPoint", function () {
         const accountAddress = await account.getAddress();
 
         // Execute transaction from the Account contract
-        const commandId = encodeBytes32String("commandId");
         const sourceChain = "sourceChain";
 
         const txPayloadAddress = new AbiCoder().encode(["address", "uint256"], [RECIPIENT_ADDRESS, amountToSend]);
@@ -96,20 +91,20 @@ describe("EntryPoint", function () {
 
         const p = new AbiCoder().encode(
             ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
-            [2, accountAddress, messageHash, proof, 0, numberSigners, r[0], s[0], PUBLIC_KEY_X[0], PUBLIC_KEY_Y[0]]
+            [2, accountAddress, messageHash, proof, 1, numberSigners, r[0], s[0], PUBLIC_KEY_X[0], PUBLIC_KEY_Y[0]]
         );
         const payload = combineHexStrings(p, txPayload);
 
-        await entryPoint.execute(commandId, sourceChain, SOURCE_ADDRESS, payload);
+        await entryPoint.executePayload(sourceChain, SOURCE_ADDRESS, payload);
 
         const finalRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
         expect(finalRecipientBalance).to.equal(initialRecipientBalance + amountToSend);
     });
 
     it("should execute payload directly when called by owner", async function () {
-        const messageHash = "0xcc61a33a7a9ace63fa4c5e74f9db3080c7ef68dd53e75dfb311bc28381830c2f";
-        const r = ["0x87df5d0e314c3fe01b3dc136b3afe1659e02316f8d189f0b68983b7f90cd9b61"];
-        const s = ["0x7d2212755fb0db4f8e9a3343d264942d14c5e75471245b0419f29ce10355b08b"];
+        const messageHash = "0x87a9afdf384bb934b0b7b383cab20a2f472d0e64bd0603f2072066be6796faf0";
+        const r = ["0x1d59ffe13a4c317e0346d6791f29ada0ff012451649e1c5670348d04a65c8afd"];
+        const s = ["0x7e6c637f57928d095dcc052a22da0c09b4c87614e91e21ff428840e93b90b13c"];
         const numberSigners = 1;
 
         const initialRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
@@ -126,7 +121,7 @@ describe("EntryPoint", function () {
 
         const p = new AbiCoder().encode(
             ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
-            [2, accountAddress, messageHash, proof, 0, numberSigners, r[0], s[0], PUBLIC_KEY_X[0], PUBLIC_KEY_Y[0]]
+            [2, accountAddress, messageHash, proof, 1, numberSigners, r[0], s[0], PUBLIC_KEY_X[0], PUBLIC_KEY_Y[0]]
         );
         const payload = combineHexStrings(p, txPayload);
 
@@ -142,9 +137,9 @@ describe("EntryPoint", function () {
         await entryPoint.setExecutor(executor.address, true);
         expect(await entryPoint.isExecutor(executor.address)).to.equal(true);
 
-        const messageHash = "0xcc61a33a7a9ace63fa4c5e74f9db3080c7ef68dd53e75dfb311bc28381830c2f";
-        const r = ["0x87df5d0e314c3fe01b3dc136b3afe1659e02316f8d189f0b68983b7f90cd9b61"];
-        const s = ["0x7d2212755fb0db4f8e9a3343d264942d14c5e75471245b0419f29ce10355b08b"];
+        const messageHash = "0x87a9afdf384bb934b0b7b383cab20a2f472d0e64bd0603f2072066be6796faf0";
+        const r = ["0x1d59ffe13a4c317e0346d6791f29ada0ff012451649e1c5670348d04a65c8afd"];
+        const s = ["0x7e6c637f57928d095dcc052a22da0c09b4c87614e91e21ff428840e93b90b13c"];
         const numberSigners = 1;
 
         const initialRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
@@ -161,7 +156,7 @@ describe("EntryPoint", function () {
 
         const p = new AbiCoder().encode(
             ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
-            [2, accountAddress, messageHash, proof, 0, numberSigners, r[0], s[0], PUBLIC_KEY_X[0], PUBLIC_KEY_Y[0]]
+            [2, accountAddress, messageHash, proof, 1, numberSigners, r[0], s[0], PUBLIC_KEY_X[0], PUBLIC_KEY_Y[0]]
         );
         const payload = combineHexStrings(p, txPayload);
 
@@ -173,9 +168,9 @@ describe("EntryPoint", function () {
     });
 
     it("should revert when executePayload is called by unauthorized address", async function () {
-        const messageHash = "0xcc61a33a7a9ace63fa4c5e74f9db3080c7ef68dd53e75dfb311bc28381830c2f";
-        const r = ["0x87df5d0e314c3fe01b3dc136b3afe1659e02316f8d189f0b68983b7f90cd9b61"];
-        const s = ["0x7d2212755fb0db4f8e9a3343d264942d14c5e75471245b0419f29ce10355b08b"];
+        const messageHash = "0x87a9afdf384bb934b0b7b383cab20a2f472d0e64bd0603f2072066be6796faf0";
+        const r = ["0x1d59ffe13a4c317e0346d6791f29ada0ff012451649e1c5670348d04a65c8afd"];
+        const s = ["0x7e6c637f57928d095dcc052a22da0c09b4c87614e91e21ff428840e93b90b13c"];
         const numberSigners = 1;
 
         const amountToSend = parseEther("1.0");
@@ -191,7 +186,7 @@ describe("EntryPoint", function () {
 
         const p = new AbiCoder().encode(
             ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
-            [2, accountAddress, messageHash, proof, 0, numberSigners, r[0], s[0], PUBLIC_KEY_X[0], PUBLIC_KEY_Y[0]]
+            [2, accountAddress, messageHash, proof, 1, numberSigners, r[0], s[0], PUBLIC_KEY_X[0], PUBLIC_KEY_Y[0]]
         );
         const payload = combineHexStrings(p, txPayload);
 
@@ -201,7 +196,7 @@ describe("EntryPoint", function () {
         // Call executePayload as unauthorized executor should revert
         await expect(
             entryPoint.connect(executor).executePayload(sourceChain, SOURCE_ADDRESS, payload)
-        ).to.be.revertedWith("Only owner can execute");
+        ).to.be.revertedWithCustomError(entryPoint, "NotExecutor");
     });
 
     it("should allow setting and removing executors by owner", async function () {

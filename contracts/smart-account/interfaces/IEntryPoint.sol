@@ -28,6 +28,11 @@ interface IEntryPoint {
     error InvalidAuthorization();
 
     /**
+     * @dev Error thrown when the caller is not an executor.
+     */
+    error NotExecutor();
+
+    /**
      * @dev Event emitted when an account is created.
      * @param accountAddress The address of the newly created account.
      * @param recover The address that has recovery rights for the new account.

@@ -73,7 +73,7 @@ describe("AccountFactory", function () {
             SOURCE_ADDRESS_HASH,
             THRESHOLD
         );
-        const accountAddr = await accountFactory.getAccount(PUBLIC_KEY_X, PUBLIC_KEY_Y, SOURCE_ADDRESS_HASH, THRESHOLD);
+        const accountAddr = await accountFactory.getAccount(SOURCE_ADDRESS);
 
         expect(addressComputed).to.equal(accountAddr);
     });
@@ -97,18 +97,8 @@ describe("AccountFactory", function () {
             SOURCE_ADDRESS2
         );
 
-        const accountAddr1 = await accountFactory.getAccount(
-            PUBLIC_KEY_X,
-            PUBLIC_KEY_Y,
-            SOURCE_ADDRESS_HASH,
-            THRESHOLD
-        );
-        const accountAddr2 = await accountFactory.getAccount(
-            PUBLIC_KEY_X,
-            PUBLIC_KEY_Y,
-            SOURCE_ADDRESS2_HASH,
-            THRESHOLD
-        );
+        const accountAddr1 = await accountFactory.getAccount(SOURCE_ADDRESS);
+        const accountAddr2 = await accountFactory.getAccount(SOURCE_ADDRESS2);
 
         expect(accountAddr1).to.not.equal(accountAddr2);
     });
