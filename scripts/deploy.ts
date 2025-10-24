@@ -6,9 +6,7 @@ dotenv.config();
 
 async function main() {
     const [deployer] = await ethers.getSigners();
-    const axelarGatewayAddress = process.env.AXELAR_GATEWAY_ADDRESS as string;
     console.log("Deployer Address:", deployer.address);
-    console.log("Axelar Gateway Address:", axelarGatewayAddress);
 
     var Secp256k1VerifierContract = await ethers.getContractFactory("Secp256k1Verifier");
     var secp256k1Verifier: Secp256k1Verifier;
@@ -57,7 +55,7 @@ async function main() {
     var entryPoint;
     const entryPointAddress = process.env.ENTRY_POINT_ADDRESS as string;
     if (!entryPointAddress) {
-        entryPoint = await EntryPointContract.deploy(axelarGatewayAddress, accountFactory.target, deployer.address);
+        entryPoint = await EntryPointContract.deploy(accountFactory.target, deployer.address);
         await entryPoint.waitForDeployment();
         console.log("EntryPoint deployed to:", entryPoint.target);
     } else {
