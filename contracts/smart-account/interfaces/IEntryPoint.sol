@@ -23,6 +23,12 @@ interface IEntryPoint {
     error TransactionFailed();
 
     /**
+     * @dev Error thrown when the execution of a transaction fails with a custom reason.
+     * @param reason The custom reason for the transaction failure.
+     */
+    error TransactionError(string reason);
+
+    /**
      * @dev Error thrown when the authorization provided for a transaction is invalid.
      */
     error InvalidAuthorization();
@@ -31,6 +37,11 @@ interface IEntryPoint {
      * @dev Error thrown when the caller is not an executor.
      */
     error NotExecutor();
+
+    /**
+     * @dev Error thrown when a multi-payload array is malformed or inconsistent.
+     */
+    error InvalidPayloadArray();
 
     /**
      * @dev Event emitted when an account is created.
