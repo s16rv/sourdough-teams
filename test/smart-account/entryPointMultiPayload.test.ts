@@ -257,32 +257,44 @@ describe("EntryPoint Multi-Payload", function () {
         );
     });
 
-    // it("edge: malformed item reverts", async function () {
-    //     const accountAddress = await account.getAddress();
-    //     const messageHash = "0x87a9afdf384bb934b0b7b383cab20a2f472d0e64bd0603f2072066be6796faf0";
-    //     const r = ["0x1d59ffe13a4c317e0346d6791f29ada0ff012451649e1c5670348d04a65c8afd"];
-    //     const s = ["0x7e6c637f57928d095dcc052a22da0c09b4c87614e91e21ff428840e93b90b13c"];
-    //     const numberSigners = 1;
+    it("edge: malformed item reverts", async function () {
+        const accountAddress = await account.getAddress();
+        const messageHash = "0x87a9afdf384bb934b0b7b383cab20a2f472d0e64bd0603f2072066be6796faf0";
+        const r = ["0x1d59ffe13a4c317e0346d6791f29ada0ff012451649e1c5670348d04a65c8afd"];
+        const s = ["0x7e6c637f57928d095dcc052a22da0c09b4c87614e91e21ff428840e93b90b13c"];
+        const numberSigners = 1;
 
-    //     const coder = new AbiCoder();
-    //     const magic = coder.encode(["uint64"], [1]);
-    //     const fixed = coder.encode(["address", "uint256", "uint256"], [RECIPIENT_ADDRESS, parseEther("0.001"), 10]);
-    //     const truncatedData = "0x0102"; // only 2 bytes while declaring length 10
-    //     const txPayload = combineHexStrings(magic, fixed);
-    //     const txPayloadMalformed = combineHexStrings(txPayload, truncatedData);
+        const coder = new AbiCoder();
+        const magic = coder.encode(["uint64"], [1]);
+        const fixed = coder.encode(["address", "uint256", "uint256"], [RECIPIENT_ADDRESS, parseEther("0.001"), 10]);
+        const truncatedData = "0x0102"; // only 2 bytes while declaring length 10
+        const txPayload = combineHexStrings(magic, fixed);
+        const txPayloadMalformed = combineHexStrings(txPayload, truncatedData);
 
-    //     const proof = sha256(combineHexStrings(messageHash, txPayloadMalformed));
-    //     const p = new AbiCoder().encode(
-    //         ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
-    //         [2, accountAddress, messageHash, proof, 1, numberSigners, r[0], s[0], PUBLIC_KEY_X[0], PUBLIC_KEY_Y[0]]
-    //     );
-    //     const payload = combineHexStrings(p, txPayloadMalformed);
+        const proof = sha256(combineHexStrings(messageHash, txPayloadMalformed));
+        const accountSequence = await account.accountSequence();
+        const p = new AbiCoder().encode(
+            ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
+            [
+                2,
+                accountAddress,
+                messageHash,
+                proof,
+                accountSequence + 1n,
+                numberSigners,
+                r[0],
+                s[0],
+                PUBLIC_KEY_X[0],
+                PUBLIC_KEY_Y[0],
+            ]
+        );
+        const payload = combineHexStrings(p, txPayloadMalformed);
 
-    //     await expect(entryPoint.executePayload("sourceChain", SOURCE_ADDRESS, payload)).to.be.revertedWithCustomError(
-    //         entryPoint,
-    //         "PayloadTooShort"
-    //     );
-    // });
+        await expect(entryPoint.executePayload("sourceChain", SOURCE_ADDRESS, payload)).to.be.revertedWithCustomError(
+            entryPoint,
+            "PayloadTooShort"
+        );
+    });
 
     // it("gas: batch vs two singles", async function () {
     //     const messageHash = "0x87a9afdf384bb934b0b7b383cab20a2f472d0e64bd0603f2072066be6796faf0";
