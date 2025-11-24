@@ -173,64 +173,89 @@ describe("EntryPoint Multi-Payload", function () {
         expect(ethEnd).to.equal(ethStart - ethAmount);
     });
 
-    // it("batch: ether transfer + erc20 transfer", async function () {
-    //     const messageHash = "0x87a9afdf384bb934b0b7b383cab20a2f472d0e64bd0603f2072066be6796faf0";
-    //     const r = ["0x1d59ffe13a4c317e0346d6791f29ada0ff012451649e1c5670348d04a65c8afd"];
-    //     const s = ["0x7e6c637f57928d095dcc052a22da0c09b4c87614e91e21ff428840e93b90b13c"];
-    //     const numberSigners = 1;
+    it("batch: ether transfer + erc20 transfer", async function () {
+        const messageHash = "0x87a9afdf384bb934b0b7b383cab20a2f472d0e64bd0603f2072066be6796faf0";
+        const r = ["0x1d59ffe13a4c317e0346d6791f29ada0ff012451649e1c5670348d04a65c8afd"];
+        const s = ["0x7e6c637f57928d095dcc052a22da0c09b4c87614e91e21ff428840e93b90b13c"];
+        const numberSigners = 1;
 
-    //     const accountAddress = await account.getAddress();
-    //     const ethAmount = parseEther("0.001");
-    //     const tokenAmount = parseEther("0.001");
+        const accountAddress = await account.getAddress();
+        const ethAmount = parseEther("0.001");
+        const tokenAmount = parseEther("0.001");
 
-    //     const transferData = myToken.interface.encodeFunctionData("transfer", [RECIPIENT_ADDRESS, tokenAmount]);
+        const transferData = myToken.interface.encodeFunctionData("transfer", [RECIPIENT_ADDRESS, tokenAmount]);
 
-    //     const txPayload = encodeMultiPayload([
-    //         { dest: RECIPIENT_ADDRESS, value: ethAmount, data: "0x" },
-    //         { dest: myToken.target as string, value: 0n, data: transferData },
-    //     ]);
+        const txPayload = encodeMultiPayload([
+            { dest: RECIPIENT_ADDRESS, value: ethAmount, data: "0x" },
+            { dest: myToken.target as string, value: 0n, data: transferData },
+        ]);
 
-    //     const proof = sha256(combineHexStrings(messageHash, txPayload));
-    //     const p = new AbiCoder().encode(
-    //         ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
-    //         [2, accountAddress, messageHash, proof, 1, numberSigners, r[0], s[0], PUBLIC_KEY_X[0], PUBLIC_KEY_Y[0]]
-    //     );
-    //     const payload = combineHexStrings(p, txPayload);
+        const accountSequence = await account.accountSequence();
 
-    //     const ethStart = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
-    //     const tokenStart = await myToken.balanceOf(RECIPIENT_ADDRESS);
+        const proof = sha256(combineHexStrings(messageHash, txPayload));
+        const p = new AbiCoder().encode(
+            ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
+            [
+                2,
+                accountAddress,
+                messageHash,
+                proof,
+                accountSequence + 1n,
+                numberSigners,
+                r[0],
+                s[0],
+                PUBLIC_KEY_X[0],
+                PUBLIC_KEY_Y[0],
+            ]
+        );
+        const payload = combineHexStrings(p, txPayload);
 
-    //     const tx = await entryPoint.executePayload("sourceChain", SOURCE_ADDRESS, payload);
-    //     await tx.wait();
+        const ethStart = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
+        const tokenStart = await myToken.balanceOf(RECIPIENT_ADDRESS);
 
-    //     const ethEnd = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
-    //     const tokenEnd = await myToken.balanceOf(RECIPIENT_ADDRESS);
+        const tx = await entryPoint.executePayload("sourceChain", SOURCE_ADDRESS, payload);
+        await tx.wait();
 
-    //     expect(ethEnd).to.equal(ethStart + ethAmount);
-    //     expect(tokenEnd).to.equal(tokenStart + tokenAmount);
-    // });
+        const ethEnd = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
+        const tokenEnd = await myToken.balanceOf(RECIPIENT_ADDRESS);
 
-    // it("edge: empty payload array reverts", async function () {
-    //     const accountAddress = await account.getAddress();
-    //     const messageHash = "0x87a9afdf384bb934b0b7b383cab20a2f472d0e64bd0603f2072066be6796faf0";
-    //     const r = ["0x1d59ffe13a4c317e0346d6791f29ada0ff012451649e1c5670348d04a65c8afd"];
-    //     const s = ["0x7e6c637f57928d095dcc052a22da0c09b4c87614e91e21ff428840e93b90b13c"];
-    //     const numberSigners = 1;
+        expect(ethEnd).to.equal(ethStart + ethAmount);
+        expect(tokenEnd).to.equal(tokenStart + tokenAmount);
+    });
 
-    //     const coder = new AbiCoder();
-    //     const txPayload = coder.encode(["uint64"], [0]);
-    //     const proof = sha256(combineHexStrings(messageHash, txPayload));
-    //     const p = new AbiCoder().encode(
-    //         ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
-    //         [2, accountAddress, messageHash, proof, 1, numberSigners, r[0], s[0], PUBLIC_KEY_X[0], PUBLIC_KEY_Y[0]]
-    //     );
-    //     const payload = combineHexStrings(p, txPayload);
+    it("edge: empty payload array reverts", async function () {
+        const accountAddress = await account.getAddress();
+        const messageHash = "0x87a9afdf384bb934b0b7b383cab20a2f472d0e64bd0603f2072066be6796faf0";
+        const r = ["0x1d59ffe13a4c317e0346d6791f29ada0ff012451649e1c5670348d04a65c8afd"];
+        const s = ["0x7e6c637f57928d095dcc052a22da0c09b4c87614e91e21ff428840e93b90b13c"];
+        const numberSigners = 1;
 
-    //     await expect(entryPoint.executePayload("sourceChain", SOURCE_ADDRESS, payload)).to.be.revertedWithCustomError(
-    //         entryPoint,
-    //         "InvalidPayloadArray"
-    //     );
-    // });
+        const coder = new AbiCoder();
+        const txPayload = coder.encode(["uint64"], [0]);
+        const accountSequence = await account.accountSequence();
+        const proof = sha256(combineHexStrings(messageHash, txPayload));
+        const p = new AbiCoder().encode(
+            ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
+            [
+                2,
+                accountAddress,
+                messageHash,
+                proof,
+                accountSequence + 1n,
+                numberSigners,
+                r[0],
+                s[0],
+                PUBLIC_KEY_X[0],
+                PUBLIC_KEY_Y[0],
+            ]
+        );
+        const payload = combineHexStrings(p, txPayload);
+
+        await expect(entryPoint.executePayload("sourceChain", SOURCE_ADDRESS, payload)).to.be.revertedWithCustomError(
+            entryPoint,
+            "InvalidPayloadArray"
+        );
+    });
 
     // it("edge: malformed item reverts", async function () {
     //     const accountAddress = await account.getAddress();
