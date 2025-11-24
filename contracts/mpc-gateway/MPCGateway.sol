@@ -176,6 +176,14 @@ contract MPCGateway is IMPCGateway {
         bytes calldata payload
     ) private returns (bool) {
         IEntryPoint entryPoint = IEntryPoint(destinationAddress);
-        return entryPoint.executePayload(sourceChain, sourceAddress, payload);
+        try entryPoint.executePayload(sourceChain, sourceAddress, payload) returns (bool ok) {
+            return ok;
+        } catch Error(string memory reason) {
+            emit DebugError(reason);
+            return false;
+        } catch {
+            emit DebugError("UnknownError");
+            return false;
+        }
     }
 }

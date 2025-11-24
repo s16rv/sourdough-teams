@@ -5,8 +5,6 @@ import "./interfaces/IEntryPoint.sol";
 import "./interfaces/IAccount.sol";
 import "./interfaces/IAccountFactory.sol";
 
-import "hardhat/console.sol";
-
 contract EntryPoint is IEntryPoint {
     IAccountFactory public immutable accountFactory;
     address public immutable ownerAddress;
@@ -166,22 +164,55 @@ contract EntryPoint is IEntryPoint {
             sequence,
             txPayload
         );
+        
         if (!valid) {
             emit DebugReason(reason);
             return;
         }
 
         emit SignatureValidated(messageHash, r, s);
-
-        (address dest, uint256 value) = abi.decode(txPayload, (address, uint256));
-        bytes calldata data = txPayload[64:];
-
-        bool success = IAccount(payable(target)).executeTransaction(dest, value, data);
-        if (!success) {
-            revert TransactionFailed();
+        if (txPayload.length < 32) {
+            revert PayloadTooShort();
         }
 
-        emit TransactionHandled(target, dest, value, data);
+        uint64 count = abi.decode(txPayload[:32], (uint64));
+        if (count == 0) {
+            revert InvalidPayloadArray();
+        }
+
+        uint256 offset = 32;
+        for (uint64 i = 0; i < count; i++) {
+            address dest;
+            uint256 value;
+            bytes calldata data;
+
+            if (txPayload.length < offset + 96) {
+                revert PayloadTooShort();
+            }
+            uint256 dataLen;
+            (dest, value, dataLen) = abi.decode(txPayload[offset:offset + 96], (address, uint256, uint256));
+            uint256 dataStart = offset + 96;
+            uint256 dataEnd = dataStart + dataLen;
+            if (txPayload.length < dataEnd) {
+                revert PayloadTooShort();
+            }
+            data = txPayload[dataStart:dataEnd];
+            offset = dataEnd;
+
+            try IAccount(payable(target)).executeTransaction(dest, value, data) returns (bool success) {
+                if (!success) {
+                    revert TransactionFailed();
+                }
+            } catch Error(string memory reason) {
+                // catch failing revert() and require()
+                revert TransactionError(reason);
+            } catch (bytes memory reason) {
+                // catch failing assert()
+                revert TransactionError("Assertion failed");
+            }
+
+            emit TransactionHandled(target, dest, value, data);
+        }
     }
 
     /**

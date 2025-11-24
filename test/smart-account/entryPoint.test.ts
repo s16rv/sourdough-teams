@@ -1,10 +1,10 @@
 import hre from "hardhat";
 import { expect } from "chai";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
-import { AbiCoder, parseEther, sha256, toUtf8Bytes, keccak256 } from "ethers";
+import { AbiCoder, parseEther, sha256 } from "ethers";
 
 import { Account, EntryPoint } from "../../typechain-types";
-import { combineHexStrings } from "../utils/lib";
+import { combineHexStrings, encodeMultiPayload } from "../utils/lib";
 import { AccountFactory } from "../../typechain-types";
 
 describe("EntryPoint", function () {
@@ -16,7 +16,6 @@ describe("EntryPoint", function () {
     const THRESHOLD = 1;
 
     const SOURCE_ADDRESS = "neutron1chcktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
-    const SOURCE_ADDRESS_HASH = keccak256(toUtf8Bytes(SOURCE_ADDRESS));
 
     let entryPoint: EntryPoint;
     let recover: HardhatEthersSigner;
@@ -84,14 +83,25 @@ describe("EntryPoint", function () {
         // Execute transaction from the Account contract
         const sourceChain = "sourceChain";
 
-        const txPayloadAddress = new AbiCoder().encode(["address", "uint256"], [RECIPIENT_ADDRESS, amountToSend]);
-        const txPayload = combineHexStrings(txPayloadAddress, "0x");
+        const txPayload = encodeMultiPayload([{ dest: RECIPIENT_ADDRESS, value: amountToSend, data: "0x" }]);
 
         const proof = sha256(combineHexStrings(messageHash, txPayload));
+        const accountSequence = await account.accountSequence();
 
         const p = new AbiCoder().encode(
             ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
-            [2, accountAddress, messageHash, proof, 1, numberSigners, r[0], s[0], PUBLIC_KEY_X[0], PUBLIC_KEY_Y[0]]
+            [
+                2,
+                accountAddress,
+                messageHash,
+                proof,
+                accountSequence + 1n,
+                numberSigners,
+                r[0],
+                s[0],
+                PUBLIC_KEY_X[0],
+                PUBLIC_KEY_Y[0],
+            ]
         );
         const payload = combineHexStrings(p, txPayload);
 
@@ -114,14 +124,25 @@ describe("EntryPoint", function () {
         // Prepare payload for executePayload
         const sourceChain = "sourceChain";
 
-        const txPayloadAddress = new AbiCoder().encode(["address", "uint256"], [RECIPIENT_ADDRESS, amountToSend]);
-        const txPayload = combineHexStrings(txPayloadAddress, "0x");
+        const txPayload = encodeMultiPayload([{ dest: RECIPIENT_ADDRESS, value: amountToSend, data: "0x" }]);
 
         const proof = sha256(combineHexStrings(messageHash, txPayload));
+        const accountSequence = await account.accountSequence();
 
         const p = new AbiCoder().encode(
             ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
-            [2, accountAddress, messageHash, proof, 1, numberSigners, r[0], s[0], PUBLIC_KEY_X[0], PUBLIC_KEY_Y[0]]
+            [
+                2,
+                accountAddress,
+                messageHash,
+                proof,
+                accountSequence + 1n,
+                numberSigners,
+                r[0],
+                s[0],
+                PUBLIC_KEY_X[0],
+                PUBLIC_KEY_Y[0],
+            ]
         );
         const payload = combineHexStrings(p, txPayload);
 
@@ -149,14 +170,25 @@ describe("EntryPoint", function () {
         // Prepare payload for executePayload
         const sourceChain = "sourceChain";
 
-        const txPayloadAddress = new AbiCoder().encode(["address", "uint256"], [RECIPIENT_ADDRESS, amountToSend]);
-        const txPayload = combineHexStrings(txPayloadAddress, "0x");
+        const txPayload = encodeMultiPayload([{ dest: RECIPIENT_ADDRESS, value: amountToSend, data: "0x" }]);
 
         const proof = sha256(combineHexStrings(messageHash, txPayload));
+        const accountSequence = await account.accountSequence();
 
         const p = new AbiCoder().encode(
             ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
-            [2, accountAddress, messageHash, proof, 1, numberSigners, r[0], s[0], PUBLIC_KEY_X[0], PUBLIC_KEY_Y[0]]
+            [
+                2,
+                accountAddress,
+                messageHash,
+                proof,
+                accountSequence + 1n,
+                numberSigners,
+                r[0],
+                s[0],
+                PUBLIC_KEY_X[0],
+                PUBLIC_KEY_Y[0],
+            ]
         );
         const payload = combineHexStrings(p, txPayload);
 
@@ -179,14 +211,25 @@ describe("EntryPoint", function () {
         // Prepare payload for executePayload
         const sourceChain = "sourceChain";
 
-        const txPayloadAddress = new AbiCoder().encode(["address", "uint256"], [RECIPIENT_ADDRESS, amountToSend]);
-        const txPayload = combineHexStrings(txPayloadAddress, "0x");
+        const txPayload = encodeMultiPayload([{ dest: RECIPIENT_ADDRESS, value: amountToSend, data: "0x" }]);
 
         const proof = sha256(combineHexStrings(messageHash, txPayload));
+        const accountSequence = await account.accountSequence();
 
         const p = new AbiCoder().encode(
             ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
-            [2, accountAddress, messageHash, proof, 1, numberSigners, r[0], s[0], PUBLIC_KEY_X[0], PUBLIC_KEY_Y[0]]
+            [
+                2,
+                accountAddress,
+                messageHash,
+                proof,
+                accountSequence + 1n,
+                numberSigners,
+                r[0],
+                s[0],
+                PUBLIC_KEY_X[0],
+                PUBLIC_KEY_Y[0],
+            ]
         );
         const payload = combineHexStrings(p, txPayload);
 
