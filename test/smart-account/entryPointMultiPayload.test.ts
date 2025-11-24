@@ -1,27 +1,10 @@
 import hre from "hardhat";
 import { expect } from "chai";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
-import { AbiCoder, parseEther, sha256, toUtf8Bytes, keccak256 } from "ethers";
+import { AbiCoder, parseEther, sha256 } from "ethers";
 
 import { Account, EntryPoint, MyToken } from "../../typechain-types";
-import { combineHexStrings } from "../utils/lib";
-
-function hex(bytes: string): string {
-    return "0x" + Buffer.from(bytes, "utf8").toString("hex");
-}
-
-function encodeMultiPayload(items: { dest: string; value: bigint; data: string }[]): string {
-    const coder = new AbiCoder();
-    const count = coder.encode(["uint64"], [BigInt(items.length)]);
-    let payload = count;
-    for (const it of items) {
-        const dataLen = BigInt((it.data.length - 2) / 2);
-        const fixed = coder.encode(["address", "uint256", "uint256"], [it.dest, it.value, dataLen]);
-        payload = combineHexStrings(payload, fixed);
-        payload = combineHexStrings(payload, it.data);
-    }
-    return payload;
-}
+import { combineHexStrings, encodeMultiPayload } from "../utils/lib";
 
 describe("EntryPoint Multi-Payload", function () {
     const RECIPIENT_ADDRESS = "0xaa25Aa7a19f9c426E07dee59b12f944f4d9f1DD3";
@@ -32,7 +15,6 @@ describe("EntryPoint Multi-Payload", function () {
     const totalSigners = 1;
 
     const SOURCE_ADDRESS = "neutron1chcktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
-    const SOURCE_ADDRESS_HASH = keccak256(toUtf8Bytes(SOURCE_ADDRESS));
 
     let entryPoint: EntryPoint;
     let recover: HardhatEthersSigner;
