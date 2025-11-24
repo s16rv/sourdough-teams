@@ -296,63 +296,103 @@ describe("EntryPoint Multi-Payload", function () {
         );
     });
 
-    // it("gas: batch vs two singles", async function () {
-    //     const messageHash = "0x87a9afdf384bb934b0b7b383cab20a2f472d0e64bd0603f2072066be6796faf0";
-    //     const r = ["0x1d59ffe13a4c317e0346d6791f29ada0ff012451649e1c5670348d04a65c8afd"];
-    //     const s = ["0x7e6c637f57928d095dcc052a22da0c09b4c87614e91e21ff428840e93b90b13c"];
-    //     const numberSigners = 1;
+    it("gas: batch vs two singles", async function () {
+        const messageHash = "0x87a9afdf384bb934b0b7b383cab20a2f472d0e64bd0603f2072066be6796faf0";
+        const r = ["0x1d59ffe13a4c317e0346d6791f29ada0ff012451649e1c5670348d04a65c8afd"];
+        const s = ["0x7e6c637f57928d095dcc052a22da0c09b4c87614e91e21ff428840e93b90b13c"];
+        const numberSigners = 1;
 
-    //     const accountAddress = await account.getAddress();
-    //     const amount = parseEther("0.001");
+        const accountAddress = await account.getAddress();
+        const amount = parseEther("0.001");
 
-    //     const approveData = myToken.interface.encodeFunctionData("approve", [accountAddress, amount]);
-    //     const transferFromData = myToken.interface.encodeFunctionData("transferFrom", [accountAddress, RECIPIENT_ADDRESS, amount]);
+        const approveData = myToken.interface.encodeFunctionData("approve", [accountAddress, amount]);
+        const transferFromData = myToken.interface.encodeFunctionData("transferFrom", [
+            accountAddress,
+            RECIPIENT_ADDRESS,
+            amount,
+        ]);
 
-    //     // Two single calls encoded as count=1
-    //     const coder = new AbiCoder();
-    //     const approveLen = BigInt((approveData.length - 2) / 2);
-    //     const approveHeader = coder.encode(["address", "uint256", "uint256"], [myToken.target as string, 0n, approveLen]);
-    //     const approveItem = combineHexStrings(approveHeader, approveData);
-    //     const singleCount = coder.encode(["uint64"], [1n]);
-    //     const txPayloadApprove = combineHexStrings(singleCount, approveItem);
-    //     const proofApprove = sha256(combineHexStrings(messageHash, txPayloadApprove));
-    //     const pApprove = new AbiCoder().encode(
-    //         ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
-    //         [2, accountAddress, messageHash, proofApprove, (await account.accountSequence()) + 1n, numberSigners, r[0], s[0], PUBLIC_KEY_X[0], PUBLIC_KEY_Y[0]]
-    //     );
-    //     const payloadApprove = combineHexStrings(pApprove, txPayloadApprove);
-    //     const tx1 = await entryPoint.executePayload("sourceChain", SOURCE_ADDRESS, payloadApprove);
-    //     const receipt1 = await tx1.wait();
+        // Two single calls encoded as count=1
+        const coder = new AbiCoder();
+        const approveLen = BigInt((approveData.length - 2) / 2);
+        const approveHeader = coder.encode(
+            ["address", "uint256", "uint256"],
+            [myToken.target as string, 0n, approveLen]
+        );
+        const approveItem = combineHexStrings(approveHeader, approveData);
+        const singleCount = coder.encode(["uint64"], [1n]);
+        const txPayloadApprove = combineHexStrings(singleCount, approveItem);
+        const proofApprove = sha256(combineHexStrings(messageHash, txPayloadApprove));
+        const pApprove = new AbiCoder().encode(
+            ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
+            [
+                2,
+                accountAddress,
+                messageHash,
+                proofApprove,
+                (await account.accountSequence()) + 1n,
+                numberSigners,
+                r[0],
+                s[0],
+                PUBLIC_KEY_X[0],
+                PUBLIC_KEY_Y[0],
+            ]
+        );
+        const payloadApprove = combineHexStrings(pApprove, txPayloadApprove);
+        const tx1 = await entryPoint.executePayload("sourceChain", SOURCE_ADDRESS, payloadApprove);
+        const receipt1 = await tx1.wait();
 
-    //     const tfLen = BigInt((transferFromData.length - 2) / 2);
-    //     const tfHeader = coder.encode(["address", "uint256", "uint256"], [myToken.target as string, 0n, tfLen]);
-    //     const tfItem = combineHexStrings(tfHeader, transferFromData);
-    //     const txPayloadTransferFrom = combineHexStrings(singleCount, tfItem);
-    //     const proofTransferFrom = sha256(combineHexStrings(messageHash, txPayloadTransferFrom));
-    //     const pTransferFrom = new AbiCoder().encode(
-    //         ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
-    //         [2, accountAddress, messageHash, proofTransferFrom, (await account.accountSequence()) + 1n, numberSigners, r[0], s[0], PUBLIC_KEY_X[0], PUBLIC_KEY_Y[0]]
-    //     );
-    //     const payloadTransferFrom = combineHexStrings(pTransferFrom, txPayloadTransferFrom);
-    //     const tx2 = await entryPoint.executePayload("sourceChain", SOURCE_ADDRESS, payloadTransferFrom);
-    //     const receipt2 = await tx2.wait();
+        const tfLen = BigInt((transferFromData.length - 2) / 2);
+        const tfHeader = coder.encode(["address", "uint256", "uint256"], [myToken.target as string, 0n, tfLen]);
+        const tfItem = combineHexStrings(tfHeader, transferFromData);
+        const txPayloadTransferFrom = combineHexStrings(singleCount, tfItem);
+        const proofTransferFrom = sha256(combineHexStrings(messageHash, txPayloadTransferFrom));
+        const pTransferFrom = new AbiCoder().encode(
+            ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
+            [
+                2,
+                accountAddress,
+                messageHash,
+                proofTransferFrom,
+                (await account.accountSequence()) + 1n,
+                numberSigners,
+                r[0],
+                s[0],
+                PUBLIC_KEY_X[0],
+                PUBLIC_KEY_Y[0],
+            ]
+        );
+        const payloadTransferFrom = combineHexStrings(pTransferFrom, txPayloadTransferFrom);
+        const tx2 = await entryPoint.executePayload("sourceChain", SOURCE_ADDRESS, payloadTransferFrom);
+        const receipt2 = await tx2.wait();
 
-    //     const gasSingles = receipt1!.gasUsed + receipt2!.gasUsed;
+        const gasSingles = receipt1!.gasUsed + receipt2!.gasUsed;
 
-    //     // Batch call
-    //     const batchTxPayload = encodeMultiPayload([
-    //         { dest: myToken.target as string, value: 0n, data: approveData },
-    //         { dest: myToken.target as string, value: 0n, data: transferFromData },
-    //     ]);
-    //     const batchProof = sha256(combineHexStrings(messageHash, batchTxPayload));
-    //     const pBatch = new AbiCoder().encode(
-    //         ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
-    //         [2, accountAddress, messageHash, batchProof, (await account.accountSequence()) + 1n, numberSigners, r[0], s[0], PUBLIC_KEY_X[0], PUBLIC_KEY_Y[0]]
-    //     );
-    //     const payloadBatch = combineHexStrings(pBatch, batchTxPayload);
-    //     const txBatch = await entryPoint.executePayload("sourceChain", SOURCE_ADDRESS, payloadBatch);
-    //     const receiptBatch = await txBatch.wait();
+        // Batch call
+        const batchTxPayload = encodeMultiPayload([
+            { dest: myToken.target as string, value: 0n, data: approveData },
+            { dest: myToken.target as string, value: 0n, data: transferFromData },
+        ]);
+        const batchProof = sha256(combineHexStrings(messageHash, batchTxPayload));
+        const pBatch = new AbiCoder().encode(
+            ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
+            [
+                2,
+                accountAddress,
+                messageHash,
+                batchProof,
+                (await account.accountSequence()) + 1n,
+                numberSigners,
+                r[0],
+                s[0],
+                PUBLIC_KEY_X[0],
+                PUBLIC_KEY_Y[0],
+            ]
+        );
+        const payloadBatch = combineHexStrings(pBatch, batchTxPayload);
+        const txBatch = await entryPoint.executePayload("sourceChain", SOURCE_ADDRESS, payloadBatch);
+        const receiptBatch = await txBatch.wait();
 
-    //     expect(receiptBatch!.gasUsed).to.be.lessThan(gasSingles);
-    // });
+        expect(receiptBatch!.gasUsed).to.be.lessThan(gasSingles);
+    });
 });

@@ -5,8 +5,6 @@ import "./interfaces/IEntryPoint.sol";
 import "./interfaces/IAccount.sol";
 import "./interfaces/IAccountFactory.sol";
 
-import "hardhat/console.sol";
-
 contract EntryPoint is IEntryPoint {
     IAccountFactory public immutable accountFactory;
     address public immutable ownerAddress;
@@ -173,7 +171,6 @@ contract EntryPoint is IEntryPoint {
         }
 
         emit SignatureValidated(messageHash, r, s);
-        console.log("txPayload length:", txPayload.length);
         if (txPayload.length < 32) {
             revert PayloadTooShort();
         }
@@ -185,7 +182,6 @@ contract EntryPoint is IEntryPoint {
 
         uint256 offset = 32;
         for (uint64 i = 0; i < count; i++) {
-            console.log("exec index:", i);
             address dest;
             uint256 value;
             bytes calldata data;
@@ -202,10 +198,6 @@ contract EntryPoint is IEntryPoint {
             }
             data = txPayload[dataStart:dataEnd];
             offset = dataEnd;
-
-            console.log("exec dest:", dest);
-            console.log("exec value:", value);
-            console.logBytes(data);
 
             try IAccount(payable(target)).executeTransaction(dest, value, data) returns (bool success) {
                 if (!success) {
