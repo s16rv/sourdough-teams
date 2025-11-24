@@ -182,6 +182,7 @@ contract MPCGateway is IMPCGateway {
             emit DebugError(reason);
             return false;
         } catch {
+            emit DebugError("UnknownError");
             return false;
         }
     }
