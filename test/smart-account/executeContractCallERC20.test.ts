@@ -105,4 +105,39 @@ describe("ExecuteContractCallERC20", function () {
         const finalRecipientBalance = await myToken.balanceOf(RECIPIENT_ADDRESS);
         expect(finalRecipientBalance).to.equal(initialRecipientBalance + amountToSend);
     });
+
+    it("should execute erc20 approve from Account contract", async function () {
+        const messageHash = "0xcc61a33a7a9ace63fa4c5e74f9db3080c7ef68dd53e75dfb311bc28381830c2f";
+        const r = ["0x87df5d0e314c3fe01b3dc136b3afe1659e02316f8d189f0b68983b7f90cd9b61"];
+        const s = ["0x7d2212755fb0db4f8e9a3343d264942d14c5e75471245b0419f29ce10355b08b"];
+        const numberSigners = 1;
+
+        const amountToSend = parseEther("0.001");
+        const accountAddress = await account.getAddress();
+
+        // Execute transaction from the Account contract
+        const sourceChain = "sourceChain";
+
+        const initialAllowance = await myToken.allowance(accountAddress, RECIPIENT_ADDRESS);
+        expect(initialAllowance).to.equal(0);
+
+        const txPayloadAddress = new AbiCoder().encode(["address", "uint256"], [myToken.target, 0]);
+        const txPayloadApprove = myToken.interface.encodeFunctionData("approve", [RECIPIENT_ADDRESS, amountToSend]);
+        console.log("txPayloadApprove:", txPayloadApprove);
+        const txPayload = combineHexStrings(txPayloadAddress, txPayloadApprove);
+        console.log("txPayload:", txPayload);
+
+        const proof = sha256(combineHexStrings(messageHash, txPayload));
+
+        const p = new AbiCoder().encode(
+            ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
+            [2, accountAddress, messageHash, proof, 2, numberSigners, r[0], s[0], PUBLIC_KEY_X[0], PUBLIC_KEY_Y[0]]
+        );
+        const payload = combineHexStrings(p, txPayload);
+
+        await entryPoint.executePayload(sourceChain, SOURCE_ADDRESS, payload);
+
+        const finalRecipientAllowance = await myToken.allowance(accountAddress, RECIPIENT_ADDRESS);
+        expect(finalRecipientAllowance).to.equal(amountToSend);
+    });
 });
