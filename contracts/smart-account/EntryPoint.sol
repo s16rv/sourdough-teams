@@ -180,16 +180,18 @@ contract EntryPoint is IEntryPoint {
             revert InvalidPayloadArray();
         }
 
+        address[] memory destList = new address[](count);
+        uint256[] memory valueList = new uint256[](count);
+        bytes[] memory dataList = new bytes[](count);
         uint256 offset = 32;
         for (uint64 i = 0; i < count; i++) {
             address dest;
             uint256 value;
             bytes calldata data;
-
+            uint256 dataLen;
             if (txPayload.length < offset + 96) {
                 revert PayloadTooShort();
             }
-            uint256 dataLen;
             (dest, value, dataLen) = abi.decode(txPayload[offset:offset + 96], (address, uint256, uint256));
             uint256 dataStart = offset + 96;
             uint256 dataEnd = dataStart + dataLen;
@@ -199,20 +201,28 @@ contract EntryPoint is IEntryPoint {
             data = txPayload[dataStart:dataEnd];
             offset = dataEnd;
 
-            try IAccount(payable(target)).executeTransaction(dest, value, data) returns (bool success) {
-                if (!success) {
-                    revert TransactionFailed();
-                }
-            } catch Error(string memory reason) {
-                // catch failing revert() and require()
-                revert TransactionError(reason);
-            } catch (bytes memory reason) {
-                // catch failing assert()
-                revert TransactionError("Assertion failed");
-            }
-
-            emit TransactionHandled(target, dest, value, data);
+            destList[i] = dest;
+            valueList[i] = value;
+            dataList[i] = data;
         }
+
+         try IAccount(payable(target)).executeTransactions(
+            destList,
+            valueList,
+            dataList
+        ) returns (bool success) {
+            if (!success) {
+                revert TransactionFailed();
+            }
+        } catch Error(string memory reason) {
+            // catch failing revert() and require()
+            revert TransactionError(reason);
+        } catch (bytes memory reason) {
+            // catch failing assert()
+            revert TransactionError("Assertion failed");
+        }
+
+        emit TransactionHandled(target, sequence);
     }
 
     /**

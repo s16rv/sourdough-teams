@@ -130,7 +130,7 @@ describe("Account", function () {
 
         expect(await account.accountSequence()).to.equal(0);
 
-        await expect(account.connect(recover).executeTransaction(RECIPIENT_ADDRESS, amountToSend, "0x"))
+        await expect(account.connect(recover).executeTransactions([RECIPIENT_ADDRESS], [amountToSend], ["0x"]))
             .to.emit(account, "TransactionExecuted")
             .withArgs(RECIPIENT_ADDRESS, amountToSend, "0x");
 
@@ -145,7 +145,7 @@ describe("Account", function () {
         const initialRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
 
         await expect(
-            account.connect(stranger).executeTransaction(RECIPIENT_ADDRESS, amountToSend, "0x")
+            account.connect(stranger).executeTransactions([RECIPIENT_ADDRESS], [amountToSend], ["0x"])
         ).to.be.revertedWithCustomError(account, "NotEntryPointOrRecover");
 
         const finalRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);

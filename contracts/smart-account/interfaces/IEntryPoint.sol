@@ -53,11 +53,9 @@ interface IEntryPoint {
     /**
      * @dev Event emitted when a transaction is successfully executed.
      * @param target The target account address.
-     * @param dest The destination address for the transaction.
-     * @param value The amount of Ether sent in the transaction.
-     * @param data The payload data for the transaction.
+     * @param sequence The sequence number of the transaction.
      */
-    event TransactionHandled(address indexed target, address indexed dest, uint256 value, bytes data);
+    event TransactionHandled(address indexed target, uint256 indexed sequence);
 
     /**
      * @dev Event emitted when a signature is validated successfully.
