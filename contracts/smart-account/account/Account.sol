@@ -153,19 +153,28 @@ contract Account is IAccount {
     /**
      * @dev Allows the contract to execute arbitrary transactions, restricted to the recover address or EntryPoint.
      * Emits a `TransactionExecuted` event.
-     * @param dest The destination address of the transaction.
-     * @param value The amount of Ether to send with the transaction.
-     * @param data The data to pass to the destination contract.
-     * @return success A boolean indicating whether the transaction was successful.
+     * @param destList The list of destination addresses of the transactions.
+     * @param valueList The list of amounts of Ether to send with the transactions.
+     * @param dataList The list of data to pass to the destination contracts.
+     * @return success A boolean indicating whether the transactions were successful.
      */
-    function executeTransaction(
-        address dest,
-        uint256 value,
-        bytes calldata data
+    function executeTransactions(
+        address[] calldata destList,
+        uint256[] calldata valueList,
+        bytes[] calldata dataList
     ) external onlyEntryPointOrRecover returns (bool) {
-        bool success = _call(dest, value, data);
+        if (destList.length != valueList.length || destList.length != dataList.length) {
+            revert InvalidInputLength();
+        }
+        bool success = true;
+        for (uint256 i = 0; i < destList.length; i++) {
+            success = _call(destList[i], valueList[i], dataList[i]) && success;
+            if (!success) {
+                break;
+            }
+            emit TransactionExecuted(destList[i], valueList[i], dataList[i]);
+        }
         incrementSequence();
-        emit TransactionExecuted(dest, value, data);
         return success;
     }
 

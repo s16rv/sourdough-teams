@@ -42,6 +42,11 @@ interface IAccount {
     error InvalidSequence();
 
     /**
+     * @dev Error thrown when the input length is invalid.
+     */
+    error InvalidInputLength();
+
+    /**
      * @dev Event emitted when the account is initialized.
      * @param verifier The verifier address of the account.
      */
@@ -87,12 +92,16 @@ interface IAccount {
 
     /**
      * @dev Executes a transaction to a specified destination address.
-     * @param dest The destination address of the transaction.
-     * @param value The amount of Ether to send.
-     * @param data The data to pass to the destination.
+     * @param destList The list of destination addresses of the transactions.
+     * @param valueList The list of amounts of Ether to send.
+     * @param dataList The list of data to pass to the destinations.
      * @return bool indicating whether the transaction was successful.
      */
-    function executeTransaction(address dest, uint256 value, bytes calldata data) external returns (bool);
+    function executeTransactions(
+        address[] calldata destList,
+        uint256[] calldata valueList,
+        bytes[] calldata dataList
+    ) external returns (bool);
 
     /**
      * @dev The fallback function to allow the contract to receive Ether.
