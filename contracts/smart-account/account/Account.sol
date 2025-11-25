@@ -168,7 +168,7 @@ contract Account is IAccount {
         }
         bool success = true;
         for (uint256 i = 0; i < destList.length; i++) {
-            success = _call(destList[i], valueList[i], dataList[i]) && success;
+            success = _call(destList[i], valueList[i], dataList[i]);
             if (!success) {
                 break;
             }
