@@ -31,6 +31,26 @@ const config: HardhatUserConfig = {
             accounts: [process.env.EVM_PRIVATE_KEY as string],
             gasMultiplier: 1.2,
         },
+        ethereum_mainnet: {
+            url: "https://ethereum-rpc.publicnode.com",
+            accounts: [process.env.MAINNET_EVM_PRIVATE_KEY as string],
+            gasMultiplier: 1.2,
+        },
+        base_mainnet: {
+            url: "https://base-rpc.publicnode.com",
+            accounts: [process.env.MAINNET_EVM_PRIVATE_KEY as string],
+            gasMultiplier: 1.2,
+        },
+        polygon_mainnet: {
+            url: "https://polygon-bor-rpc.publicnode.com",
+            accounts: [process.env.MAINNET_EVM_PRIVATE_KEY as string],
+            gasMultiplier: 1.2,
+        },
+        arbitrum_mainnet: {
+            url: "https://arbitrum-one-rpc.publicnode.com",
+            accounts: [process.env.MAINNET_EVM_PRIVATE_KEY as string],
+            gasMultiplier: 1.2,
+        },
     },
     gasReporter: {
         enabled: process.env.REPORT_GAS ? true : false,
