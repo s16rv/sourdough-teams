@@ -63,10 +63,17 @@ async function main() {
         console.log("EntryPoint Address:", await entryPoint.getAddress());
     }
 
-    const MpcGateway = await ethers.getContractFactory("MPCGateway");
-    const mpcGateway = await MpcGateway.deploy(mpcVerifier.target);
-    await mpcGateway.waitForDeployment();
-    console.log("MPCGateway deployed to:", mpcGateway.target);
+    var MpcGatewayContract = await ethers.getContractFactory("MPCGateway");
+    var mpcGateway;
+    const mpcGatewayAddress = process.env.MPC_GATEWAY_ADDRESS as string;
+    if (!mpcGatewayAddress) {
+        mpcGateway = await MpcGatewayContract.deploy(mpcVerifier.target);
+        await mpcGateway.waitForDeployment();
+        console.log("MPCGateway deployed to:", mpcGateway.target);
+    } else {
+        mpcGateway = MpcGatewayContract.attach(mpcGatewayAddress);
+        console.log("MPCGateway Address:", await mpcGateway.getAddress());
+    }
 
     const entryPointContract = await ethers.getContractAt("EntryPoint", entryPoint.target);
     await entryPointContract.setExecutor(mpcGateway.target, true);
