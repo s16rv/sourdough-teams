@@ -26,7 +26,7 @@ contract RoutingRailgun is IRoutingRailgun {
         address to,
         uint256 value,
         bytes calldata data
-    ) external payable onlyController {
+    ) external onlyController {
         if (to == railgunAddress) revert InvalidRecipient();
         (bool success,) = to.call{value: value}(data);
         if (!success) {
@@ -35,9 +35,9 @@ contract RoutingRailgun is IRoutingRailgun {
         emit CallSuccess(to, value, data);
     }
 
-    function refund(address token, address to, uint256 amount) external payable onlyController {
+    function refund(address token, address to, uint256 amount) external onlyController {
         if (token == address(0)) {
-            if (msg.value != amount) revert InvalidETHRefundAmount();
+            if (address(this).balance != amount) revert InvalidETHRefundAmount();
             payable(to).transfer(amount);
             emit RefundedETH(to, amount);
         } else {

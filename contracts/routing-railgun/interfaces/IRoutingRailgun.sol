@@ -19,11 +19,11 @@ interface IRoutingRailgun {
         address to,
         uint256 value,
         bytes calldata data
-    ) external payable;
+    ) external;
 
     function refund(
         address token,
         address to,
         uint256 amount
-    ) external payable;
+    ) external;
 }
