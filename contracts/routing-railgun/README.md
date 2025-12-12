@@ -1,4 +1,6 @@
-RoutingRailgun provides a minimal controller-gated router to perform Railgun execute call for example shield token. The contract also provides refunding mechanism with controller role to designated recipient. Funds are supplied at through send to contract address.
+# Routing Railgun
+
+RoutingRailgun is a minimal controller-gated router that forwards encoded calls (e.g., Railgun `shield`/`shieldERC20`) and performs ETH/ERC20 refunds. The router holds no pooled accounting; ETH must be sent to the router before forwarding or refunding, and ERC20 tokens must be transferred to the router before refunding.
 
 **Factory**
 
@@ -11,7 +13,7 @@ RoutingRailgun provides a minimal controller-gated router to perform Railgun exe
 - Constructor: `(address controller, address railgunAddress)`
 
     - `controller`: address authorized to call `executeRailgunCall` and `refund`.
-    - `railgunAddress`: an address reserved by the router; `executeRailgunCall` reverts for this address to guard misrouting (`InvalidRecipient`).
+    - `railgunAddress`: a railgun contract address reserved by the router; `executeRailgunCall` reverts for this address to guard misrouting (`InvalidRecipient`).
 
 - Events
 
@@ -31,18 +33,20 @@ RoutingRailgun provides a minimal controller-gated router to perform Railgun exe
 
     - `controller() → address`
     - `railgunAddress() → address`
-    - `executeRailgunCall(address to, uint256 value, bytes data) external payable onlyController`
-        - Forwards a call with optional ETH. Reverts `InvalidRecipient` if `to == railgunAddress`. Emits `CallSuccess` on success.
-    - `refund(address token, address to, uint256 amount) external payable onlyController`
-        - ETH: require `msg.value == amount`, transfers ETH to `to`, emits `RefundedETH(to, amount)`.
-        - ERC20: transfers tokens held by the router to `to`, emits `RefundedToken(token, to, amount)`.
+    - `executeRailgunCall(address to, uint256 value, bytes data) external onlyController`
+        - Non-payable. Forwards an encoded call to `to` and sends `value` wei from the router’s existing ETH balance. Reverts `InvalidRecipient` if `to == railgunAddress`. Emits `CallSuccess` on success.
+    - `refund(address token, address to, uint256 amount) external onlyController`
+        - ETH: requires `address(this).balance == amount`, transfers ETH to `to`, emits `RefundedETH(to, amount)`.
+        - ERC20: transfers tokens currently held by the router to `to`, emits `RefundedToken(token, to, amount)`.
+    - `receive() external payable`
+        - Allows the router to receive ETH and emits `FundsReceived(sender, amount)`.
 
 - Notes on Railgun interactions
     - To interact with a Railgun contract, encode its `shield`/`shieldERC20` call data off-chain and pass it to `executeRailgunCall`. Commitments and encrypted notes are produced off-chain by your Railgun SDK.
 
 **Design Notes**
 
-- Stateless flows: the router holds no internal accounting. ETH is provided via `msg.value`, tokens must be held by the router prior to `refund`.
+- Stateless flows: the router holds no internal accounting. Fund the router with ETH via a plain transfer before calling `executeRailgunCall` or `refund`. Tokens must be held by the router prior to `refund`.
 - Access control: only `controller` can call mutation functions.
 - Observability: events allow downstream systems to track receipts, refunds, and forwarded calls.
 
