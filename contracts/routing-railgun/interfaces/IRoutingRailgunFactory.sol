@@ -2,6 +2,6 @@
 pragma solidity ^0.8.21;
 
 interface IRoutingRailgunFactory {
-    event RoutingRailgunCreated(address contractAddress, string zkAddress, address railgunAddress);
-    function createRoutingRailgun(address ownerAddress, string memory zkAddress, address railgunAddress) external returns (address);
+    event RoutingRailgunCreated(address contractAddress, address railgunAddress);
+    function createRoutingRailgun(address railgunAddress) external returns (address);
 }

@@ -26,10 +26,7 @@ describe("RoutingRailgun", function () {
         const factory = await RoutingRailgunFactory.connect(controller).deploy();
         await factory.waitForDeployment();
 
-        const zkAddress = "railgun-0zk-addr";
-        const rrAddr = await factory
-            .connect(controller)
-            .createRoutingRailgun(controller.address, zkAddress, await mockRailgun.getAddress());
+        const rrAddr = await factory.connect(controller).createRoutingRailgun(recipient.address);
         const createReceipt = await rrAddr.wait();
         const routingAddress = extractRoutingAddress(createReceipt, factory);
 
@@ -44,13 +41,10 @@ describe("RoutingRailgun", function () {
         await expect(
             routing
                 .connect(controller)
-                .shieldTransfer(
-                    hre.ethers.ZeroAddress,
-                    controller.address,
+                .executeRailgunCall(
+                    await mockRailgun.getAddress(),
                     hre.ethers.parseEther("1"),
-                    commitments,
-                    encryptedNotes,
-                    { value: hre.ethers.parseEther("1") }
+                    mockRailgun.interface.encodeFunctionData("shield", [commitments, encryptedNotes])
                 )
         ).to.not.be.reverted;
 
@@ -77,10 +71,7 @@ describe("RoutingRailgun", function () {
         const factory = await RoutingRailgunFactory.connect(controller).deploy();
         await factory.waitForDeployment();
 
-        const zkAddress = "railgun-0zk-addr";
-        const rrAddr = await factory
-            .connect(controller)
-            .createRoutingRailgun(controller.address, zkAddress, await mockRailgun.getAddress());
+        const rrAddr = await factory.connect(controller).createRoutingRailgun(recipient.address);
         const createReceipt2 = await rrAddr.wait();
         const routingAddress = extractRoutingAddress(createReceipt2, factory);
 
@@ -97,8 +88,10 @@ describe("RoutingRailgun", function () {
             });
         const refundReceipt = await tx.wait();
         const after = await hre.ethers.provider.getBalance(controller.address);
-        const gasPrice = tx.gasPrice ?? refundReceipt.effectiveGasPrice ?? 0n;
-        const gasCost = refundReceipt.gasUsed * gasPrice;
+        const effectiveGasPrice = refundReceipt?.effectiveGasPrice ?? 0n;
+        const gasPrice = tx.gasPrice ?? effectiveGasPrice;
+        const gasUsed = refundReceipt?.gasUsed ?? 0n;
+        const gasCost = gasUsed * gasPrice;
         expect(after - before + gasCost).to.equal(0n);
     });
 });
@@ -117,9 +110,7 @@ it("shields ERC20 and refunds ERC20", async function () {
     const factory = await RoutingRailgunFactory.connect(controller).deploy();
     await factory.waitForDeployment();
 
-    const rrAddrTx = await factory
-        .connect(controller)
-        .createRoutingRailgun(controller.address, "railgun-0zk-addr", await mockRailgun.getAddress());
+    const rrAddrTx = await factory.connect(controller).createRoutingRailgun(recipient.address);
     const createReceipt3 = await rrAddrTx.wait();
     const routingAddress = extractRoutingAddress(createReceipt3, factory);
 
@@ -134,22 +125,25 @@ it("shields ERC20 and refunds ERC20", async function () {
     await expect(
         routing
             .connect(controller)
-            .shieldTransfer(
-                await token.getAddress(),
-                user.address,
-                hre.ethers.parseEther("2"),
-                commitments,
-                encryptedNotes
+            .executeRailgunCall(
+                await mockRailgun.getAddress(),
+                0,
+                mockRailgun.interface.encodeFunctionData("shieldERC20", [
+                    await token.getAddress(),
+                    hre.ethers.parseEther("2"),
+                    commitments,
+                    encryptedNotes,
+                ])
             )
     ).to.not.be.reverted;
 
     const lastAmount = await mockRailgun.lastAmount();
     expect(lastAmount).to.equal(hre.ethers.parseEther("2"));
 
-    await token.connect(user).approve(routingAddress, hre.ethers.parseEther("1"));
+    await token.connect(user).transfer(routingAddress, hre.ethers.parseEther("1"));
     const beforeBal = await token.balanceOf(controller.address);
     await expect(
-        routing.connect(controller).refund(await token.getAddress(), user.address, hre.ethers.parseEther("1"))
+        routing.connect(controller).refund(await token.getAddress(), controller.address, hre.ethers.parseEther("1"))
     ).to.emit(routing, "RefundedToken");
     const afterBal = await token.balanceOf(controller.address);
     expect(afterBal - beforeBal).to.equal(hre.ethers.parseEther("1"));
