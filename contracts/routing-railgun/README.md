@@ -1,6 +1,6 @@
 # Routing Railgun
 
-RoutingRailgun is a minimal controller-gated router that forwards encoded calls (e.g., Railgun `shield`/`shieldERC20`) and performs ETH/ERC20 refunds. The router holds no pooled accounting; ETH must be sent to the router before forwarding or refunding, and ERC20 tokens must be transferred to the router before refunding.
+RoutingRailgun is a minimal, controller-gated router that forwards encoded calls (e.g., Railgun `shield`/`shieldERC20`) and performs ETH/ERC20 refunds. The controller is authorized to call `executeRailgunCall` and `refund`. Encoded call data is produced off-chain, then forwarded by the router to the Railgun contract to shield funds to the user’s zk address.
 
 **Factory**
 
