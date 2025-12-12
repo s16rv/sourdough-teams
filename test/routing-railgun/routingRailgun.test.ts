@@ -48,12 +48,11 @@ describe("RoutingRailgun", function () {
                 )
         ).to.not.be.reverted;
 
+        // Fund router with ETH for refund
+        await user.sendTransaction({ to: routingAddress, value: hre.ethers.parseEther("0.5") });
+
         await expect(
-            routing
-                .connect(controller)
-                .refund(hre.ethers.ZeroAddress, controller.address, hre.ethers.parseEther("0.5"), {
-                    value: hre.ethers.parseEther("0.5"),
-                })
+            routing.connect(controller).refund(hre.ethers.ZeroAddress, controller.address, hre.ethers.parseEther("0.5"))
         ).to.emit(routing, "RefundedETH");
 
         const lastAmount = await mockRailgun.lastAmount();
@@ -83,16 +82,14 @@ describe("RoutingRailgun", function () {
         const before = await hre.ethers.provider.getBalance(controller.address);
         const tx = await routing
             .connect(controller)
-            .refund(hre.ethers.ZeroAddress, controller.address, hre.ethers.parseEther("0.5"), {
-                value: hre.ethers.parseEther("0.5"),
-            });
+            .refund(hre.ethers.ZeroAddress, controller.address, hre.ethers.parseEther("0.5"));
         const refundReceipt = await tx.wait();
         const after = await hre.ethers.provider.getBalance(controller.address);
         const effectiveGasPrice = refundReceipt?.effectiveGasPrice ?? 0n;
         const gasPrice = tx.gasPrice ?? effectiveGasPrice;
         const gasUsed = refundReceipt?.gasUsed ?? 0n;
         const gasCost = gasUsed * gasPrice;
-        expect(after - before + gasCost).to.equal(0n);
+        expect(after - before + gasCost).to.equal(hre.ethers.parseEther("0.5"));
     });
 });
 it("shields ERC20 and refunds ERC20", async function () {
