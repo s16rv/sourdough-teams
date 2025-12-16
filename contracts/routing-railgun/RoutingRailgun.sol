@@ -22,13 +22,14 @@ contract RoutingRailgun is IRoutingRailgun {
         emit FundsReceived(msg.sender, msg.value);
     }
 
-    function executeRailgunCall(
-        address to,
-        uint256 value,
-        bytes calldata data
-    ) external onlyController {
+    function approveToken(address token, address to, uint256 amount) external onlyController {
+        IERC20(token).approve(to, amount);
+        emit TokenApproved(token, to, amount);
+    }
+
+    function executeRailgunCall(address to, uint256 value, bytes calldata data) external onlyController {
         if (to == railgunAddress) revert InvalidRecipient();
-        (bool success,) = to.call{value: value}(data);
+        (bool success, ) = to.call{value: value}(data);
         if (!success) {
             revert CallFailed();
         }
