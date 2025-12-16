@@ -26,7 +26,7 @@ describe("RoutingRailgun", function () {
         const factory = await RoutingRailgunFactory.connect(controller).deploy();
         await factory.waitForDeployment();
 
-        const rrAddr = await factory.connect(controller).createRoutingRailgun(recipient.address);
+        const rrAddr = await factory.connect(controller).createRoutingRailgun(await mockRailgun.getAddress());
         const createReceipt = await rrAddr.wait();
         const routingAddress = extractRoutingAddress(createReceipt, factory);
 
@@ -107,7 +107,7 @@ it("shields ERC20 and refunds ERC20", async function () {
     const factory = await RoutingRailgunFactory.connect(controller).deploy();
     await factory.waitForDeployment();
 
-    const rrAddrTx = await factory.connect(controller).createRoutingRailgun(recipient.address);
+    const rrAddrTx = await factory.connect(controller).createRoutingRailgun(await mockRailgun.getAddress());
     const createReceipt3 = await rrAddrTx.wait();
     const routingAddress = extractRoutingAddress(createReceipt3, factory);
 

@@ -28,7 +28,7 @@ contract RoutingRailgun is IRoutingRailgun {
     }
 
     function executeRailgunCall(address to, uint256 value, bytes calldata data) external onlyController {
-        if (to == railgunAddress) revert InvalidRecipient();
+        if (to != railgunAddress) revert InvalidRecipient();
         (bool success, ) = to.call{value: value}(data);
         if (!success) {
             revert CallFailed();
