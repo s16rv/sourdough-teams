@@ -179,6 +179,75 @@ contract Account is IAccount {
     }
 
     /**
+     * @dev Recovers a transaction by validating the provided signature and executing the transaction if valid.
+     * @param r Part of the signature (r) from secp256k1 signature.
+     * @param s Part of the signature (s) from secp256k1 signature.
+     * @param x Part of the public key (x) that signed the message.
+     * @param y Part of the public key (y) that signed the message.
+     * @param txPayload The transaction payload containing the sequence, destination address, value, and data from recoverProposal.
+     * @return A boolean indicating whether the transaction was successfully recovered.
+     */
+    function recoverTransaction(
+        bytes32[] memory r,
+        bytes32[] memory s,
+        bytes32[] memory x,
+        bytes32[] memory y,
+        bytes calldata txPayload
+    ) external returns (bool) {
+        bytes32 messageHash = sha256(abi.encodePacked(txPayload));
+        for (uint64 i = 0; i < x.length; i++) {
+            bool isPubKeyValid = false;
+            for (uint64 j = 0; j < xPubKeys.length; j++) {
+                if (x[i] == xPubKeys[j] && y[i] == yPubKeys[j]) {
+                    isPubKeyValid = true;
+                    break;
+                }
+            }
+            if (!isPubKeyValid) {
+                revert InvalidPubKey();
+            }
+            bool isValidSignature = SignatureVerifier.verifySignature(
+                verifier,
+                messageHash,
+                r[i],
+                s[i],
+                x[i],
+                y[i]
+            );
+            if (!isValidSignature) {
+                revert InvalidSignature();
+            }
+        }
+        (uint64 sequence, address dest, uint256 value, bytes memory data) = abi.decode(txPayload, (uint64, address, uint256, bytes));
+        if (sequence != accountSequence + 1) {
+            revert InvalidSequence();
+        }
+        bool success = _call(dest, value, data);
+        if (!success) {
+            return false;
+        }
+        emit TransactionExecuted(dest, value, data);
+        incrementSequence();
+        return true;
+    }
+
+    /**
+     * @dev Payload template for recoverTransaction txPayload.
+     * @param sequence The sequence number of the transaction.
+     * @param dest The destination address of the transaction.
+     * @param value The amount of Ether to send with the transaction.
+     * @param data The data to pass to the destination contract.
+     */
+    function recoverProposal(
+        uint64 sequence,
+        address dest,
+        uint256 value,
+        bytes calldata data
+    ) external {
+        revert NotExecutable();
+    }
+
+    /**
      * @dev Returns the verifier address.
      * @return The address of the verifier.
      */
