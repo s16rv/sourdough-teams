@@ -134,14 +134,7 @@ contract Account is IAccount {
         }
 
         for (uint64 i = 0; i < x.length; i++) {
-            bool isValidSignature = SignatureVerifier.verifySignature(
-                verifier,
-                messageHash,
-                r[i],
-                s[i],
-                x[i],
-                y[i]
-            );
+            bool isValidSignature = SignatureVerifier.verifySignature(verifier, messageHash, r[i], s[i], x[i], y[i]);
             if (!isValidSignature) {
                 return (false, "InvalidSignature");
             }
@@ -206,19 +199,24 @@ contract Account is IAccount {
             if (!isPubKeyValid) {
                 revert InvalidPubKey();
             }
-            bool isValidSignature = SignatureVerifier.verifySignature(
-                verifier,
-                messageHash,
-                r[i],
-                s[i],
-                x[i],
-                y[i]
-            );
+            bool isValidSignature = SignatureVerifier.verifySignature(verifier, messageHash, r[i], s[i], x[i], y[i]);
             if (!isValidSignature) {
                 revert InvalidSignature();
             }
         }
-        (uint64 sequence, address dest, uint256 value, bytes memory data) = abi.decode(txPayload, (uint64, address, uint256, bytes));
+
+        // Validate the function selector matches recoverProposal(uint64,address,uint256,bytes)
+        bytes4 expectedSelector = bytes4(keccak256("recoverProposal(uint64,address,uint256,bytes)"));
+        bytes4 actualSelector = bytes4(txPayload[:4]);
+        if (actualSelector != expectedSelector) {
+            revert InvalidPayload();
+        }
+
+        // Decode parameters after the 4-byte selector
+        (uint64 sequence, address dest, uint256 value, bytes memory data) = abi.decode(
+            txPayload[4:],
+            (uint64, address, uint256, bytes)
+        );
         if (sequence != accountSequence + 1) {
             revert InvalidSequence();
         }
@@ -238,12 +236,7 @@ contract Account is IAccount {
      * @param value The amount of Ether to send with the transaction.
      * @param data The data to pass to the destination contract.
      */
-    function recoverProposal(
-        uint64 sequence,
-        address dest,
-        uint256 value,
-        bytes calldata data
-    ) external {
+    function recoverProposal(uint64 sequence, address dest, uint256 value, bytes calldata data) external {
         revert NotExecutable();
     }
 

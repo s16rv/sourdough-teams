@@ -101,6 +101,80 @@ export async function generateSignature(
 }
 
 /**
+ * Generate a signature using a specific mnemonic (for testing).
+ * Returns signature components (r, s) and public key (x, y) in hex format.
+ * @param mnemonic The mnemonic to use for signing
+ * @param messageHex The message to sign (hex encoded bytes)
+ */
+export async function generateSignatureWithMnemonic(
+    mnemonic: string,
+    messageHex: string
+): Promise<{
+    r: string;
+    s: string;
+    x: string;
+    y: string;
+    signatureHex: string;
+    digestHex: string;
+}> {
+    const englishMnemonic = new EnglishMnemonic(mnemonic.trim());
+    const seed = await Bip39.mnemonicToSeed(englishMnemonic);
+    const path = stringToPath("m/44'/118'/0'/0/0");
+    const { privkey } = Slip10.derivePath(Slip10Curve.Secp256k1, seed, path);
+    const keypair = await Secp256k1.makeKeypair(privkey);
+
+    // Get uncompressed public key x and y (each 32 bytes)
+    // Uncompressed pubkey is 65 bytes: 0x04 + x (32 bytes) + y (32 bytes)
+    const x = keypair.pubkey.slice(1, 33);
+    const y = keypair.pubkey.slice(33, 65);
+
+    // Hash the message
+    const messageBytes = fromHex(messageHex);
+    const digest = sha256(messageBytes);
+
+    // Sign the digest
+    const sig = await Secp256k1.createSignature(digest, privkey);
+    const fixed = sig.toFixedLength();
+
+    // Split signature into r and s (each 32 bytes)
+    const r = fixed.slice(0, 32);
+    const s = fixed.slice(32, 64);
+
+    return {
+        r: "0x" + toHex(r),
+        s: "0x" + toHex(s),
+        x: "0x" + toHex(x),
+        y: "0x" + toHex(y),
+        signatureHex: toHex(fixed),
+        digestHex: toHex(digest),
+    };
+}
+
+/**
+ * Get public key (x, y) from a mnemonic.
+ * @param mnemonic The mnemonic to derive the key from
+ */
+export async function getPublicKeyFromMnemonic(mnemonic: string): Promise<{
+    x: string;
+    y: string;
+}> {
+    const englishMnemonic = new EnglishMnemonic(mnemonic.trim());
+    const seed = await Bip39.mnemonicToSeed(englishMnemonic);
+    const path = stringToPath("m/44'/118'/0'/0/0");
+    const { privkey } = Slip10.derivePath(Slip10Curve.Secp256k1, seed, path);
+    const keypair = await Secp256k1.makeKeypair(privkey);
+
+    // Get uncompressed public key x and y (each 32 bytes)
+    const x = keypair.pubkey.slice(1, 33);
+    const y = keypair.pubkey.slice(33, 65);
+
+    return {
+        x: "0x" + toHex(x),
+        y: "0x" + toHex(y),
+    };
+}
+
+/**
  * CLI entry point.
  * Accepts message via `--message="..."` CLI arg or SIGN_MESSAGE env variable.
  * Accepts signer via `--signer="..."` CLI arg or SIGN_SIGNER_ADDRESS env variable.
@@ -145,7 +219,10 @@ async function main(): Promise<void> {
     }
 }
 
-main().catch((error) => {
-    console.error(error);
-    process.exitCode = 1;
-});
+// Only run main() if this file is executed directly (not imported as a module)
+if (require.main === module) {
+    main().catch((error) => {
+        console.error(error);
+        process.exitCode = 1;
+    });
+}

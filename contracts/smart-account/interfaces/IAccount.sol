@@ -52,6 +52,11 @@ interface IAccount {
     error NotExecutable();
 
     /**
+     * @dev Error thrown when the payload format is invalid.
+     */
+    error InvalidPayload();
+
+    /**
      * @dev Event emitted when the account is initialized.
      * @param verifier The verifier address of the account.
      */
@@ -132,12 +137,7 @@ interface IAccount {
      * @param value The amount of Ether to send with the transaction.
      * @param data The data to pass to the destination contract.
      */
-    function recoverProposal(
-        uint64 sequence,
-        address dest,
-        uint256 value,
-        bytes calldata data
-    ) external;
+    function recoverProposal(uint64 sequence, address dest, uint256 value, bytes calldata data) external;
 
     /**
      * @dev The fallback function to allow the contract to receive Ether.
