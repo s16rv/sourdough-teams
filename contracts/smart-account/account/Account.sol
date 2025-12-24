@@ -187,6 +187,18 @@ contract Account is IAccount {
         bytes32[] memory y,
         bytes calldata txPayload
     ) external returns (bool) {
+        if (x.length != y.length) {
+            revert InvalidInputLength();
+        }
+
+        if (x.length != r.length || x.length != s.length) {
+            revert InvalidInputLength();
+        }
+
+        if (x.length < threshold) {
+            revert InvalidThreshold();
+        }
+
         bytes32 messageHash = sha256(abi.encodePacked(txPayload));
         for (uint64 i = 0; i < x.length; i++) {
             bool isPubKeyValid = false;

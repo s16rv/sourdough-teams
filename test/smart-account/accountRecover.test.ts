@@ -181,4 +181,47 @@ describe("Account Recover", function () {
             "InvalidPayload"
         );
     });
+
+    it("Should revert with InvalidInputLength when x and y lengths mismatch", async function () {
+        const sequence = BigInt(1);
+        const amountToSend = parseEther("0.001");
+        const txPayload = encodeTxPayload(sequence, RECIPIENT_ADDRESS, amountToSend, "0x");
+        const txPayloadHex = txPayload.slice(2);
+
+        const sigResult = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayloadHex);
+        const r = [sigResult.r];
+        const s = [sigResult.s];
+
+        // Mismatch: publicKeyX has 1 element, but provide empty publicKeyY
+        await expect(account.recoverTransaction(r, s, publicKeyX, [], txPayload)).to.be.revertedWithCustomError(
+            account,
+            "InvalidInputLength"
+        );
+    });
+
+    it("Should revert with InvalidInputLength when r/s lengths mismatch x/y", async function () {
+        const sequence = BigInt(1);
+        const amountToSend = parseEther("0.001");
+        const txPayload = encodeTxPayload(sequence, RECIPIENT_ADDRESS, amountToSend, "0x");
+        const txPayloadHex = txPayload.slice(2);
+
+        const sigResult = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayloadHex);
+
+        // Mismatch: r has 1 element, s is empty
+        await expect(
+            account.recoverTransaction([sigResult.r], [], publicKeyX, publicKeyY, txPayload)
+        ).to.be.revertedWithCustomError(account, "InvalidInputLength");
+    });
+
+    it("Should revert with InvalidThreshold when not enough signers", async function () {
+        const sequence = BigInt(1);
+        const amountToSend = parseEther("0.001");
+        const txPayload = encodeTxPayload(sequence, RECIPIENT_ADDRESS, amountToSend, "0x");
+
+        // Provide empty arrays (0 signers, but threshold is 1)
+        await expect(account.recoverTransaction([], [], [], [], txPayload)).to.be.revertedWithCustomError(
+            account,
+            "InvalidThreshold"
+        );
+    });
 });
