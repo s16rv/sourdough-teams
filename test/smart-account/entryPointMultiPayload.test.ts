@@ -41,8 +41,8 @@ describe("EntryPoint Multi-Payload", function () {
         const sourceChain = "sourceChain";
 
         const payload = new AbiCoder().encode(
-            ["uint8", "address", "uint64", "uint64", "bytes32", "bytes32"],
-            [1, recover.address, totalSigners, THRESHOLD, PUBLIC_KEY_X[0], PUBLIC_KEY_Y[0]]
+            ["uint8", "uint64", "uint64", "bytes32", "bytes32"],
+            [1, totalSigners, THRESHOLD, PUBLIC_KEY_X[0], PUBLIC_KEY_Y[0]]
         );
 
         await entryPoint.executePayload(sourceChain, SOURCE_ADDRESS, payload);

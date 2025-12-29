@@ -40,7 +40,6 @@ describe("Account Recover", function () {
         const AccountContract = await hre.ethers.getContractFactory("Account");
         account = await AccountContract.deploy(
             verifier.target,
-            recover.address,
             ENTRYPOINT_ADDRESS,
             publicKeyX,
             publicKeyY,

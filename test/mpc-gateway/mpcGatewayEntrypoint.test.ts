@@ -19,8 +19,17 @@ describe("MPCGatewayEntrypoint", function () {
     const sourceChain = "sourdough-1";
     const sourceAddress = "cosmos1zypqa76je7pxsdwkfah6mu9a583sju6xqt3mv6";
     const destinationChain = "ethereum-sepolia";
-    const payload =
-        "0x0000000000000000000000000000000000000000000000000000000000000001000000000000000000000000ee17d0a243361997245a0eba740e26020952f2490000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000190be7fe886c748be80e98b340d1418d0bfe7865675ee597d9d850526520085f087b9efdb5c81e067890e9439bdf717cf1c22adfe29d802050a11414d66b6e338";
+    // Payload format: category(uint8), totalSigners(uint64), threshold(uint64), publicKeyX(bytes32), publicKeyY(bytes32)
+    const payload = new ethers.AbiCoder().encode(
+        ["uint8", "uint64", "uint64", "bytes32", "bytes32"],
+        [
+            1,
+            1,
+            1,
+            "0x90be7fe886c748be80e98b340d1418d0bfe7865675ee597d9d850526520085f0",
+            "0x87b9efdb5c81e067890e9439bdf717cf1c22adfe29d802050a11414d66b6e338",
+        ]
+    );
 
     beforeEach(async function () {
         [owner, nonOwner, relayer] = await ethers.getSigners();

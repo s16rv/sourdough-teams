@@ -36,7 +36,6 @@ describe("AccountFactory", function () {
 
     it("Should compute address consistent", async function () {
         const accountAddr1 = await accountFactory.computeAddress(
-            recover.address,
             ENTRYPOINT_ADDRESS,
             PUBLIC_KEY_X,
             PUBLIC_KEY_Y,
@@ -44,7 +43,6 @@ describe("AccountFactory", function () {
             THRESHOLD
         );
         const accountAddr2 = await accountFactory.computeAddress(
-            recover.address,
             ENTRYPOINT_ADDRESS,
             PUBLIC_KEY_X,
             PUBLIC_KEY_Y,
@@ -56,17 +54,9 @@ describe("AccountFactory", function () {
     });
 
     it("Should create account", async function () {
-        await accountFactory.createAccount(
-            recover.address,
-            ENTRYPOINT_ADDRESS,
-            PUBLIC_KEY_X,
-            PUBLIC_KEY_Y,
-            THRESHOLD,
-            SOURCE_ADDRESS
-        );
+        await accountFactory.createAccount(ENTRYPOINT_ADDRESS, PUBLIC_KEY_X, PUBLIC_KEY_Y, THRESHOLD, SOURCE_ADDRESS);
 
         const addressComputed = await accountFactory.computeAddress(
-            recover.address,
             ENTRYPOINT_ADDRESS,
             PUBLIC_KEY_X,
             PUBLIC_KEY_Y,
@@ -79,23 +69,9 @@ describe("AccountFactory", function () {
     });
 
     it("Should create two different accounts", async function () {
-        await accountFactory.createAccount(
-            recover.address,
-            ENTRYPOINT_ADDRESS,
-            PUBLIC_KEY_X,
-            PUBLIC_KEY_Y,
-            THRESHOLD,
-            SOURCE_ADDRESS
-        );
+        await accountFactory.createAccount(ENTRYPOINT_ADDRESS, PUBLIC_KEY_X, PUBLIC_KEY_Y, THRESHOLD, SOURCE_ADDRESS);
 
-        await accountFactory.createAccount(
-            recover.address,
-            ENTRYPOINT_ADDRESS,
-            PUBLIC_KEY_X,
-            PUBLIC_KEY_Y,
-            THRESHOLD,
-            SOURCE_ADDRESS2
-        );
+        await accountFactory.createAccount(ENTRYPOINT_ADDRESS, PUBLIC_KEY_X, PUBLIC_KEY_Y, THRESHOLD, SOURCE_ADDRESS2);
 
         const accountAddr1 = await accountFactory.getAccount(SOURCE_ADDRESS);
         const accountAddr2 = await accountFactory.getAccount(SOURCE_ADDRESS2);

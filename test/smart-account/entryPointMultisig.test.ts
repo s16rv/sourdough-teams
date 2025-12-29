@@ -48,17 +48,8 @@ describe("EntryPointMultisig 2 of 2", function () {
         const sourceChain = "sourceChain";
 
         const payload = new AbiCoder().encode(
-            ["uint8", "address", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
-            [
-                1,
-                recover.address,
-                totalSigners,
-                THRESHOLD,
-                PUBLIC_KEY_X[0],
-                PUBLIC_KEY_Y[0],
-                PUBLIC_KEY_X[1],
-                PUBLIC_KEY_Y[1],
-            ]
+            ["uint8", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
+            [1, totalSigners, THRESHOLD, PUBLIC_KEY_X[0], PUBLIC_KEY_Y[0], PUBLIC_KEY_X[1], PUBLIC_KEY_Y[1]]
         );
 
         await entryPoint.executePayload(sourceChain, SOURCE_ADDRESS, payload);
@@ -77,10 +68,6 @@ describe("EntryPointMultisig 2 of 2", function () {
         const accountAddress = await account.getAddress();
         const balance = await hre.ethers.provider.getBalance(accountAddress);
         expect(balance).to.equal(parseEther("2.0"));
-    });
-
-    it("should have recover", async function () {
-        expect(await account.recover()).to.equal(recover.address);
     });
 
     it("should execute transactions from Account contract", async function () {
@@ -192,17 +179,8 @@ describe("EntryPointMultisig 1 of 2", function () {
         const sourceChain = "sourceChain";
 
         const payload = new AbiCoder().encode(
-            ["uint8", "address", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
-            [
-                1,
-                recover.address,
-                totalSigners,
-                THRESHOLD,
-                PUBLIC_KEY_X[0],
-                PUBLIC_KEY_Y[0],
-                PUBLIC_KEY_X[1],
-                PUBLIC_KEY_Y[1],
-            ]
+            ["uint8", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
+            [1, totalSigners, THRESHOLD, PUBLIC_KEY_X[0], PUBLIC_KEY_Y[0], PUBLIC_KEY_X[1], PUBLIC_KEY_Y[1]]
         );
 
         await entryPoint.executePayload(sourceChain, SOURCE_ADDRESS, payload);
@@ -221,10 +199,6 @@ describe("EntryPointMultisig 1 of 2", function () {
         const accountAddress = await account.getAddress();
         const balance = await hre.ethers.provider.getBalance(accountAddress);
         expect(balance).to.equal(parseEther("2.0"));
-    });
-
-    it("should have recover", async function () {
-        expect(await account.recover()).to.equal(recover.address);
     });
 
     it("should execute transactions from Account contract", async function () {

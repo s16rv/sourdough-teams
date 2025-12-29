@@ -32,7 +32,6 @@ describe("Account", function () {
         const AccountContract = await hre.ethers.getContractFactory("Account");
         account = await AccountContract.deploy(
             verifier.target,
-            recover.address,
             ENTRYPOINT_ADDRESS,
             PUBLIC_KEY_X,
             PUBLIC_KEY_Y,
@@ -124,29 +123,13 @@ describe("Account", function () {
         expect(msg).to.equal("InvalidSignature");
     });
 
-    it("Should execute transaction using recover account", async function () {
-        const amountToSend = parseEther("0.001");
-        const initialRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
-
-        expect(await account.accountSequence()).to.equal(0);
-
-        await expect(account.connect(recover).executeTransactions([RECIPIENT_ADDRESS], [amountToSend], ["0x"]))
-            .to.emit(account, "TransactionExecuted")
-            .withArgs(RECIPIENT_ADDRESS, amountToSend, "0x");
-
-        const finalRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
-        expect(finalRecipientBalance).to.equal(initialRecipientBalance + amountToSend);
-
-        expect(await account.accountSequence()).to.equal(1);
-    });
-
     it("Should not execute transaction using stranger account", async function () {
         const amountToSend = parseEther("0.001");
         const initialRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
 
         await expect(
             account.connect(stranger).executeTransactions([RECIPIENT_ADDRESS], [amountToSend], ["0x"])
-        ).to.be.revertedWithCustomError(account, "NotEntryPointOrRecover");
+        ).to.be.revertedWithCustomError(account, "NotEntryPoint");
 
         const finalRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
         expect(finalRecipientBalance).to.equal(initialRecipientBalance);
@@ -186,7 +169,6 @@ describe("Account Multisig", function () {
         const AccountContract = await hre.ethers.getContractFactory("Account");
         account = await AccountContract.deploy(
             verifier.target,
-            recover.address,
             ENTRYPOINT_ADDRESS,
             PUBLIC_KEY_X,
             PUBLIC_KEY_Y,
