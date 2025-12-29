@@ -19,7 +19,7 @@ interface IAccount {
     /**
      * @dev Error thrown when a call is made by an unauthorized address.
      */
-    error NotEntryPointOrRecover();
+    error NotEntryPoint();
 
     /**
      * @dev Error thrown when the source address is invalid.
@@ -61,13 +61,6 @@ interface IAccount {
      * @param verifier The verifier address of the account.
      */
     event AccountInitialized(address indexed verifier);
-
-    /**
-     * @dev Event emitted when the recover address is changed.
-     * @param oldRecover The previous recover address.
-     * @param newRecover The new recover address.
-     */
-    event RecoverChanged(address indexed oldRecover, address indexed newRecover);
 
     /**
      * @dev Event emitted when a transaction is executed by the account.

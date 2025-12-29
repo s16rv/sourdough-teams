@@ -6,7 +6,6 @@ import "../util/SignatureVerifier.sol";
 import "../EntryPoint.sol";
 
 contract Account is IAccount {
-    address public immutable recover;
     address private immutable verifier;
     EntryPoint private immutable entryPoint;
     bytes32[] private xPubKeys;
@@ -16,10 +15,9 @@ contract Account is IAccount {
     uint64 public accountSequence;
 
     /**
-     * @dev Constructor that initializes the contract with the recover address, signer address, and entry point address.
+     * @dev Constructor that initializes the contract with the verifier address, signer address, and entry point address.
      * Emits an `AccountInitialized` event.
      * @param _verifierAddr The address of the secp256k1 verifier contract.
-     * @param _recoverAddr The address that has the authority to recover the account.
      * @param _entryPointAddr The address of the entry point contract.
      * @param _x The x part of the public key.
      * @param _y The y part of the public key.
@@ -28,7 +26,6 @@ contract Account is IAccount {
      */
     constructor(
         address _verifierAddr,
-        address _recoverAddr,
         address _entryPointAddr,
         bytes32[] memory _x,
         bytes32[] memory _y,
@@ -36,7 +33,6 @@ contract Account is IAccount {
         uint64 _threshold
     ) {
         verifier = _verifierAddr;
-        recover = _recoverAddr;
         entryPoint = EntryPoint(_entryPointAddr);
         xPubKeys = _x;
         yPubKeys = _y;
@@ -47,12 +43,12 @@ contract Account is IAccount {
     }
 
     /**
-     * @dev Modifier that restricts function access to the EntryPoint or the recover address.
+     * @dev Modifier that restricts function access to the EntryPoint.
      * Reverts if called by any other address.
      */
-    modifier onlyEntryPointOrRecover() {
-        if (!(msg.sender == address(entryPoint) || msg.sender == recover)) {
-            revert NotEntryPointOrRecover();
+    modifier onlyEntryPoint() {
+        if (msg.sender != address(entryPoint)) {
+            revert NotEntryPoint();
         }
         _;
     }
@@ -144,7 +140,7 @@ contract Account is IAccount {
     }
 
     /**
-     * @dev Allows the contract to execute arbitrary transactions, restricted to the recover address or EntryPoint.
+     * @dev Allows the contract to execute arbitrary transactions, restricted to the EntryPoint.
      * Emits a `TransactionExecuted` event.
      * @param destList The list of destination addresses of the transactions.
      * @param valueList The list of amounts of Ether to send with the transactions.
@@ -155,7 +151,7 @@ contract Account is IAccount {
         address[] calldata destList,
         uint256[] calldata valueList,
         bytes[] calldata dataList
-    ) external onlyEntryPointOrRecover returns (bool) {
+    ) external onlyEntryPoint returns (bool) {
         if (destList.length != valueList.length || destList.length != dataList.length) {
             revert InvalidInputLength();
         }
