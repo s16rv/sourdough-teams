@@ -19,7 +19,7 @@ interface IAccount {
     /**
      * @dev Error thrown when a call is made by an unauthorized address.
      */
-    error NotEntryPointOrRecover();
+    error NotEntryPoint();
 
     /**
      * @dev Error thrown when the source address is invalid.
@@ -47,17 +47,20 @@ interface IAccount {
     error InvalidInputLength();
 
     /**
+     * @dev Error thrown when the operation is not executable.
+     */
+    error NotExecutable();
+
+    /**
+     * @dev Error thrown when the payload format is invalid.
+     */
+    error InvalidPayload();
+
+    /**
      * @dev Event emitted when the account is initialized.
      * @param verifier The verifier address of the account.
      */
     event AccountInitialized(address indexed verifier);
-
-    /**
-     * @dev Event emitted when the recover address is changed.
-     * @param oldRecover The previous recover address.
-     * @param newRecover The new recover address.
-     */
-    event RecoverChanged(address indexed oldRecover, address indexed newRecover);
 
     /**
      * @dev Event emitted when a transaction is executed by the account.
@@ -102,6 +105,32 @@ interface IAccount {
         uint256[] calldata valueList,
         bytes[] calldata dataList
     ) external returns (bool);
+
+    /**
+     * @dev Recovers a transaction by validating the provided signature and executing the transaction if valid.
+     * @param r Part of the signature (r) from secp256k1 signature.
+     * @param s Part of the signature (s) from secp256k1 signature.
+     * @param x Part of the public key (x) that signed the message.
+     * @param y Part of the public key (y) that signed the message.
+     * @param txPayload The transaction payload containing the sequence, destination address, value, and data from recoverProposal.
+     * @return A boolean indicating whether the transaction was successfully recovered.
+     */
+    function recoverTransaction(
+        bytes32[] memory r,
+        bytes32[] memory s,
+        bytes32[] memory x,
+        bytes32[] memory y,
+        bytes calldata txPayload
+    ) external returns (bool);
+
+    /**
+     * @dev Payload template for recoverTransaction txPayload.
+     * @param sequence The sequence number of the transaction.
+     * @param dest The destination address of the transaction.
+     * @param value The amount of Ether to send with the transaction.
+     * @param data The data to pass to the destination contract.
+     */
+    function recoverProposal(uint64 sequence, address dest, uint256 value, bytes calldata data) external;
 
     /**
      * @dev The fallback function to allow the contract to receive Ether.

@@ -20,7 +20,6 @@ contract AccountFactory is IAccountFactory {
     /**
      * @dev Creates a new account contract using a signature for verification.
      *      The account is deployed using the CREATE2 opcode for address predictability.
-     * @param recover The address with recovery rights for the account.
      * @param entryPoint The address of the entry point contract.
      * @param x The x part of the public key.
      * @param y The y part of the public key.
@@ -29,7 +28,6 @@ contract AccountFactory is IAccountFactory {
      * @return accountAddress The address of the newly created account contract.
      */
     function createAccount(
-        address recover,
         address entryPoint,
         bytes32[] memory x,
         bytes32[] memory y,
@@ -39,7 +37,7 @@ contract AccountFactory is IAccountFactory {
         if (threshold == 0 || threshold > x.length) revert InvalidThreshold();
 
         bytes32 addrHash = keccak256(abi.encodePacked(sourceAddress));
-        address accAddr = _deployAccount(recover, entryPoint, x, y, addrHash, threshold);
+        address accAddr = _deployAccount(entryPoint, x, y, addrHash, threshold);
 
         // Store the new account
         storeAccount(addrHash, accAddr);
@@ -49,7 +47,6 @@ contract AccountFactory is IAccountFactory {
 
     /**
      * @dev Deploys the account contract using the CREATE2 opcode for address predictability.
-     * @param recover The address with recovery rights for the account.
      * @param entryPoint The address of the entry point contract.
      * @param x The x part of the public key.
      * @param y The y part of the public key.
@@ -57,7 +54,6 @@ contract AccountFactory is IAccountFactory {
      * @return accountAddress The address of the newly deployed account contract.
      */
     function _deployAccount(
-        address recover,
         address entryPoint,
         bytes32[] memory x,
         bytes32[] memory y,
@@ -66,7 +62,7 @@ contract AccountFactory is IAccountFactory {
     ) internal returns (address) {
         bytes memory bytecode = abi.encodePacked(
             type(Account).creationCode,
-            abi.encode(verifier, recover, entryPoint, x, y, addrHash, threshold)
+            abi.encode(verifier, entryPoint, x, y, addrHash, threshold)
         );
 
         // Use CREATE2 with addrHash as salt - address depends only on addrHash
@@ -82,7 +78,6 @@ contract AccountFactory is IAccountFactory {
 
     /**
      * @dev Computes the address of an account contract to be deployed using CREATE2, without actually deploying it.
-     * @param recover The address with recovery rights for the account.
      * @param entryPoint The address of the entry point contract.
      * @param x The x part of the public key.
      * @param y The y part of the public key.
@@ -91,7 +86,6 @@ contract AccountFactory is IAccountFactory {
      * @return The address at which the contract would be deployed.
      */
     function computeAddress(
-        address recover,
         address entryPoint,
         bytes32[] memory x,
         bytes32[] memory y,
@@ -100,7 +94,7 @@ contract AccountFactory is IAccountFactory {
     ) external view returns (address) {
         bytes memory bytecode = abi.encodePacked(
             type(Account).creationCode,
-            abi.encode(verifier, recover, entryPoint, x, y, addrHash, threshold)
+            abi.encode(verifier, entryPoint, x, y, addrHash, threshold)
         );
         bytes32 hash = keccak256(abi.encodePacked(bytes1(0xff), address(this), addrHash, keccak256(bytecode)));
         return address(uint160(uint256(hash)));
@@ -111,17 +105,12 @@ contract AccountFactory is IAccountFactory {
      * @param sourceAddress The address on the source chain where the transaction originated.
      * @return An account address created by the signer.
      */
-    function getAccount(
-        string calldata sourceAddress
-    ) external view returns (address) {
+    function getAccount(string calldata sourceAddress) external view returns (address) {
         bytes32 addrHash = keccak256(abi.encodePacked(sourceAddress));
         return account[addrHash];
     }
 
-    function storeAccount(
-        bytes32 addrHash,
-        address accAddr
-    ) internal {
+    function storeAccount(bytes32 addrHash, address accAddr) internal {
         account[addrHash] = accAddr;
     }
 }

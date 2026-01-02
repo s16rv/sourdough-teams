@@ -71,34 +71,27 @@ contract EntryPoint is IEntryPoint {
      * @param _sourceAddress The address on the source chain where the transaction originated.
      * @param _payload The encoded GMP (General Message Passing) message sent from the source chain.
      */
-    function _execute(
-        string calldata _sourceChain,
-        string calldata _sourceAddress,
-        bytes calldata _payload
-    ) internal {
+    function _execute(string calldata _sourceChain, string calldata _sourceAddress, bytes calldata _payload) internal {
         uint8 category = abi.decode(_payload[:32], (uint8));
 
         if (category == 1) {
-            (address recover, uint64 totalSigners, uint64 threshold) = abi.decode(
-            _payload[32:128],
-            (address, uint64, uint64)
-            );
+            (uint64 totalSigners, uint64 threshold) = abi.decode(_payload[32:96], (uint64, uint64));
 
-            uint64 offset = 128;
+            uint64 offset = 96;
 
             // Dynamic arrays for x, y based on the total signers
             bytes32[] memory x = new bytes32[](totalSigners);
             bytes32[] memory y = new bytes32[](totalSigners);
 
             // Loop through the total signers to extract their public keys
-            for (uint64 i = 0; i < totalSigners ; i++) {
+            for (uint64 i = 0; i < totalSigners; i++) {
                 uint64 index = offset + i * 64; // Each signer consists of 64 bytes
 
                 // Decode x, y for the current signer
                 (x[i], y[i]) = abi.decode(_payload[index:index + 64], (bytes32, bytes32));
             }
 
-            _createAccount(recover, x, y, threshold, _sourceAddress);
+            _createAccount(x, y, threshold, _sourceAddress);
         } else if (category == 2) {
             (address target, bytes32 messageHash, bytes32 proof, uint64 sequence, uint64 numberSigners) = abi.decode(
                 _payload[32:192],
@@ -114,11 +107,14 @@ contract EntryPoint is IEntryPoint {
             bytes32[] memory y = new bytes32[](numberSigners);
 
             // Loop through the total signers to extract their signatures and public keys
-            for (uint64 i = 0; i < numberSigners ; i++) {
+            for (uint64 i = 0; i < numberSigners; i++) {
                 uint64 index = offset + i * 128; // Each signer consists of 128 bytes
 
                 // Decode r, s, x, and y for the current signer
-                (r[i], s[i], x[i], y[i]) = abi.decode(_payload[index:index + 128], (bytes32, bytes32, bytes32, bytes32));
+                (r[i], s[i], x[i], y[i]) = abi.decode(
+                    _payload[index:index + 128],
+                    (bytes32, bytes32, bytes32, bytes32)
+                );
             }
 
             uint64 txPayloadOffset = offset + numberSigners * 128;
@@ -148,7 +144,7 @@ contract EntryPoint is IEntryPoint {
         bytes32[] memory s,
         bytes32[] memory x,
         bytes32[] memory y,
-        bytes32 proof,  
+        bytes32 proof,
         uint64 sequence,
         string calldata sourceAddress,
         bytes calldata txPayload
@@ -164,7 +160,7 @@ contract EntryPoint is IEntryPoint {
             sequence,
             txPayload
         );
-        
+
         if (!valid) {
             emit DebugReason(reason);
             return;
@@ -206,11 +202,7 @@ contract EntryPoint is IEntryPoint {
             dataList[i] = data;
         }
 
-         try IAccount(payable(target)).executeTransactions(
-            destList,
-            valueList,
-            dataList
-        ) returns (bool success) {
+        try IAccount(payable(target)).executeTransactions(destList, valueList, dataList) returns (bool success) {
             if (!success) {
                 revert TransactionFailed();
             }
@@ -227,7 +219,6 @@ contract EntryPoint is IEntryPoint {
 
     /**
      * @dev Creates a new account by calling the `createAccount` function in the account factory.
-     * @param recover The address that has recovery rights for the new account.
      * @param x The x part of the public key.
      * @param y The y part of the public key.
      * @param threshold The threshold of the account.
@@ -235,22 +226,14 @@ contract EntryPoint is IEntryPoint {
      * @return accountAddress The address of the newly created account.
      */
     function _createAccount(
-        address recover,
         bytes32[] memory x,
         bytes32[] memory y,
         uint64 threshold,
         string calldata sourceAddress
     ) internal returns (address) {
-        address accountAddress = accountFactory.createAccount(
-            recover,
-            address(this),
-            x,
-            y,
-            threshold,
-            sourceAddress
-        );
+        address accountAddress = accountFactory.createAccount(address(this), x, y, threshold, sourceAddress);
 
-        emit AccountCreated(accountAddress, recover);
+        emit AccountCreated(accountAddress);
         return accountAddress;
     }
 }

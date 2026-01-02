@@ -46,9 +46,8 @@ interface IEntryPoint {
     /**
      * @dev Event emitted when an account is created.
      * @param accountAddress The address of the newly created account.
-     * @param recover The address that has recovery rights for the new account.
      */
-    event AccountCreated(address indexed accountAddress, address indexed recover);
+    event AccountCreated(address indexed accountAddress);
 
     /**
      * @dev Event emitted when a transaction is successfully executed.
@@ -78,7 +77,7 @@ interface IEntryPoint {
      */
     event DebugReason(string str);
 
-       /**
+    /**
      * @notice Executes a payload on the destination chain.
      * @dev This function is called by the relayer on the destination chain to execute a payload.
      * It verifies the executor and then calls the internal `_execute` function.
