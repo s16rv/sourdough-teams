@@ -95,6 +95,9 @@ contract MPCGateway is IMPCGateway {
             return false;
         }
 
+        // Mark transaction as executed to prevent replay
+        executedCalls[txHash] = true;
+
         // Ensure transaction is approved
         bool isApproved = _approveContractCall(
             txHash, 
@@ -120,9 +123,6 @@ contract MPCGateway is IMPCGateway {
             emit DebugError("CallFailed");
             return false;
         }
-
-        // Mark transaction as executed to prevent replay
-        executedCalls[txHash] = true;
 
         // Emit ContractCallExecuted event for tracking
         emit ContractCallExecuted(
