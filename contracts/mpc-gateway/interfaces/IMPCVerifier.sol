@@ -3,6 +3,21 @@ pragma solidity ^0.8.21;
 
 interface IMPCVerifier {
     /**
+     * @notice Emitted when the MPC public key is updated.
+     * @dev Event emitted when the MPC public key is updated.
+     * @param publicKeyX The previous X component of the MPC public key.
+     * @param publicKeyY The previous Y component of the MPC public key.
+     * @param newPublicKeyX The new X component of the MPC public key.
+     * @param newPublicKeyY The new Y component of the MPC public key.
+     */
+    event MPCPublicKeyUpdated(
+        bytes32 publicKeyX,
+        bytes32 publicKeyY,
+        bytes32 newPublicKeyX,
+        bytes32 newPublicKeyY
+    );
+
+    /**
      * @notice Verifies the MPC signature.
      * @dev This function is called by the relayer on the destination chain to verify the MPC signature.
      * @param payloadHash Hash of the payload

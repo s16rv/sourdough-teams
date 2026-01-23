@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.21;
 
+import "./interfaces/IMPCVerifier.sol";
 import "../smart-account/util/SignatureVerifier.sol";
 
-contract MPCVerifier {
+contract MPCVerifier is IMPCVerifier {
     address private ownerAddress;
     bytes32 public publicKeyX;
     bytes32 public publicKeyY;
@@ -57,6 +58,7 @@ contract MPCVerifier {
         bytes32 newPublicKeyY
     ) public {
         require(msg.sender == ownerAddress, "Only owner can update public key");
+        emit MPCPublicKeyUpdated(publicKeyX, publicKeyY, newPublicKeyX, newPublicKeyY);
         publicKeyX = newPublicKeyX;
         publicKeyY = newPublicKeyY;
     }
