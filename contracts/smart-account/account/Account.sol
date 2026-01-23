@@ -237,10 +237,7 @@ contract Account is IAccount {
         if (sequence != accountSequence + 1) {
             revert InvalidSequence();
         }
-        bool success = _call(dest, value, data);
-        if (!success) {
-            return false;
-        }
+        _call(dest, value, data);
         emit TransactionExecuted(dest, value, data);
         incrementSequence();
         return true;
