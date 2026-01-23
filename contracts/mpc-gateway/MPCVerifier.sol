@@ -5,10 +5,10 @@ import "./interfaces/IMPCVerifier.sol";
 import "../smart-account/util/SignatureVerifier.sol";
 
 contract MPCVerifier is IMPCVerifier {
-    address private ownerAddress;
+    address private immutable ownerAddress;
+    address private immutable verifierAddress; // Secp256k1 verifier address
     bytes32 public publicKeyX;
     bytes32 public publicKeyY;
-    address private immutable verifierAddress; // Secp256k1 verifier address
 
     /**
      * @notice Initializes the MPC verifier contract

@@ -5,6 +5,8 @@ import "./interfaces/IEntryPoint.sol";
 import "./interfaces/IAccount.sol";
 import "./interfaces/IAccountFactory.sol";
 
+uint64 constant MAX_BATCH_SIZE = 20;
+
 contract EntryPoint is IEntryPoint {
     IAccountFactory public immutable accountFactory;
     address public immutable ownerAddress;
@@ -182,6 +184,8 @@ contract EntryPoint is IEntryPoint {
             revert InvalidPayloadArray();
         }
 
+        if (count == 0 || count > MAX_BATCH_SIZE) { revert InvalidPayloadArray(); }
+
         address[] memory destList = new address[](count);
         uint256[] memory valueList = new uint256[](count);
         bytes[] memory dataList = new bytes[](count);
@@ -212,10 +216,10 @@ contract EntryPoint is IEntryPoint {
             if (!success) {
                 revert TransactionFailed();
             }
-        } catch Error(string memory reason) {
+        } catch Error(string memory reason2) {
             // catch failing revert() and require()
-            revert TransactionError(reason);
-        } catch (bytes memory reason) {
+            revert TransactionError(reason2);
+        } catch {
             // catch failing assert()
             revert TransactionError("Assertion failed");
         }
