@@ -117,6 +117,15 @@ contract Account is IAccount {
             return (false, "InvalidThreshold");
         }
 
+        // Check for duplicate public keys
+        for (uint64 i = 0; i < x.length; i++) {
+            for (uint64 j = i + 1; j < x.length; j++) {
+                if (x[i] == x[j] && y[i] == y[j]) {
+                    return (false, "DuplicatePubKey");
+                }
+            }
+        }
+
         // check if x and y is included in the xPubKeys and yPubKeys
         for (uint64 i = 0; i < x.length; i++) {
             for (uint64 j = 0; j < xPubKeys.length; j++) {

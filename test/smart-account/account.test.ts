@@ -194,6 +194,27 @@ describe("Account Multisig", function () {
 
     it("Should validate operation", async function () {
         const messageHash = "0x87a9afdf384bb934b0b7b383cab20a2f472d0e64bd0603f2072066be6796faf0";
+        const r = ["0x1d59ffe13a4c317e0346d6791f29ada0ff012451649e1c5670348d04a65c8afd"];
+        const s = ["0x7e6c637f57928d095dcc052a22da0c09b4c87614e91e21ff428840e93b90b13c"];
+        const proof = "0x557072bab6f803255768af1241504525bf58ade4438b23fd0f52909fa748e1f9";
+        const data =
+            "0x000000000000000000000000aa25aa7a19f9c426e07dee59b12f944f4d9f1dd3000000000000000000000000000000000000000000000000002386f26fc1000000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000000";
+        const [isValid] = await account.validateOperation(
+            SOURCE_ADDRESS,
+            messageHash,
+            r,
+            s,
+            PUBLIC_KEY_X.slice(0, THRESHOLD),
+            PUBLIC_KEY_Y.slice(0, THRESHOLD),
+            proof,
+            SEQUENCE,
+            data
+        );
+        expect(isValid).to.be.true;
+    });
+
+    it("Should revert duplicate public key", async function () {
+        const messageHash = "0x87a9afdf384bb934b0b7b383cab20a2f472d0e64bd0603f2072066be6796faf0";
         const r = [
             "0x1d59ffe13a4c317e0346d6791f29ada0ff012451649e1c5670348d04a65c8afd",
             "0x1d59ffe13a4c317e0346d6791f29ada0ff012451649e1c5670348d04a65c8afd",
@@ -205,7 +226,7 @@ describe("Account Multisig", function () {
         const proof = "0x557072bab6f803255768af1241504525bf58ade4438b23fd0f52909fa748e1f9";
         const data =
             "0x000000000000000000000000aa25aa7a19f9c426e07dee59b12f944f4d9f1dd3000000000000000000000000000000000000000000000000002386f26fc1000000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000000";
-        const [isValid] = await account.validateOperation(
+        const [isValid, message] = await account.validateOperation(
             SOURCE_ADDRESS,
             messageHash,
             r,
@@ -216,6 +237,7 @@ describe("Account Multisig", function () {
             SEQUENCE,
             data
         );
-        expect(isValid).to.be.true;
+        expect(isValid).to.be.false;
+        expect(message).to.equal("DuplicatePubKey");
     });
 });
