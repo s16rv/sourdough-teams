@@ -38,8 +38,9 @@ contract RoutingRailgun is IRoutingRailgun {
 
     function refund(address token, address to, uint256 amount) external onlyController {
         if (token == address(0)) {
-            if (address(this).balance != amount) revert InvalidETHRefundAmount();
-            payable(to).transfer(amount);
+            if (address(this).balance < amount) revert InsufficientETHBalance();
+            (bool success, ) = payable(to).call{value: amount}("");
+            if (!success) revert ETHTransferFailed();
             emit RefundedETH(to, amount);
         } else {
             if (!IERC20(token).transfer(to, amount)) revert TransferFailed();

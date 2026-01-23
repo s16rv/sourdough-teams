@@ -9,7 +9,8 @@ interface IRoutingRailgun {
     event TokenApproved(address indexed token, address indexed to, uint256 amount);
 
     error NotController();
-    error InvalidETHRefundAmount();
+    error InsufficientETHBalance();
+    error ETHTransferFailed();
     error CallFailed();
     error InvalidRecipient();
     error ApprovalFailed();
