@@ -149,6 +149,12 @@ contract EntryPoint is IEntryPoint {
         string calldata sourceAddress,
         bytes calldata txPayload
     ) internal {
+        // Validate target is a known account
+        address expectedAccount = accountFactory.getAccount(sourceAddress);
+        if (target != expectedAccount) {
+            revert InvalidTargetAccount();
+        }
+
         (bool valid, string memory reason) = IAccount(payable(target)).validateOperation(
             sourceAddress,
             messageHash,

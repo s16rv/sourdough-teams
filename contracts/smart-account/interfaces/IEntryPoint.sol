@@ -44,6 +44,11 @@ interface IEntryPoint {
     error InvalidPayloadArray();
 
     /**
+     * @dev Error thrown when the target account is not a known account.
+     */
+    error InvalidTargetAccount();
+
+    /**
      * @dev Event emitted when an account is created.
      * @param accountAddress The address of the newly created account.
      */
