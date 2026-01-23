@@ -34,9 +34,13 @@ contract AccountFactory is IAccountFactory {
         uint64 threshold,
         string calldata sourceAddress
     ) external returns (address) {
+        bytes32 addrHash = keccak256(abi.encodePacked(sourceAddress));
+        if (account[addrHash] != address(0)) {
+            revert AccountAlreadyExists();
+        }
+
         if (threshold == 0 || threshold > x.length) revert InvalidThreshold();
 
-        bytes32 addrHash = keccak256(abi.encodePacked(sourceAddress));
         address accAddr = _deployAccount(entryPoint, x, y, addrHash, threshold);
 
         // Store the new account
