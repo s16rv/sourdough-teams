@@ -177,7 +177,7 @@ contract Account is IAccount {
     }
 
     /**
-     * @dev Recovers a transaction by validating the provided signature and executing the transaction if valid.
+     * @dev Recovers a transaction by validating the provided signature and executing the transaction if valid. Directly executes to the smart account.
      * @param r Part of the signature (r) from secp256k1 signature.
      * @param s Part of the signature (s) from secp256k1 signature.
      * @param x Part of the public key (x) that signed the message.
