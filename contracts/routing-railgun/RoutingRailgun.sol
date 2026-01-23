@@ -23,7 +23,7 @@ contract RoutingRailgun is IRoutingRailgun {
     }
 
     function approveToken(address token, address to, uint256 amount) external onlyController {
-        IERC20(token).approve(to, amount);
+        if (!IERC20(token).approve(to, amount)) revert ApprovalFailed();
         emit TokenApproved(token, to, amount);
     }
 
@@ -42,7 +42,7 @@ contract RoutingRailgun is IRoutingRailgun {
             payable(to).transfer(amount);
             emit RefundedETH(to, amount);
         } else {
-            IERC20(token).transfer(to, amount);
+            if (!IERC20(token).transfer(to, amount)) revert TransferFailed();
             emit RefundedToken(token, to, amount);
         }
     }

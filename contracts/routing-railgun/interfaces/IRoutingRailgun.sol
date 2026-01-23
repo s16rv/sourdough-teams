@@ -12,6 +12,8 @@ interface IRoutingRailgun {
     error InvalidETHRefundAmount();
     error CallFailed();
     error InvalidRecipient();
+    error ApprovalFailed();
+    error TransferFailed();
 
     function railgunAddress() external view returns (address);
 
