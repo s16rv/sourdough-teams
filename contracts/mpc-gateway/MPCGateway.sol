@@ -179,11 +179,7 @@ contract MPCGateway is IMPCGateway {
         IEntryPoint entryPoint = IEntryPoint(destinationAddress);
         try entryPoint.executePayload(sourceChain, sourceAddress, payload) returns (bool ok) {
             return ok;
-        } catch Error(string memory reason) {
-            emit DebugError(reason);
-            return false;
         } catch {
-            emit DebugError("UnknownError");
             return false;
         }
     }
