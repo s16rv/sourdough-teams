@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.21;
 
-import "../util/Authorization.sol";
-
 interface IAccount {
     /**
      * @dev Error thrown when the signature is invalid.
