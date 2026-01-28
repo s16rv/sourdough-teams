@@ -14,6 +14,7 @@ contract AccountFactory is IAccountFactory {
      * @param _verifierAddr The address of the secp256k1 verifier contract.
      */
     constructor(address _verifierAddr) {
+        require(_verifierAddr != address(0), "Zero address: verifierAddr");
         verifier = _verifierAddr;
     }
 

@@ -23,6 +23,8 @@ contract MPCVerifier is IMPCVerifier {
         bytes32 _publicKeyX,
         bytes32 _publicKeyY
     ) {
+        require(_ownerAddress != address(0), "Zero address: ownerAddress");
+        require(_verifierAddress != address(0), "Zero address: verifierAddress");
         ownerAddress = _ownerAddress;
         verifierAddress = _verifierAddress;
         publicKeyX = _publicKeyX;

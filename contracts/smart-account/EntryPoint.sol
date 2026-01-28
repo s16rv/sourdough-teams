@@ -18,6 +18,8 @@ contract EntryPoint is IEntryPoint {
      * @param _ownerAddress Address of the owner that has the ability to set executors.
      */
     constructor(address _accountFactory, address _ownerAddress) {
+        require(_accountFactory != address(0), "Zero address: accountFactory");
+        require(_ownerAddress != address(0), "Zero address: ownerAddress");
         accountFactory = IAccountFactory(_accountFactory);
         ownerAddress = _ownerAddress;
     }
