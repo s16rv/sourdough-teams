@@ -50,6 +50,17 @@ library Authorization {
         }
     }
 
+    /**
+     * @dev Validates an authorization based on the provided parameters.
+     * @param dataType The data type being validated.
+     * @param operator The operator used for validation.
+     * @param paramValue The parameter value from the authorization.
+     * @param payloadValue The value from the transaction payload.
+     * @param mutableAuthValue The current mutable authorization value.
+     * @return isValid Returns true if the authorization is valid.
+     * @return needUpdate Returns true if the mutable authorization value needs to be updated.
+     * @return updatedMutableAuthValue The updated mutable authorization value.
+     */
     function isAuthorizationValid(
         uint8 dataType,
         uint8 operator,

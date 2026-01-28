@@ -115,6 +115,11 @@ contract AccountFactory is IAccountFactory {
         return account[addrHash];
     }
 
+    /**
+     * @dev Stores the account address for a given address hash.
+     * @param addrHash The hash of the source address.
+     * @param accAddr The address of the deployed account.
+     */
     function storeAccount(bytes32 addrHash, address accAddr) internal {
         account[addrHash] = accAddr;
     }
