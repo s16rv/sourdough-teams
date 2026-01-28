@@ -124,15 +124,6 @@ interface IAccount {
     ) external returns (bool);
 
     /**
-     * @dev Payload template for recoverTransaction txPayload.
-     * @param sequence The sequence number of the transaction.
-     * @param dest The destination address of the transaction.
-     * @param value The amount of Ether to send with the transaction.
-     * @param data The data to pass to the destination contract.
-     */
-    function recoverProposal(uint64 sequence, address dest, uint256 value, bytes calldata data) external;
-
-    /**
      * @dev The fallback function to allow the contract to receive Ether.
      */
     receive() external payable;
