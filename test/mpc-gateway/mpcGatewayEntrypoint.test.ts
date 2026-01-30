@@ -98,10 +98,23 @@ describe("MPCGatewayEntrypoint", function () {
     });
 
     describe("ErrorHandling", function () {
-        it("emits DebugError('CallFailed') when EntryPoint reverts NotExecutor", async function () {
+        it("returns false when EntryPoint reverts NotExecutor", async function () {
             await mockMPCVerifier.setShouldValidate(true);
             await entryPoint.setExecutor(mpcGateway.target, false);
 
+            const result = await mpcGateway
+                .connect(relayer)
+                .executeContractCall.staticCall(
+                    signatureR,
+                    signatureS,
+                    sourceChain,
+                    sourceAddress,
+                    destinationChain,
+                    entryPoint.target,
+                    "0x"
+                );
+            expect(result).to.be.false;
+
             const tx = await mpcGateway
                 .connect(relayer)
                 .executeContractCall(
@@ -113,24 +126,26 @@ describe("MPCGatewayEntrypoint", function () {
                     entryPoint.target,
                     "0x"
                 );
-            const receipt = await tx.wait();
-
-            const events = await mpcGateway.queryFilter(
-                mpcGateway.filters.DebugError(),
-                receipt!.blockNumber,
-                receipt!.blockNumber
-            );
-            const msgs = events.map((e) => e.args![0] as string);
-            const hasCallFailed = msgs.some((m) => m === "CallFailed");
-            expect(hasCallFailed).to.equal(true);
-            const hasUnknownError = msgs.some((m) => m === "UnknownError");
-            expect(hasUnknownError).to.equal(true);
+            await expect(tx).to.not.emit(mpcGateway, "ContractCallExecuted");
         });
 
-        it("emits DebugError('CallFailed') when EntryPoint reverts on invalid payload", async function () {
+        it("returns false when EntryPoint reverts on invalid payload", async function () {
             await mockMPCVerifier.setShouldValidate(true);
             await entryPoint.setExecutor(mpcGateway.target, true);
 
+            const result = await mpcGateway
+                .connect(relayer)
+                .executeContractCall.staticCall(
+                    signatureR,
+                    signatureS,
+                    sourceChain,
+                    sourceAddress,
+                    destinationChain,
+                    entryPoint.target,
+                    "0x"
+                );
+            expect(result).to.be.false;
+
             const tx = await mpcGateway
                 .connect(relayer)
                 .executeContractCall(
@@ -142,18 +157,7 @@ describe("MPCGatewayEntrypoint", function () {
                     entryPoint.target,
                     "0x"
                 );
-            const receipt = await tx.wait();
-
-            const events = await mpcGateway.queryFilter(
-                mpcGateway.filters.DebugError(),
-                receipt!.blockNumber,
-                receipt!.blockNumber
-            );
-            const msgs = events.map((e) => e.args![0] as string);
-            const hasCallFailed = msgs.some((m) => m === "CallFailed");
-            expect(hasCallFailed).to.equal(true);
-            const hasUnknownError = msgs.some((m) => m === "UnknownError");
-            expect(hasUnknownError).to.equal(true);
+            await expect(tx).to.not.emit(mpcGateway, "ContractCallExecuted");
         });
     });
 });

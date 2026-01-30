@@ -122,6 +122,12 @@ it("shields ERC20 and refunds ERC20", async function () {
     await expect(
         routing
             .connect(controller)
+            .approveToken(await token.getAddress(), await mockRailgun.getAddress(), hre.ethers.parseEther("2"))
+    ).to.emit(routing, "TokenApproved");
+
+    await expect(
+        routing
+            .connect(controller)
             .executeRailgunCall(
                 await mockRailgun.getAddress(),
                 0,

@@ -5,6 +5,8 @@ import "./interfaces/IEntryPoint.sol";
 import "./interfaces/IAccount.sol";
 import "./interfaces/IAccountFactory.sol";
 
+uint64 constant MAX_BATCH_SIZE = 20;
+
 contract EntryPoint is IEntryPoint {
     IAccountFactory public immutable accountFactory;
     address public immutable ownerAddress;
@@ -16,6 +18,8 @@ contract EntryPoint is IEntryPoint {
      * @param _ownerAddress Address of the owner that has the ability to set executors.
      */
     constructor(address _accountFactory, address _ownerAddress) {
+        require(_accountFactory != address(0), "Zero address: accountFactory");
+        require(_ownerAddress != address(0), "Zero address: ownerAddress");
         accountFactory = IAccountFactory(_accountFactory);
         ownerAddress = _ownerAddress;
     }
@@ -149,6 +153,12 @@ contract EntryPoint is IEntryPoint {
         string calldata sourceAddress,
         bytes calldata txPayload
     ) internal {
+        // Validate target is a known account
+        address expectedAccount = accountFactory.getAccount(sourceAddress);
+        if (target != expectedAccount) {
+            revert InvalidTargetAccount();
+        }
+
         (bool valid, string memory reason) = IAccount(payable(target)).validateOperation(
             sourceAddress,
             messageHash,
@@ -175,6 +185,8 @@ contract EntryPoint is IEntryPoint {
         if (count == 0) {
             revert InvalidPayloadArray();
         }
+
+        if (count == 0 || count > MAX_BATCH_SIZE) { revert InvalidPayloadArray(); }
 
         address[] memory destList = new address[](count);
         uint256[] memory valueList = new uint256[](count);
@@ -206,10 +218,10 @@ contract EntryPoint is IEntryPoint {
             if (!success) {
                 revert TransactionFailed();
             }
-        } catch Error(string memory reason) {
+        } catch Error(string memory reason2) {
             // catch failing revert() and require()
-            revert TransactionError(reason);
-        } catch (bytes memory reason) {
+            revert TransactionError(reason2);
+        } catch {
             // catch failing assert()
             revert TransactionError("Assertion failed");
         }

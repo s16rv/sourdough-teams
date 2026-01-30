@@ -20,6 +20,11 @@ interface IAccountFactory {
      * @dev Error thrown when the authorization provided for a transaction is invalid.
      */
     error InvalidAuthorization();
+    
+    /**
+     * @dev Error thrown when the account already exists.
+     */
+    error AccountAlreadyExists();
 
     /**
      * @dev Creates a new account contract using the provided parameters and deploys it using CREATE2.

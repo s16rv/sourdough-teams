@@ -117,6 +117,15 @@ contract Account is IAccount {
             return (false, "InvalidThreshold");
         }
 
+        // Check for duplicate public keys
+        for (uint64 i = 0; i < x.length; i++) {
+            for (uint64 j = i + 1; j < x.length; j++) {
+                if (x[i] == x[j] && y[i] == y[j]) {
+                    return (false, "DuplicatePubKey");
+                }
+            }
+        }
+
         // check if x and y is included in the xPubKeys and yPubKeys
         for (uint64 i = 0; i < x.length; i++) {
             for (uint64 j = 0; j < xPubKeys.length; j++) {
@@ -168,7 +177,7 @@ contract Account is IAccount {
     }
 
     /**
-     * @dev Recovers a transaction by validating the provided signature and executing the transaction if valid.
+     * @dev Recovers a transaction by validating the provided signature and executing the transaction if valid. Directly executes to the smart account.
      * @param r Part of the signature (r) from secp256k1 signature.
      * @param s Part of the signature (s) from secp256k1 signature.
      * @param x Part of the public key (x) that signed the message.
@@ -228,25 +237,22 @@ contract Account is IAccount {
         if (sequence != accountSequence + 1) {
             revert InvalidSequence();
         }
-        bool success = _call(dest, value, data);
-        if (!success) {
-            return false;
-        }
+        _call(dest, value, data);
         emit TransactionExecuted(dest, value, data);
         incrementSequence();
         return true;
     }
 
-    /**
-     * @dev Payload template for recoverTransaction txPayload.
-     * @param sequence The sequence number of the transaction.
-     * @param dest The destination address of the transaction.
-     * @param value The amount of Ether to send with the transaction.
-     * @param data The data to pass to the destination contract.
-     */
-    function recoverProposal(uint64 sequence, address dest, uint256 value, bytes calldata data) external {
-        revert NotExecutable();
-    }
+    // /**
+    //  * @dev Payload template for recoverTransaction txPayload.
+    //  * @param sequence The sequence number of the transaction.
+    //  * @param dest The destination address of the transaction.
+    //  * @param value The amount of Ether to send with the transaction.
+    //  * @param data The data to pass to the destination contract.
+    //  */
+    // function recoverProposal(uint64 sequence, address dest, uint256 value, bytes calldata data) external {
+    //     revert NotExecutable();
+    // }
 
     /**
      * @dev Returns the verifier address.

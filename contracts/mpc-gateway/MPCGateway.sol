@@ -14,6 +14,7 @@ contract MPCGateway is IMPCGateway {
      * @param _verifierAddress The address of the secp256k1 verifier contract.
      */
     constructor(address _verifierAddress) {
+        require(_verifierAddress != address(0), "Zero address: verifierAddress");
         verifier = IMPCVerifier(_verifierAddress);
     }
 
@@ -95,6 +96,9 @@ contract MPCGateway is IMPCGateway {
             return false;
         }
 
+        // Mark transaction as executed to prevent replay
+        executedCalls[txHash] = true;
+
         // Ensure transaction is approved
         bool isApproved = _approveContractCall(
             txHash, 
@@ -120,9 +124,6 @@ contract MPCGateway is IMPCGateway {
             emit DebugError("CallFailed");
             return false;
         }
-
-        // Mark transaction as executed to prevent replay
-        executedCalls[txHash] = true;
 
         // Emit ContractCallExecuted event for tracking
         emit ContractCallExecuted(
@@ -178,11 +179,7 @@ contract MPCGateway is IMPCGateway {
         IEntryPoint entryPoint = IEntryPoint(destinationAddress);
         try entryPoint.executePayload(sourceChain, sourceAddress, payload) returns (bool ok) {
             return ok;
-        } catch Error(string memory reason) {
-            emit DebugError(reason);
-            return false;
         } catch {
-            emit DebugError("UnknownError");
             return false;
         }
     }

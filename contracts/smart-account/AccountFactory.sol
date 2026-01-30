@@ -14,6 +14,7 @@ contract AccountFactory is IAccountFactory {
      * @param _verifierAddr The address of the secp256k1 verifier contract.
      */
     constructor(address _verifierAddr) {
+        require(_verifierAddr != address(0), "Zero address: verifierAddr");
         verifier = _verifierAddr;
     }
 
@@ -34,9 +35,13 @@ contract AccountFactory is IAccountFactory {
         uint64 threshold,
         string calldata sourceAddress
     ) external returns (address) {
+        bytes32 addrHash = keccak256(abi.encodePacked(sourceAddress));
+        if (account[addrHash] != address(0)) {
+            revert AccountAlreadyExists();
+        }
+
         if (threshold == 0 || threshold > x.length) revert InvalidThreshold();
 
-        bytes32 addrHash = keccak256(abi.encodePacked(sourceAddress));
         address accAddr = _deployAccount(entryPoint, x, y, addrHash, threshold);
 
         // Store the new account
@@ -110,6 +115,11 @@ contract AccountFactory is IAccountFactory {
         return account[addrHash];
     }
 
+    /**
+     * @dev Stores the account address for a given address hash.
+     * @param addrHash The hash of the source address.
+     * @param accAddr The address of the deployed account.
+     */
     function storeAccount(bytes32 addrHash, address accAddr) internal {
         account[addrHash] = accAddr;
     }
