@@ -17,6 +17,7 @@ Tracking missing functionality, security fixes, and improvements for audit readi
 - [ ] **Remove debug events** - Remove or gate DebugReason, DebugTxHash, DebugError events before production
 - [ ] **Recovery path chain binding** - `recoverTransaction` has no chain_id validation. Add `chainId` to `recoverProposal` payload and validate against `block.chainid` to prevent cross-chain replay if same account exists on multiple chains via CREATE2
 - [ ] **Owner signature doesn't bind to data** - In normal path, owner signs `messageHash` but not `data`. The `proof = sha256(messageHash || data)` binds them, but `proof` itself isn't signed. Payload integrity relies entirely on MPC signature. If MPC is compromised, attacker could substitute `data` and compute valid `proof`. Consider: should `messageHash` on source chain include commitment to `data`? Or is MPC trust acceptable?
+- [ ] **chain_id validation missing** - Neither normal path nor recovery path validates `block.chainid` at Account level. Normal path only has it in MPC txHash. Add explicit chain_id validation in Account contract for both paths.
 
 ## Code Quality
 
@@ -39,6 +40,13 @@ Tracking missing functionality, security fixes, and improvements for audit readi
 - [x] **CLAUDE.md** - Project context for AI assistance
 - [ ] **ARCHITECTURE.md** - Detailed technical architecture
 - [ ] **SECURITY.md** - Security contact and known issues for auditors
+
+### Spec Updates (docs/spec/)
+
+- [x] **Gateway spec** - Updated to match current implementation
+- [x] **Smart Account spec** - Updated to match current implementation (multisig, batch tx, recovery path)
+- [x] **RoutingRailgun spec** - Created new spec document
+- [x] **Add validation requirements** - Documented in Smart Account spec
 
 ## Questions to Resolve
 
