@@ -83,9 +83,10 @@ Tracking missing functionality, security fixes, and improvements for audit readi
 
 ## Questions to Resolve
 
-- [ ] Confirm grants system requirements with team
 - [ ] Define RoutingRailgun controller expectations (always Account? can be EOA?)
-- [ ] Decide if MPCGateway and MPCVerifier should be merged (simplicity vs modularity)
+- [ ] **Grants system** - Delegation/grants not implemented (planned feature from CosmWasm version). Confirm requirements with team.
+- [ ] **Owner signature doesn't bind to data** - In normal path, owner signs `messageHash` but not `data`. The `proof = sha256(messageHash || data)` binds them, but `proof` itself isn't signed. Payload integrity relies entirely on MPC signature. If MPC is compromised, attacker could substitute `data` and compute valid `proof`. Consider: should `messageHash` on source chain include commitment to `data`? Or is MPC trust acceptable?
+- [ ] **Use ecrecover instead of custom Secp256k1Verifier** - Current signature verification costs ~50,000-80,000 gas per signer using pure Solidity EC math. Native `ecrecover` precompile costs ~3,000 gas (15-25x cheaper). Requires storing signer addresses instead of raw public key coordinates (x, y), and signatures must include `v` recovery parameter. For 3 signers: saves ~171,000 gas per transaction. Tradeoff: changes signer storage model.
 - [ ] **Multiple accounts per source address** - Currently AccountFactory enforces 1 account per source address. sd-ica (CosmWasm version) allows multiple accounts per source address. Consider adding an `accountIndex` parameter to CREATE2 salt to allow users to create multiple accounts (e.g., for different purposes like trading vs savings). Tradeoffs:
     - Current: simpler lookup, prevents accidental duplicates
     - Multiple: more flexible, matches sd-ica behavior, requires index coordination across chains
