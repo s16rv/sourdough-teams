@@ -32,13 +32,13 @@ Tracking missing functionality, security fixes, and improvements for audit readi
 
 ## Testing
 
-- [x] **Unit tests** - 170 tests, 87%+ coverage for production contracts
+- [x] **Unit tests** - 184 tests, 87%+ coverage for production contracts
 - [x] **Security tests** - Access control, reentrancy, error paths covered
 - [x] **Integration tests** - Full flow from MPCGateway to Account execution
 - [x] **Batch limits** - MAX_BATCH_SIZE (20) enforcement verified
 - [x] **ERC20 edge cases** - Non-standard tokens, fee-on-transfer tested
 - [x] **Sequence overflow** - uint64 boundary safe (Solidity 0.8+ reverts on overflow)
-- [ ] **Invariant tests** - Property-based testing for replay protection, sequence monotonicity
+- [x] **Invariant tests** - 14 tests covering sequence monotonicity, no replay, funds protection, signer authority, threshold enforcement
 - [ ] **Fork tests** - Test RoutingRailgun against real Railgun on mainnet fork
 - [ ] **Secp256k1Verifier edge cases** - Point-at-infinity and EC math edge cases (81% coverage)
 

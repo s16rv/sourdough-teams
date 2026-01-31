@@ -190,7 +190,7 @@ The main entry point for cross-chain message execution.
 7. Emit ContractCallExecuted event
 ```
 
-#### _approveContractCall (internal)
+#### \_approveContractCall (internal)
 
 Validates the MPC signature against the transaction hash.
 
@@ -217,6 +217,7 @@ function generateTxHash(...) public pure returns (bytes32) {
 ```
 
 The txHash includes:
+
 - `sourceChain`: Origin chain identifier (chain binding)
 - `sourceAddress`: Sender address on source chain (source binding)
 - `destinationChain`: Target chain identifier (chain binding)

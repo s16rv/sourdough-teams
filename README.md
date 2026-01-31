@@ -22,26 +22,26 @@ Source Chain --> MPC Relayer --> MPCGateway --> EntryPoint --> Account
 
 ### Smart Account System
 
-| Contract | Description |
-|----------|-------------|
-| `EntryPoint` | Routes cross-chain payloads to user accounts |
-| `Account` | User's smart account with multisig verification |
-| `AccountFactory` | Creates Account instances via CREATE2 |
-| `Secp256k1Verifier` | EIP-7212 compatible signature verification |
+| Contract            | Description                                     |
+| ------------------- | ----------------------------------------------- |
+| `EntryPoint`        | Routes cross-chain payloads to user accounts    |
+| `Account`           | User's smart account with multisig verification |
+| `AccountFactory`    | Creates Account instances via CREATE2           |
+| `Secp256k1Verifier` | EIP-7212 compatible signature verification      |
 
 ### MPC Gateway
 
-| Contract | Description |
-|----------|-------------|
-| `MPCGateway` | Validates MPC signatures, prevents replay attacks |
-| `MPCVerifier` | Stores MPC public key, verifies signatures |
+| Contract      | Description                                       |
+| ------------- | ------------------------------------------------- |
+| `MPCGateway`  | Validates MPC signatures, prevents replay attacks |
+| `MPCVerifier` | Stores MPC public key, verifies signatures        |
 
 ### Railgun Integration
 
-| Contract | Description |
-|----------|-------------|
-| `RoutingRailgun` | Intermediary for Railgun privacy transactions |
-| `RoutingRailgunFactory` | Deploys user-specific routing contracts |
+| Contract                | Description                                   |
+| ----------------------- | --------------------------------------------- |
+| `RoutingRailgun`        | Intermediary for Railgun privacy transactions |
+| `RoutingRailgunFactory` | Deploys user-specific routing contracts       |
 
 ## Repository Structure
 

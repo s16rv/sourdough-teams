@@ -15,22 +15,23 @@ Source Chain --> MPC Relayer --> MPCGateway --> EntryPoint --> Account
 ```
 
 Optional privacy flow:
+
 ```
 Account --> RoutingRailgun --> Railgun Protocol
 ```
 
 ### Key Contracts
 
-| Contract | Purpose |
-|----------|---------|
-| `MPCGateway` | Validates MPC signatures, prevents replay, forwards to EntryPoint |
-| `MPCVerifier` | Stores MPC public key, validates signatures |
-| `EntryPoint` | Routes payloads to Accounts, manages executors |
-| `AccountFactory` | Creates Account instances via CREATE2 |
-| `Account` | User's smart account with multisig, holds funds |
-| `Secp256k1Verifier` | EIP-7212 compatible signature verification |
-| `RoutingRailgun` | Intermediary for Railgun privacy transactions |
-| `RoutingRailgunFactory` | Deploys RoutingRailgun instances |
+| Contract                | Purpose                                                           |
+| ----------------------- | ----------------------------------------------------------------- |
+| `MPCGateway`            | Validates MPC signatures, prevents replay, forwards to EntryPoint |
+| `MPCVerifier`           | Stores MPC public key, validates signatures                       |
+| `EntryPoint`            | Routes payloads to Accounts, manages executors                    |
+| `AccountFactory`        | Creates Account instances via CREATE2                             |
+| `Account`               | User's smart account with multisig, holds funds                   |
+| `Secp256k1Verifier`     | EIP-7212 compatible signature verification                        |
+| `RoutingRailgun`        | Intermediary for Railgun privacy transactions                     |
+| `RoutingRailgunFactory` | Deploys RoutingRailgun instances                                  |
 
 ## Build & Test
 
@@ -86,6 +87,7 @@ scripts/                  # Deployment scripts
 See `docs/THREAT_MODEL.md` for full security model.
 
 Key points:
+
 - Two authorization paths: Normal (via MPC) and Recovery (direct)
 - Replay protection via sequence numbers and txHash tracking
 - Accounts are immutable after creation
@@ -94,6 +96,7 @@ Key points:
 ## Known Issues
 
 See `docs/TODO.md` for tracked issues including:
+
 - SafeERC20 not used in RoutingRailgun
 - Missing admin functionality on some contracts
 - Grants system not yet implemented

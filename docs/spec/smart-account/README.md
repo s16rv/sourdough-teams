@@ -250,13 +250,13 @@ This function always reverts and exists only as a template for constructing `txP
 
 Every transaction should validate:
 
-| Requirement | Normal Path | Recovery Path |
-|-------------|-------------|---------------|
-| chain_id | In MPC txHash | **NOT VALIDATED** (TODO) |
-| target_address | In MPC txHash, routed by Gateway | Implicit (calling the contract) |
-| source_address | `compareSourceAddress()` | Not applicable (pubkey auth) |
-| sequence | `sequence == accountSequence + 1` | `sequence == accountSequence + 1` |
-| auth | Owner signs messageHash, MPC signs payload | Owner signs txPayload directly |
+| Requirement    | Normal Path                                | Recovery Path                     |
+| -------------- | ------------------------------------------ | --------------------------------- |
+| chain_id       | In MPC txHash                              | **NOT VALIDATED** (TODO)          |
+| target_address | In MPC txHash, routed by Gateway           | Implicit (calling the contract)   |
+| source_address | `compareSourceAddress()`                   | Not applicable (pubkey auth)      |
+| sequence       | `sequence == accountSequence + 1`          | `sequence == accountSequence + 1` |
+| auth           | Owner signs messageHash, MPC signs payload | Owner signs txPayload directly    |
 
 ### Security Considerations
 

@@ -189,12 +189,12 @@ For ERC20:
 
 ### Access Control
 
-| Function | Access | Notes |
-|----------|--------|-------|
-| `receive()` | Anyone | Accept ETH deposits |
-| `approveToken()` | Controller only | Set token allowances |
+| Function               | Access          | Notes                      |
+| ---------------------- | --------------- | -------------------------- |
+| `receive()`            | Anyone          | Accept ETH deposits        |
+| `approveToken()`       | Controller only | Set token allowances       |
 | `executeRailgunCall()` | Controller only | Must target railgunAddress |
-| `refund()` | Controller only | Recovery mechanism |
+| `refund()`             | Controller only | Recovery mechanism         |
 
 ### Security Considerations
 

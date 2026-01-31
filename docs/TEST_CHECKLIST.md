@@ -1,6 +1,6 @@
 # Test Audit Checklist
 
-> **Last Updated:** 2026-01-31 (170 tests, 87% coverage)
+> **Last Updated:** 2026-01-31 (184 tests, 87% coverage)
 >
 > This document maps security invariants and trust boundaries to required test cases. Tests are prioritized by security impact.
 >
@@ -33,6 +33,13 @@ Based on the 8 invariants from `THREAT_MODEL.md`.
 | 🔴       | Valid signature for wrong payload rejected                    | ✅     | account.test.ts                |
 | 🔴       | Fewer signatures than threshold rejected (validateOperation)  | ✅     | accountSecurity.test.ts        |
 | 🔴       | Fewer signatures than threshold rejected (recoverTransaction) | ✅     | accountSecurity.test.ts        |
+| 🔴       | INVARIANT: Only registered signers can authorize              | ✅     | invariants.test.ts             |
+| 🔴       | INVARIANT: Registered signer can always authorize             | ✅     | invariants.test.ts             |
+| 🔴       | INVARIANT: Cannot execute with fewer sigs than threshold      | ✅     | invariants.test.ts             |
+| 🔴       | INVARIANT: Can execute with exactly threshold sigs            | ✅     | invariants.test.ts             |
+| 🔴       | INVARIANT: Balance only decreases with valid signature        | ✅     | invariants.test.ts             |
+| 🔴       | INVARIANT: Cannot withdraw more than balance                  | ✅     | invariants.test.ts             |
+| 🔴       | INVARIANT: Exact amount withdrawn matches signed amount       | ✅     | invariants.test.ts             |
 | 🟠       | Empty signers array rejected                                  | ✅     | accountSecurity.test.ts        |
 | 🟠       | Mismatched r/s/x/y array lengths rejected                     | ✅     | accountRecover.test.ts         |
 
@@ -47,6 +54,11 @@ Based on the 8 invariants from `THREAT_MODEL.md`.
 | 🔴       | Sequence < accountSequence rejected              | ✅     | accountSecurity.test.ts  |
 | 🔴       | Sequence > accountSequence + 1 rejected          | ✅     | accountSecurity.test.ts  |
 | 🔴       | Sequence increments after successful recovery tx | ✅     | accountSecurity.test.ts  |
+| 🔴       | INVARIANT: Sequence starts at 0                  | ✅     | invariants.test.ts       |
+| 🔴       | INVARIANT: Sequence increments by exactly 1      | ✅     | invariants.test.ts       |
+| 🔴       | INVARIANT: Sequence never decreases              | ✅     | invariants.test.ts       |
+| 🔴       | INVARIANT: Sequence never skips values           | ✅     | invariants.test.ts       |
+| 🔴       | INVARIANT: Failed txs don't increment sequence   | ✅     | invariants.test.ts       |
 | 🟠       | Sequence overflow (uint64 max) handled           | ✅     | sequenceOverflow.test.ts |
 
 ### Invariant 3: No Replay
@@ -58,6 +70,8 @@ Based on the 8 invariants from `THREAT_MODEL.md`.
 | 🔴       | Same sequence rejected on second attempt                     | ✅         | accountSecurity.test.ts |
 | 🔴       | Same txHash rejected at MPCGateway level                     | ✅         | mpcGateway.test.ts      |
 | 🔴       | Replay of MPC payload rejected                               | ✅         | fullFlow.test.ts        |
+| 🔴       | INVARIANT: Same sequence cannot be used twice                | ✅         | invariants.test.ts      |
+| 🔴       | INVARIANT: Replaying N times always fails after first        | ✅         | invariants.test.ts      |
 | 🔴       | **VULNERABILITY: Reentrancy allows replay during execution** | ⚠️ FAILING | reentrancy.test.ts      |
 
 ### Invariant 4: Source Binding
@@ -267,7 +281,7 @@ External input enters at these points and must be validated.
 
 | Priority    | Total | Covered  | Vulnerable | Missing |
 | ----------- | ----- | -------- | ---------- | ------- |
-| 🔴 Critical | 52    | 49 (94%) | 3          | 0       |
+| 🔴 Critical | 64    | 61 (95%) | 3          | 0       |
 | 🟠 High     | 22    | 19 (86%) | 0          | 3       |
 | 🟡 Medium   | 5     | 1 (20%)  | 0          | 4       |
 | 🟢 Low      | 3     | 3 (100%) | 0          | 0       |
@@ -333,6 +347,7 @@ External input enters at these points and must be validated.
 | `batchLimits.test.ts`                | MAX_BATCH_SIZE enforcement                                        |
 | `sequenceOverflow.test.ts`           | uint64 sequence boundary tests                                    |
 | `edgeCases.test.ts`                  | Empty sourceAddress, large payloads, zero value                   |
+| `invariants.test.ts`                 | Property-based invariant tests (sequence, replay, funds, signers) |
 | `signatureVerifier.test.ts`          | Secp256k1 signature verification                                  |
 | `signatureVerifierEdgeCases.test.ts` | Verifier failure and edge case handling                           |
 | `executeContractCallERC20.test.ts`   | ERC20 transfers via Account                                       |
