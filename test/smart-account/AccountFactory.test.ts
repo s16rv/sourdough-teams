@@ -5,19 +5,18 @@ import { keccak256, toUtf8Bytes } from "ethers";
 
 import { AccountFactory, Secp256k1Verifier } from "../../typechain-types";
 
-/**
- * Security-critical tests for AccountFactory contract
- * Phase 1: Duplicate prevention and threshold validation
- */
-describe("AccountFactory Security", function () {
-    const ENTRYPOINT_ADDRESS = "0x3bd70e10d71c6e882e3c1809d26a310d793646eb";
+const ENTRYPOINT_ADDRESS = "0x3bd70e10d71c6e882e3c1809d26a310d793646eb";
 
-    const PUBLIC_KEY_X = ["0x90be7fe886c748be80e98b340d1418d0bfe7865675ee597d9d850526520085f0"];
-    const PUBLIC_KEY_Y = ["0x87b9efdb5c81e067890e9439bdf717cf1c22adfe29d802050a11414d66b6e338"];
+const PUBLIC_KEY_X = ["0x90be7fe886c748be80e98b340d1418d0bfe7865675ee597d9d850526520085f0"];
+const PUBLIC_KEY_Y = ["0x87b9efdb5c81e067890e9439bdf717cf1c22adfe29d802050a11414d66b6e338"];
 
-    const SOURCE_ADDRESS = "neutron1chcktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
-    const SOURCE_ADDRESS_HASH = keccak256(toUtf8Bytes(SOURCE_ADDRESS));
+const SOURCE_ADDRESS = "neutron1chcktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
+const SOURCE_ADDRESS_HASH = keccak256(toUtf8Bytes(SOURCE_ADDRESS));
+const SOURCE_ADDRESS2 = "neutron1klzktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
 
+const THRESHOLD = 1;
+
+describe("AccountFactory", function () {
     let accountFactory: AccountFactory;
     let verifier: Secp256k1Verifier;
     let owner: HardhatEthersSigner;
@@ -32,6 +31,89 @@ describe("AccountFactory Security", function () {
         const AccountFactoryContract = await hre.ethers.getContractFactory("AccountFactory");
         accountFactory = await AccountFactoryContract.deploy(verifier.target);
         await accountFactory.waitForDeployment();
+    });
+
+    describe("Address Computation", function () {
+        it("Should compute address consistent", async function () {
+            const accountAddr1 = await accountFactory.computeAddress(
+                ENTRYPOINT_ADDRESS,
+                PUBLIC_KEY_X,
+                PUBLIC_KEY_Y,
+                SOURCE_ADDRESS_HASH,
+                THRESHOLD
+            );
+            const accountAddr2 = await accountFactory.computeAddress(
+                ENTRYPOINT_ADDRESS,
+                PUBLIC_KEY_X,
+                PUBLIC_KEY_Y,
+                SOURCE_ADDRESS_HASH,
+                THRESHOLD
+            );
+
+            expect(accountAddr1).to.equal(accountAddr2);
+        });
+
+        it("Should compute same address before and after creation", async function () {
+            const preComputedAddr = await accountFactory.computeAddress(
+                ENTRYPOINT_ADDRESS,
+                PUBLIC_KEY_X,
+                PUBLIC_KEY_Y,
+                SOURCE_ADDRESS_HASH,
+                1
+            );
+
+            await accountFactory.createAccount(ENTRYPOINT_ADDRESS, PUBLIC_KEY_X, PUBLIC_KEY_Y, 1, SOURCE_ADDRESS);
+
+            const actualAddr = await accountFactory.getAccount(SOURCE_ADDRESS);
+
+            expect(preComputedAddr).to.equal(actualAddr);
+        });
+    });
+
+    describe("Account Creation", function () {
+        it("Should create account", async function () {
+            await accountFactory.createAccount(
+                ENTRYPOINT_ADDRESS,
+                PUBLIC_KEY_X,
+                PUBLIC_KEY_Y,
+                THRESHOLD,
+                SOURCE_ADDRESS
+            );
+
+            const addressComputed = await accountFactory.computeAddress(
+                ENTRYPOINT_ADDRESS,
+                PUBLIC_KEY_X,
+                PUBLIC_KEY_Y,
+                SOURCE_ADDRESS_HASH,
+                THRESHOLD
+            );
+            const accountAddr = await accountFactory.getAccount(SOURCE_ADDRESS);
+
+            expect(addressComputed).to.equal(accountAddr);
+        });
+
+        it("Should create two different accounts", async function () {
+            await accountFactory.createAccount(
+                ENTRYPOINT_ADDRESS,
+                PUBLIC_KEY_X,
+                PUBLIC_KEY_Y,
+                THRESHOLD,
+                SOURCE_ADDRESS
+            );
+
+            await accountFactory.createAccount(
+                ENTRYPOINT_ADDRESS,
+                PUBLIC_KEY_X,
+                PUBLIC_KEY_Y,
+                THRESHOLD,
+                SOURCE_ADDRESS2
+            );
+
+            const accountAddr1 = await accountFactory.getAccount(SOURCE_ADDRESS);
+            const accountAddr2 = await accountFactory.getAccount(SOURCE_ADDRESS2);
+
+            expect(accountAddr1).to.not.equal(accountAddr2);
+        });
     });
 
     describe("Duplicate Account Prevention", function () {
@@ -113,24 +195,6 @@ describe("AccountFactory Security", function () {
         it("Should return zero address for non-existent account", async function () {
             const nonExistentAccount = await accountFactory.getAccount("non_existent_source_address");
             expect(nonExistentAccount).to.equal(hre.ethers.ZeroAddress);
-        });
-    });
-
-    describe("Address Computation Consistency", function () {
-        it("Should compute same address before and after creation", async function () {
-            const preComputedAddr = await accountFactory.computeAddress(
-                ENTRYPOINT_ADDRESS,
-                PUBLIC_KEY_X,
-                PUBLIC_KEY_Y,
-                SOURCE_ADDRESS_HASH,
-                1
-            );
-
-            await accountFactory.createAccount(ENTRYPOINT_ADDRESS, PUBLIC_KEY_X, PUBLIC_KEY_Y, 1, SOURCE_ADDRESS);
-
-            const actualAddr = await accountFactory.getAccount(SOURCE_ADDRESS);
-
-            expect(preComputedAddr).to.equal(actualAddr);
         });
     });
 });

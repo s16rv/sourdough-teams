@@ -29,6 +29,11 @@ Tracking missing functionality, security fixes, and improvements for audit readi
 - [ ] **Consistent error handling** - Standardize on custom errors (remove string reverts like EntryPoint.sol:53)
 - [ ] **Magic numbers** - Extract hardcoded offsets in EntryPoint payload parsing to named constants
 - [ ] **Dual error patterns** - Account.validateOperation returns (bool, string) while rest uses custom errors
+- [ ] **Clean up scripts/** - Review and remove debugging artifacts:
+    - `getFunctionSelector.ts` - One-off debugging script with hardcoded transaction data. Remove.
+    - `query.ts` - Hardcoded addresses for checking executor status. Remove.
+    - `querySequence.ts` - Queries account sequence. Remove or generalize to accept CLI args.
+    - Keep: `deploy.ts`, `deployRoutingRailgun.ts`, `deployTestUSDC.ts`, `generateSignature.ts`
 
 ## Testing
 
