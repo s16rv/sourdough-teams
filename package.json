@@ -20,7 +20,8 @@
         "husky": "^9.1.6",
         "lint-staged": "^15.2.10",
         "prettier": "^3.3.3",
-        "prettier-plugin-solidity": "^1.4.1"
+        "prettier-plugin-solidity": "^1.4.1",
+        "solidity-coverage": "^0.8.17"
     },
     "dependencies": {
         "@cosmjs/crypto": "^0.32.4",
