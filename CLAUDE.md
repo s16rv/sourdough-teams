@@ -97,9 +97,15 @@ Key points:
 
 See `docs/TODO.md` for tracked issues including:
 
-- SafeERC20 not used in RoutingRailgun
-- Missing admin functionality on some contracts
+- Missing admin functionality on some contracts (upgradeability TBD)
 - Grants system not yet implemented
+- chain_id validation (related to cross-chain security model)
+
+## Debugging
+
+- **View functions**: `Account.validateOperation` returns `(bool, string)` for off-chain debugging via `eth_call`
+- **Debug events**: `DebugReason`, `DebugTxHash`, `DebugError` provide on-chain visibility for failures
+- **Custom errors**: All state-changing functions use custom errors for gas-efficient reverts
 
 ## Testing Notes
 

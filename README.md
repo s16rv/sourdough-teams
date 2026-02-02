@@ -95,7 +95,7 @@ Supported networks: `sepolia`, `polygon-amoy`, `base-sepolia`, `mainnet`, `base`
 
 ## Security
 
-See [THREAT_MODEL.md](./THREAT_MODEL.md) for the complete security model.
+See [THREAT_MODEL.md](./docs/THREAT_MODEL.md) for the complete security model.
 
 ### Authorization Paths
 
