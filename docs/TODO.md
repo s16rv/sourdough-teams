@@ -15,7 +15,7 @@ Tracking missing functionality, security fixes, and improvements for audit readi
 - [x] **SafeERC20** - FIXED: Using SafeERC20 `safeTransfer` and `forceApprove` in RoutingRailgun.sol. USDT-like tokens now work correctly.
 - [x] **Reentrancy in recoverTransaction** - FIXED: Moved `incrementSequence()` BEFORE `_call()` in both `recoverTransaction` and `executeTransactions` (Checks-Effects-Interactions pattern).
 - [x] **ReentrancyGuard for RoutingRailgun** - FIXED: Added OpenZeppelin's `ReentrancyGuard` with `nonReentrant` modifier on `refund()` and `executeRailgunCall()`.
-- [x] **Remove debug events** - FIXED: Removed DebugReason, DebugTxHash, DebugError events from EntryPoint and MPCGateway
+- [x] **Debug events** - KEPT: DebugReason, DebugTxHash, DebugError events retained for debugging. Zero-cost when not triggered, valuable for diagnosing failures.
 - [ ] **Recovery path chain binding** - `recoverTransaction` has no chain_id validation. Add `chainId` to `recoverProposal` payload and validate against `block.chainid` to prevent cross-chain replay if same account exists on multiple chains via CREATE2
 - [ ] **Owner signature doesn't bind to data** - In normal path, owner signs `messageHash` but not `data`. The `proof = sha256(messageHash || data)` binds them, but `proof` itself isn't signed. Payload integrity relies entirely on MPC signature. If MPC is compromised, attacker could substitute `data` and compute valid `proof`. Consider: should `messageHash` on source chain include commitment to `data`? Or is MPC trust acceptable?
 - [ ] **chain_id validation missing** - Neither normal path nor recovery path validates `block.chainid` at Account level. Normal path only has it in MPC txHash. Add explicit chain_id validation in Account contract for both paths.
@@ -28,8 +28,8 @@ Tracking missing functionality, security fixes, and improvements for audit readi
 
 - [x] **Consistent error handling** - FIXED: Standardized on custom errors. Replaced string reverts with `ZeroAddress` and `OnlyOwner` custom errors in MPCGateway, MPCVerifier, AccountFactory, and EntryPoint.
 - [x] **Magic numbers** - FIXED: Extracted hardcoded offsets to named constants (SLOT_SIZE, PUBKEY_SIZE, SIGNER_WITH_SIG_SIZE, CREATE_ACCOUNT_HEADER_SIZE, EXECUTE_TX_HEADER_SIZE, TX_ITEM_HEADER_SIZE) in EntryPoint.sol.
-- [ ] **Dual error patterns** - Account.validateOperation returns (bool, string) while rest uses custom errors
-- [x] **Clean up scripts/** - FIXED: Removed debugging artifacts (`getFunctionSelector.ts`, `query.ts`, `querySequence.ts`). Kept: `deploy.ts`, `deployRoutingRailgun.ts`, `deployTestUSDC.ts`, `generateSignature.ts`
+- [x] **Dual error patterns** - KEPT INTENTIONALLY: `Account.validateOperation` returns `(bool, string)` for off-chain debugging via `eth_call` (zero gas cost). State-changing functions use custom errors. Debug events (DebugReason, DebugTxHash, DebugError) provide on-chain visibility.
+- [x] **Clean up scripts/** - FIXED: Removed one-off debugging script (`getFunctionSelector.ts`). Removed hardcoded scripts (`query.ts`, `querySequence.ts`). Kept: `deploy.ts`, `deployRoutingRailgun.ts`, `deployTestUSDC.ts`, `generateSignature.ts`
 
 ## Testing
 

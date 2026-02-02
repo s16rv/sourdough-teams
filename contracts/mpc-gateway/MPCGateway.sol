@@ -88,9 +88,11 @@ contract MPCGateway is IMPCGateway {
             destinationAddress,
             payload
         );
+        emit DebugTxHash(txHash);
 
         // Check if already executed to prevent replay attacks
         if (executedCalls[txHash]) {
+            emit DebugError("TransactionAlreadyExecuted");
             return false;
         }
 
@@ -107,6 +109,7 @@ contract MPCGateway is IMPCGateway {
             destinationAddress
         );
         if (!isApproved) {
+            emit DebugError("TransactionNotApproved");
             return false;
         }
 
@@ -118,6 +121,7 @@ contract MPCGateway is IMPCGateway {
             payload
         );
         if (!result) {
+            emit DebugError("CallFailed");
             return false;
         }
 

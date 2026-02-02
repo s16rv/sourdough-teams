@@ -180,6 +180,7 @@ contract EntryPoint is IEntryPoint {
         );
 
         if (!valid) {
+            emit DebugReason(reason);
             return;
         }
 

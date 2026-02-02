@@ -87,6 +87,12 @@ interface IEntryPoint {
     event Executed(string sourceChain, string sourceAddress);
 
     /**
+     * @dev Debug event emitted when validation fails, containing the reason.
+     * @param reason The reason for validation failure.
+     */
+    event DebugReason(string reason);
+
+    /**
      * @notice Executes a payload on the destination chain.
      * @dev This function is called by the relayer on the destination chain to execute a payload.
      * It verifies the executor and then calls the internal `_execute` function.

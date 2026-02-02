@@ -45,6 +45,21 @@ interface IAccount {
     error InvalidInputLength();
 
     /**
+     * @dev Error thrown when public key array lengths don't match.
+     */
+    error InvalidPubKeyLength();
+
+    /**
+     * @dev Error thrown when signature array lengths don't match.
+     */
+    error InvalidSignatureLength();
+
+    /**
+     * @dev Error thrown when duplicate public keys are provided.
+     */
+    error DuplicatePubKey();
+
+    /**
      * @dev Error thrown when the operation is not executable.
      */
     error NotExecutable();

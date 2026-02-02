@@ -997,7 +997,7 @@ describe("EntryPoint Error Paths", function () {
             ).to.be.revertedWithCustomError(entryPoint, "TransactionError");
         });
 
-        it("Should handle validation failure gracefully (returns silently)", async function () {
+        it("Should handle validation failure gracefully (emits DebugReason)", async function () {
             const wrongSequence = 999n;
             const payload = await createSignedPayload(wrongSequence, [
                 { dest: owner.address, value: parseEther("0.1"), data: "0x" },
@@ -1005,9 +1005,10 @@ describe("EntryPoint Error Paths", function () {
 
             const balanceBefore = await hre.ethers.provider.getBalance(owner.address);
 
-            // Should not revert, just return silently
-            const tx = await entryPoint.connect(executor).executePayload(SOURCE_ADDRESS, SOURCE_ADDRESS, payload);
-            await tx.wait();
+            // Should not revert, but emit DebugReason with the failure reason
+            await expect(entryPoint.connect(executor).executePayload(SOURCE_ADDRESS, SOURCE_ADDRESS, payload))
+                .to.emit(entryPoint, "DebugReason")
+                .withArgs("InvalidSequence");
 
             // Verify no funds were transferred (validation failed)
             const balanceAfter = await hre.ethers.provider.getBalance(owner.address);
