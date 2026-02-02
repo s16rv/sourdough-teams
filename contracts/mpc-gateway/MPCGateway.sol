@@ -14,7 +14,7 @@ contract MPCGateway is IMPCGateway {
      * @param _verifierAddress The address of the secp256k1 verifier contract.
      */
     constructor(address _verifierAddress) {
-        require(_verifierAddress != address(0), "Zero address: verifierAddress");
+        if (_verifierAddress == address(0)) revert ZeroAddress();
         verifier = IMPCVerifier(_verifierAddress);
     }
 

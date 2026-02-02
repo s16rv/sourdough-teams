@@ -26,14 +26,10 @@ Tracking missing functionality, security fixes, and improvements for audit readi
 
 ## Code Quality
 
-- [ ] **Consistent error handling** - Standardize on custom errors (remove string reverts like EntryPoint.sol:53)
-- [ ] **Magic numbers** - Extract hardcoded offsets in EntryPoint payload parsing to named constants
+- [x] **Consistent error handling** - FIXED: Standardized on custom errors. Replaced string reverts with `ZeroAddress` and `OnlyOwner` custom errors in MPCGateway, MPCVerifier, AccountFactory, and EntryPoint.
+- [x] **Magic numbers** - FIXED: Extracted hardcoded offsets to named constants (SLOT_SIZE, PUBKEY_SIZE, SIGNER_WITH_SIG_SIZE, CREATE_ACCOUNT_HEADER_SIZE, EXECUTE_TX_HEADER_SIZE, TX_ITEM_HEADER_SIZE) in EntryPoint.sol.
 - [ ] **Dual error patterns** - Account.validateOperation returns (bool, string) while rest uses custom errors
-- [ ] **Clean up scripts/** - Review and remove debugging artifacts:
-    - `getFunctionSelector.ts` - One-off debugging script with hardcoded transaction data. Remove.
-    - `query.ts` - Hardcoded addresses for checking executor status. Remove.
-    - `querySequence.ts` - Queries account sequence. Remove or generalize to accept CLI args.
-    - Keep: `deploy.ts`, `deployRoutingRailgun.ts`, `deployTestUSDC.ts`, `generateSignature.ts`
+- [x] **Clean up scripts/** - FIXED: Removed debugging artifacts (`getFunctionSelector.ts`, `query.ts`, `querySequence.ts`). Kept: `deploy.ts`, `deployRoutingRailgun.ts`, `deployTestUSDC.ts`, `generateSignature.ts`
 
 ## Testing
 

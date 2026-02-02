@@ -3,6 +3,16 @@ pragma solidity ^0.8.21;
 
 interface IEntryPoint {
     /**
+     * @dev Error thrown when a zero address is provided.
+     */
+    error ZeroAddress();
+
+    /**
+     * @dev Error thrown when caller is not the owner.
+     */
+    error OnlyOwner();
+
+    /**
      * @dev Error thrown when the payload for a transaction is too short.
      */
     error PayloadTooShort();

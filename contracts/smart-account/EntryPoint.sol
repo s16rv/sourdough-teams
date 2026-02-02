@@ -7,6 +7,14 @@ import "./interfaces/IAccountFactory.sol";
 
 uint64 constant MAX_BATCH_SIZE = 20;
 
+// Payload parsing constants
+uint64 constant SLOT_SIZE = 32;                    // Size of an ABI-encoded slot
+uint64 constant PUBKEY_SIZE = 64;                  // Size of a public key (x + y)
+uint64 constant SIGNER_WITH_SIG_SIZE = 128;        // Size of signer block (r + s + x + y)
+uint64 constant CREATE_ACCOUNT_HEADER_SIZE = 96;   // Category 1: category(32) + totalSigners(32) + threshold(32)
+uint64 constant EXECUTE_TX_HEADER_SIZE = 192;      // Category 2: category(32) + target(32) + messageHash(32) + proof(32) + sequence(32) + numberSigners(32)
+uint256 constant TX_ITEM_HEADER_SIZE = 96;         // Transaction item: dest(32) + value(32) + dataLen(32)
+
 contract EntryPoint is IEntryPoint {
     IAccountFactory public immutable accountFactory;
     address public immutable ownerAddress;
@@ -18,8 +26,8 @@ contract EntryPoint is IEntryPoint {
      * @param _ownerAddress Address of the owner that has the ability to set executors.
      */
     constructor(address _accountFactory, address _ownerAddress) {
-        require(_accountFactory != address(0), "Zero address: accountFactory");
-        require(_ownerAddress != address(0), "Zero address: ownerAddress");
+        if (_accountFactory == address(0)) revert ZeroAddress();
+        if (_ownerAddress == address(0)) revert ZeroAddress();
         accountFactory = IAccountFactory(_accountFactory);
         ownerAddress = _ownerAddress;
     }
@@ -53,7 +61,7 @@ contract EntryPoint is IEntryPoint {
      * @param _isExecutor The boolean value indicating whether the address should be an executor.
      */
     function setExecutor(address _executor, bool _isExecutor) public {
-        require(msg.sender == ownerAddress, "Only owner can set executor");
+        if (msg.sender != ownerAddress) revert OnlyOwner();
         executor[_executor] = _isExecutor;
     }
 
@@ -76,12 +84,12 @@ contract EntryPoint is IEntryPoint {
      * @param _payload The encoded GMP (General Message Passing) message sent from the source chain.
      */
     function _execute(string calldata _sourceChain, string calldata _sourceAddress, bytes calldata _payload) internal {
-        uint8 category = abi.decode(_payload[:32], (uint8));
+        uint8 category = abi.decode(_payload[:SLOT_SIZE], (uint8));
 
         if (category == 1) {
-            (uint64 totalSigners, uint64 threshold) = abi.decode(_payload[32:96], (uint64, uint64));
+            (uint64 totalSigners, uint64 threshold) = abi.decode(_payload[SLOT_SIZE:CREATE_ACCOUNT_HEADER_SIZE], (uint64, uint64));
 
-            uint64 offset = 96;
+            uint64 offset = CREATE_ACCOUNT_HEADER_SIZE;
 
             // Dynamic arrays for x, y based on the total signers
             bytes32[] memory x = new bytes32[](totalSigners);
@@ -89,20 +97,20 @@ contract EntryPoint is IEntryPoint {
 
             // Loop through the total signers to extract their public keys
             for (uint64 i = 0; i < totalSigners; i++) {
-                uint64 index = offset + i * 64; // Each signer consists of 64 bytes
+                uint64 index = offset + i * PUBKEY_SIZE;
 
                 // Decode x, y for the current signer
-                (x[i], y[i]) = abi.decode(_payload[index:index + 64], (bytes32, bytes32));
+                (x[i], y[i]) = abi.decode(_payload[index:index + PUBKEY_SIZE], (bytes32, bytes32));
             }
 
             _createAccount(x, y, threshold, _sourceAddress);
         } else if (category == 2) {
             (address target, bytes32 messageHash, bytes32 proof, uint64 sequence, uint64 numberSigners) = abi.decode(
-                _payload[32:192],
+                _payload[SLOT_SIZE:EXECUTE_TX_HEADER_SIZE],
                 (address, bytes32, bytes32, uint64, uint64)
             );
 
-            uint64 offset = 192;
+            uint64 offset = EXECUTE_TX_HEADER_SIZE;
 
             // Dynamic arrays for r, s, x, y based on the number of signers
             bytes32[] memory r = new bytes32[](numberSigners);
@@ -112,16 +120,16 @@ contract EntryPoint is IEntryPoint {
 
             // Loop through the total signers to extract their signatures and public keys
             for (uint64 i = 0; i < numberSigners; i++) {
-                uint64 index = offset + i * 128; // Each signer consists of 128 bytes
+                uint64 index = offset + i * SIGNER_WITH_SIG_SIZE;
 
                 // Decode r, s, x, and y for the current signer
                 (r[i], s[i], x[i], y[i]) = abi.decode(
-                    _payload[index:index + 128],
+                    _payload[index:index + SIGNER_WITH_SIG_SIZE],
                     (bytes32, bytes32, bytes32, bytes32)
                 );
             }
 
-            uint64 txPayloadOffset = offset + numberSigners * 128;
+            uint64 txPayloadOffset = offset + numberSigners * SIGNER_WITH_SIG_SIZE;
 
             bytes calldata txPayload = _payload[txPayloadOffset:];
 
@@ -176,11 +184,11 @@ contract EntryPoint is IEntryPoint {
         }
 
         emit SignatureValidated(messageHash, r, s);
-        if (txPayload.length < 32) {
+        if (txPayload.length < SLOT_SIZE) {
             revert PayloadTooShort();
         }
 
-        uint64 count = abi.decode(txPayload[:32], (uint64));
+        uint64 count = abi.decode(txPayload[:SLOT_SIZE], (uint64));
         if (count == 0) {
             revert InvalidPayloadArray();
         }
@@ -190,17 +198,17 @@ contract EntryPoint is IEntryPoint {
         address[] memory destList = new address[](count);
         uint256[] memory valueList = new uint256[](count);
         bytes[] memory dataList = new bytes[](count);
-        uint256 offset = 32;
+        uint256 offset = SLOT_SIZE;
         for (uint64 i = 0; i < count; i++) {
             address dest;
             uint256 value;
             bytes calldata data;
             uint256 dataLen;
-            if (txPayload.length < offset + 96) {
+            if (txPayload.length < offset + TX_ITEM_HEADER_SIZE) {
                 revert PayloadTooShort();
             }
-            (dest, value, dataLen) = abi.decode(txPayload[offset:offset + 96], (address, uint256, uint256));
-            uint256 dataStart = offset + 96;
+            (dest, value, dataLen) = abi.decode(txPayload[offset:offset + TX_ITEM_HEADER_SIZE], (address, uint256, uint256));
+            uint256 dataStart = offset + TX_ITEM_HEADER_SIZE;
             uint256 dataEnd = dataStart + dataLen;
             if (txPayload.length < dataEnd) {
                 revert PayloadTooShort();

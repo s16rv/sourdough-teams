@@ -3,6 +3,16 @@ pragma solidity ^0.8.21;
 
 interface IMPCVerifier {
     /**
+     * @dev Error thrown when a zero address is provided.
+     */
+    error ZeroAddress();
+
+    /**
+     * @dev Error thrown when caller is not the owner.
+     */
+    error OnlyOwner();
+
+    /**
      * @notice Emitted when the MPC public key is updated.
      * @dev Event emitted when the MPC public key is updated.
      * @param publicKeyX The previous X component of the MPC public key.

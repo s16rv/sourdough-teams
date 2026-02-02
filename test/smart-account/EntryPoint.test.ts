@@ -239,8 +239,9 @@ describe("EntryPoint", function () {
     });
 
     it("should revert when non-owner tries to set executor", async function () {
-        await expect(entryPoint.connect(executor).setExecutor(executor.address, true)).to.be.revertedWith(
-            "Only owner can set executor"
+        await expect(entryPoint.connect(executor).setExecutor(executor.address, true)).to.be.revertedWithCustomError(
+            entryPoint,
+            "OnlyOwner"
         );
     });
 });
@@ -1161,9 +1162,9 @@ describe("EntryPoint Error Paths", function () {
         it("Should reject non-owner from setting executor", async function () {
             const [, , nonOwner, newExecutor] = await hre.ethers.getSigners();
 
-            await expect(entryPoint.connect(nonOwner).setExecutor(newExecutor.address, true)).to.be.revertedWith(
-                "Only owner can set executor"
-            );
+            await expect(
+                entryPoint.connect(nonOwner).setExecutor(newExecutor.address, true)
+            ).to.be.revertedWithCustomError(entryPoint, "OnlyOwner");
         });
 
         it("Should reject non-executor from executing payload", async function () {

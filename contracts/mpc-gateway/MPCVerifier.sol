@@ -23,8 +23,8 @@ contract MPCVerifier is IMPCVerifier {
         bytes32 _publicKeyX,
         bytes32 _publicKeyY
     ) {
-        require(_ownerAddress != address(0), "Zero address: ownerAddress");
-        require(_verifierAddress != address(0), "Zero address: verifierAddress");
+        if (_ownerAddress == address(0)) revert ZeroAddress();
+        if (_verifierAddress == address(0)) revert ZeroAddress();
         ownerAddress = _ownerAddress;
         verifierAddress = _verifierAddress;
         publicKeyX = _publicKeyX;
@@ -59,7 +59,7 @@ contract MPCVerifier is IMPCVerifier {
         bytes32 newPublicKeyX,
         bytes32 newPublicKeyY
     ) public {
-        require(msg.sender == ownerAddress, "Only owner can update public key");
+        if (msg.sender != ownerAddress) revert OnlyOwner();
         emit MPCPublicKeyUpdated(publicKeyX, publicKeyY, newPublicKeyX, newPublicKeyY);
         publicKeyX = newPublicKeyX;
         publicKeyY = newPublicKeyY;

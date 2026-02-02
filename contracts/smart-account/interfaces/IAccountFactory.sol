@@ -3,6 +3,11 @@ pragma solidity ^0.8.21;
 
 interface IAccountFactory {
     /**
+     * @dev Error thrown when a zero address is provided.
+     */
+    error ZeroAddress();
+
+    /**
      * @dev Error thrown when the threshold is invalid.
      */
     error InvalidThreshold();

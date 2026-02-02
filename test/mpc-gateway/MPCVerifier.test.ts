@@ -48,7 +48,7 @@ describe("MPCVerifier", function () {
             // Test that non-owner cannot update public key
             await expect(
                 mpcVerifier.connect(nonOwner).updateMPCPublicKey(newPublicKeyX, newPublicKeyY)
-            ).to.be.revertedWith("Only owner can update public key");
+            ).to.be.revertedWithCustomError(mpcVerifier, "OnlyOwner");
         });
     });
 
@@ -98,7 +98,7 @@ describe("MPCVerifier", function () {
         it("Should prevent non-owner from updating public key", async function () {
             await expect(
                 mpcVerifier.connect(nonOwner).updateMPCPublicKey(newPublicKeyX, newPublicKeyY)
-            ).to.be.revertedWith("Only owner can update public key");
+            ).to.be.revertedWithCustomError(mpcVerifier, "OnlyOwner");
         });
     });
 });
