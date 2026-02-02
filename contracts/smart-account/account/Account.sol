@@ -164,6 +164,8 @@ contract Account is IAccount {
         if (destList.length != valueList.length || destList.length != dataList.length) {
             revert InvalidInputLength();
         }
+        // Increment sequence BEFORE external calls to prevent reentrancy
+        incrementSequence();
         bool success = true;
         for (uint256 i = 0; i < destList.length; i++) {
             success = _call(destList[i], valueList[i], dataList[i]);
@@ -172,7 +174,6 @@ contract Account is IAccount {
             }
             emit TransactionExecuted(destList[i], valueList[i], dataList[i]);
         }
-        incrementSequence();
         return success;
     }
 
@@ -237,9 +238,10 @@ contract Account is IAccount {
         if (sequence != accountSequence + 1) {
             revert InvalidSequence();
         }
+        // Increment sequence BEFORE external call to prevent reentrancy
+        incrementSequence();
         _call(dest, value, data);
         emit TransactionExecuted(dest, value, data);
-        incrementSequence();
         return true;
     }
 

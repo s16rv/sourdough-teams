@@ -2,9 +2,11 @@
 pragma solidity ^0.8.21;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "./interfaces/IRoutingRailgun.sol";
 
 contract RoutingRailgun is IRoutingRailgun {
+    using SafeERC20 for IERC20;
     address public railgunAddress;
     address public controller;
 
@@ -40,7 +42,7 @@ contract RoutingRailgun is IRoutingRailgun {
      * @param amount The amount of tokens to approve.
      */
     function approveToken(address token, address to, uint256 amount) external onlyController {
-        if (!IERC20(token).approve(to, amount)) revert ApprovalFailed();
+        IERC20(token).forceApprove(to, amount);
         emit TokenApproved(token, to, amount);
     }
 
@@ -72,7 +74,7 @@ contract RoutingRailgun is IRoutingRailgun {
             if (!success) revert ETHTransferFailed();
             emit RefundedETH(to, amount);
         } else {
-            if (!IERC20(token).transfer(to, amount)) revert TransferFailed();
+            IERC20(token).safeTransfer(to, amount);
             emit RefundedToken(token, to, amount);
         }
     }

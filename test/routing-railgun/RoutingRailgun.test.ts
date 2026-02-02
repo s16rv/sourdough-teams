@@ -586,7 +586,7 @@ describe("RoutingRailgun ERC20 Edge Cases", function () {
     });
 
     describe("Tokens That Return False", function () {
-        it("VULNERABILITY: Token returning false on transfer is caught", async function () {
+        it("FIXED: Token returning false on transfer is caught by SafeERC20", async function () {
             // Deploy token that returns false instead of reverting
             const FalseReturningTokenFactory = await hre.ethers.getContractFactory("FalseReturningToken");
             const badToken = await FalseReturningTokenFactory.deploy();
@@ -598,12 +598,12 @@ describe("RoutingRailgun ERC20 Edge Cases", function () {
             // Configure token to return false on transfer
             await badToken.setShouldFail(true);
 
-            // Refund should revert with TransferFailed
+            // SafeERC20 catches the false return and reverts with SafeERC20FailedOperation
             await expect(
                 routingRailgun.connect(controller).refund(badToken.target, recipient.address, parseEther("10"))
-            ).to.be.revertedWithCustomError(routingRailgun, "TransferFailed");
+            ).to.be.reverted;
 
-            console.log("Token returning false correctly caught by TransferFailed check");
+            console.log("Token returning false correctly caught by SafeERC20");
         });
 
         it("Should succeed when token returns true", async function () {
@@ -621,21 +621,21 @@ describe("RoutingRailgun ERC20 Edge Cases", function () {
     });
 
     describe("Tokens That Don't Return Value (USDT-like)", function () {
-        it("VULNERABILITY: No-return token causes revert (SafeERC20 needed)", async function () {
-            // Deploy token that doesn't return a value
+        it("FIXED: No-return token works with SafeERC20", async function () {
+            // Deploy token that doesn't return a value (like USDT)
             const NoReturnTokenFactory = await hre.ethers.getContractFactory("NoReturnToken");
             const noReturnToken = await NoReturnTokenFactory.deploy();
             await noReturnToken.waitForDeployment();
 
             await noReturnToken.mint(await routingRailgun.getAddress(), parseEther("100"));
 
-            // This will fail because Solidity expects a bool return but gets nothing
-            // The EVM will revert when trying to decode the empty return
-            await expect(
-                routingRailgun.connect(controller).refund(noReturnToken.target, recipient.address, parseEther("10"))
-            ).to.be.reverted;
+            // SafeERC20 handles tokens that don't return a value
+            await routingRailgun.connect(controller).refund(noReturnToken.target, recipient.address, parseEther("10"));
 
-            console.log("USDT-like token causes revert - SafeERC20 needed for compatibility");
+            // Verify the transfer succeeded
+            expect(await noReturnToken.balanceOf(recipient.address)).to.equal(parseEther("10"));
+
+            console.log("USDT-like token works correctly with SafeERC20");
         });
     });
 
@@ -664,18 +664,19 @@ describe("RoutingRailgun ERC20 Edge Cases", function () {
     });
 
     describe("Approval Edge Cases", function () {
-        it("VULNERABILITY: Token returning false on approve is caught", async function () {
+        it("FIXED: Token returning false on approve is caught by SafeERC20", async function () {
             const FalseReturningTokenFactory = await hre.ethers.getContractFactory("FalseReturningToken");
             const badToken = await FalseReturningTokenFactory.deploy();
             await badToken.waitForDeployment();
 
             await badToken.setApprovalShouldFail(true);
 
+            // SafeERC20 forceApprove catches the false return and reverts
             await expect(
                 routingRailgun.connect(controller).approveToken(badToken.target, recipient.address, parseEther("100"))
-            ).to.be.revertedWithCustomError(routingRailgun, "ApprovalFailed");
+            ).to.be.reverted;
 
-            console.log("Token returning false on approve correctly caught");
+            console.log("Token returning false on approve correctly caught by SafeERC20");
         });
     });
 });

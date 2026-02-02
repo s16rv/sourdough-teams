@@ -12,8 +12,8 @@ Tracking missing functionality, security fixes, and improvements for audit readi
 
 ## Security Fixes
 
-- [ ] **SafeERC20** - Use safeTransfer/safeApprove in RoutingRailgun.sol (lines 26, 45). **Confirmed by tests:** USDT-like tokens (no return value) cause reverts. Fee-on-transfer tokens work but recipient receives less than expected.
-- [ ] **Reentrancy in recoverTransaction** - CRITICAL: `recoverTransaction` updates sequence AFTER external call, allowing same signed tx to execute multiple times via reentrancy. Fix: move `incrementSequence()` BEFORE `_call()` (Checks-Effects-Interactions pattern). Same issue exists in `executeTransactions` but is protected by `onlyEntryPoint` modifier.
+- [x] **SafeERC20** - FIXED: Using SafeERC20 `safeTransfer` and `forceApprove` in RoutingRailgun.sol. USDT-like tokens now work correctly.
+- [x] **Reentrancy in recoverTransaction** - FIXED: Moved `incrementSequence()` BEFORE `_call()` in both `recoverTransaction` and `executeTransactions` (Checks-Effects-Interactions pattern).
 - [ ] **ReentrancyGuard for RoutingRailgun** - Defense in depth: Add OpenZeppelin's `ReentrancyGuard` to `refund()` and `executeRailgunCall()`. Currently protected by `onlyController`, but reentrancy guard provides defense in depth if access control is ever modified or bypassed.
 - [ ] **Remove debug events** - Remove or gate DebugReason, DebugTxHash, DebugError events before production
 - [ ] **Recovery path chain binding** - `recoverTransaction` has no chain_id validation. Add `chainId` to `recoverProposal` payload and validate against `block.chainid` to prevent cross-chain replay if same account exists on multiple chains via CREATE2
@@ -65,7 +65,7 @@ Tracking missing functionality, security fixes, and improvements for audit readi
 
 | Finding                                       | Severity | Status                   |
 | --------------------------------------------- | -------- | ------------------------ |
-| USDT-like tokens (no return) fail             | 🟠 High  | Needs SafeERC20          |
+| USDT-like tokens (no return) fail             | ✅ Fixed | SafeERC20 implemented    |
 | Fee-on-transfer tokens work but less received | ℹ️ Info  | Document for users       |
 | Sequence overflow reverts (safe)              | ✅ Safe  | Solidity 0.8+ protection |
 | Batch limit (20) enforced correctly           | ✅ Safe  | Working as designed      |

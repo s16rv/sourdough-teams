@@ -1057,24 +1057,15 @@ describe("Account Reentrancy", function () {
     });
 
     describe("recoverTransaction Reentrancy", function () {
-        it("VULNERABILITY: recoverTransaction is vulnerable to reentrancy", async function () {
+        it("FIXED: recoverTransaction is protected against reentrancy", async function () {
             /**
-             * CRITICAL SECURITY BUG DEMONSTRATED
+             * REENTRANCY PROTECTION VERIFIED
              *
-             * This test proves that recoverTransaction can be exploited via reentrancy.
-             * A user signs a transaction for 1 ETH, but attacker drains 5 ETH.
+             * This test verifies that recoverTransaction is protected against reentrancy.
+             * The fix moves incrementSequence() BEFORE _call() (Checks-Effects-Interactions pattern).
              *
-             * Root cause: incrementSequence() happens AFTER _call(), not before.
-             *
-             * FIX: In Account.sol recoverTransaction(), move incrementSequence() BEFORE _call():
-             *
-             *   // CURRENT (VULNERABLE):
-             *   _call(dest, value, data);
-             *   incrementSequence();
-             *
-             *   // FIXED:
-             *   incrementSequence();
-             *   _call(dest, value, data);
+             * Expected behavior: Attacker contract attempts reentrancy but only receives
+             * the signed amount (1 ETH), not multiple times.
              */
 
             const ReentrancyAttackerFactory = await hre.ethers.getContractFactory("ReentrancyAttacker");
@@ -1112,10 +1103,12 @@ describe("Account Reentrancy", function () {
             console.log(`Attacker gained: ${hre.ethers.formatEther(attackerGained)} ETH`);
             console.log(`Attack attempts: ${attackCount}`);
 
-            expect(attackerGained).to.be.gt(amountPerCall, "Expected reentrancy to drain extra funds");
-            expect(attackCount).to.be.gt(1, "Expected multiple reentrant calls");
-
-            expect(attackerGained).to.equal(parseEther("5.0"));
+            // Reentrancy is blocked - attacker only gets the signed amount
+            expect(attackerGained).to.equal(amountPerCall, "Reentrancy blocked - only signed amount transferred");
+            expect(attackCount).to.equal(
+                1,
+                "Only one successful call (reentrancy attempts fail due to InvalidSequence)"
+            );
         });
 
         it("Should increment sequence before external call to prevent reentrancy (CEI pattern check)", async function () {
@@ -1133,7 +1126,9 @@ describe("Account Reentrancy", function () {
             ).to.be.revertedWithCustomError(account, "InvalidSequence");
         });
 
-        it("Should document: sequence check happens BEFORE external call (vulnerable pattern)", async function () {
+        it("Should document: sequence increment happens BEFORE external call (CEI pattern)", async function () {
+            // This test documents that the Checks-Effects-Interactions pattern is now in place.
+            // The sequence is incremented BEFORE the external call, preventing reentrancy.
             expect(true).to.be.true;
         });
     });
