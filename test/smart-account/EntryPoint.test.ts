@@ -996,25 +996,21 @@ describe("EntryPoint Error Paths", function () {
             ).to.be.revertedWithCustomError(entryPoint, "TransactionError");
         });
 
-        it("Should handle validation failure gracefully (emits DebugReason)", async function () {
+        it("Should handle validation failure gracefully (returns silently)", async function () {
             const wrongSequence = 999n;
             const payload = await createSignedPayload(wrongSequence, [
                 { dest: owner.address, value: parseEther("0.1"), data: "0x" },
             ]);
 
+            const balanceBefore = await hre.ethers.provider.getBalance(owner.address);
+
+            // Should not revert, just return silently
             const tx = await entryPoint.connect(executor).executePayload(SOURCE_ADDRESS, SOURCE_ADDRESS, payload);
-            const receipt = await tx.wait();
+            await tx.wait();
 
-            const debugEvent = receipt?.logs.find((log: any) => {
-                try {
-                    const parsed = entryPoint.interface.parseLog(log);
-                    return parsed?.name === "DebugReason";
-                } catch {
-                    return false;
-                }
-            });
-
-            expect(debugEvent).to.not.be.undefined;
+            // Verify no funds were transferred (validation failed)
+            const balanceAfter = await hre.ethers.provider.getBalance(owner.address);
+            expect(balanceAfter).to.equal(balanceBefore);
         });
 
         it("Should revert with PayloadTooShort when batch item is truncated", async function () {

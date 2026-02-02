@@ -23,7 +23,7 @@ contract MPCGateway is IMPCGateway {
      * @dev Internal function that validates the MPC signature against the transaction hash
      * @param txHash The hash of the transaction parameters
      * @param r The r component of the MPC signature
-     * @param s The s component of the MPC signature  
+     * @param s The s component of the MPC signature
      * @param sourceChain Identifier of the chain where the transaction originated
      * @param sourceAddress Address of the sender on the source chain
      * @param destinationAddress Address of the contract to call on the destination chain
@@ -88,11 +88,9 @@ contract MPCGateway is IMPCGateway {
             destinationAddress,
             payload
         );
-        emit DebugTxHash(txHash);
 
         // Check if already executed to prevent replay attacks
         if (executedCalls[txHash]) {
-            emit DebugError("TransactionAlreadyExecuted");
             return false;
         }
 
@@ -101,15 +99,14 @@ contract MPCGateway is IMPCGateway {
 
         // Ensure transaction is approved
         bool isApproved = _approveContractCall(
-            txHash, 
-            mpcSignatureR, 
-            mpcSignatureS, 
+            txHash,
+            mpcSignatureR,
+            mpcSignatureS,
             sourceChain,
             sourceAddress,
             destinationAddress
         );
         if (!isApproved) {
-            emit DebugError("TransactionNotApproved");
             return false;
         }
 
@@ -121,7 +118,6 @@ contract MPCGateway is IMPCGateway {
             payload
         );
         if (!result) {
-            emit DebugError("CallFailed");
             return false;
         }
 

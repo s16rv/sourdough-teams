@@ -64,18 +64,6 @@ interface IMPCGateway {
         address destinationAddress
     );
     
-    /**
-     * @notice Debug event emitted with the transaction hash.
-     * @param txHash Hash of the transaction
-     */
-    event DebugTxHash(bytes32 txHash);
-
-    /**
-     * @notice Debug event emitted with the error message.
-     * @param errorMessage The error message
-     */
-    event DebugError(string errorMessage);
-
     // ContractCallParams struct has been removed in favor of using individual parameters directly
 
     /**
