@@ -3,9 +3,10 @@ pragma solidity ^0.8.21;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./interfaces/IRoutingRailgun.sol";
 
-contract RoutingRailgun is IRoutingRailgun {
+contract RoutingRailgun is IRoutingRailgun, ReentrancyGuard {
     using SafeERC20 for IERC20;
     address public railgunAddress;
     address public controller;
@@ -52,7 +53,7 @@ contract RoutingRailgun is IRoutingRailgun {
      * @param value The amount of Ether to send with the call.
      * @param data The calldata to send.
      */
-    function executeRailgunCall(address to, uint256 value, bytes calldata data) external onlyController {
+    function executeRailgunCall(address to, uint256 value, bytes calldata data) external onlyController nonReentrant {
         if (to != railgunAddress) revert InvalidRecipient();
         (bool success, ) = to.call{value: value}(data);
         if (!success) {
@@ -67,7 +68,7 @@ contract RoutingRailgun is IRoutingRailgun {
      * @param to The address to receive the refund.
      * @param amount The amount to refund.
      */
-    function refund(address token, address to, uint256 amount) external onlyController {
+    function refund(address token, address to, uint256 amount) external onlyController nonReentrant {
         if (token == address(0)) {
             if (address(this).balance < amount) revert InsufficientETHBalance();
             (bool success, ) = payable(to).call{value: amount}("");

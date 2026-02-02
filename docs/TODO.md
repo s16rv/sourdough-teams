@@ -14,7 +14,7 @@ Tracking missing functionality, security fixes, and improvements for audit readi
 
 - [x] **SafeERC20** - FIXED: Using SafeERC20 `safeTransfer` and `forceApprove` in RoutingRailgun.sol. USDT-like tokens now work correctly.
 - [x] **Reentrancy in recoverTransaction** - FIXED: Moved `incrementSequence()` BEFORE `_call()` in both `recoverTransaction` and `executeTransactions` (Checks-Effects-Interactions pattern).
-- [ ] **ReentrancyGuard for RoutingRailgun** - Defense in depth: Add OpenZeppelin's `ReentrancyGuard` to `refund()` and `executeRailgunCall()`. Currently protected by `onlyController`, but reentrancy guard provides defense in depth if access control is ever modified or bypassed.
+- [x] **ReentrancyGuard for RoutingRailgun** - FIXED: Added OpenZeppelin's `ReentrancyGuard` with `nonReentrant` modifier on `refund()` and `executeRailgunCall()`.
 - [ ] **Remove debug events** - Remove or gate DebugReason, DebugTxHash, DebugError events before production
 - [ ] **Recovery path chain binding** - `recoverTransaction` has no chain_id validation. Add `chainId` to `recoverProposal` payload and validate against `block.chainid` to prevent cross-chain replay if same account exists on multiple chains via CREATE2
 - [ ] **Owner signature doesn't bind to data** - In normal path, owner signs `messageHash` but not `data`. The `proof = sha256(messageHash || data)` binds them, but `proof` itself isn't signed. Payload integrity relies entirely on MPC signature. If MPC is compromised, attacker could substitute `data` and compute valid `proof`. Consider: should `messageHash` on source chain include commitment to `data`? Or is MPC trust acceptable?
