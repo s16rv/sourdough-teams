@@ -26,7 +26,7 @@ describe("Integration: Full Flow", function () {
     const SOURCE_CHAIN = "sourdough-1";
     const SOURCE_ADDRESS = "neutron1chcktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
     const DESTINATION_CHAIN = "ethereum";
-    const CHAIN_ID = "ethereum-1"; // Chain ID for txPayload
+    const CHAIN_ID = 31337n; // Hardhat default chain ID for txPayload
 
     let mpcGateway: MPCGateway;
     let mpcVerifier: MPCVerifier;

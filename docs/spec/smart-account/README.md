@@ -82,7 +82,7 @@ Recovery Path (censorship resistant):
 #### txPayload Structure
 
 ```
-ABI-encoded: (string chainId, address accountAddress, uint64 sequence, uint64 count)
+ABI-encoded: (uint256 evmChainId, address accountAddress, uint64 sequence, uint64 count)
 followed by packed calls:
 ┌─────────────────────────┬────────────┐
 │ dest (address)          │ 32 bytes   │
@@ -248,8 +248,8 @@ When EntryPoint receives a payload with `category == 2`:
 ```
 1. Decode header: (signBytesLength, txPayloadHashOffset, numberSigners)
 2. Extract signBytes, signatures (r[], s[], x[], y[]), and txPayload
-3. Decode txPayload header: (chainId, accountAddress, sequence)
-4. Validate chainId matches expected chain ID
+3. Decode txPayload header: (evmChainId, accountAddress, sequence)
+4. Validate evmChainId matches block.chainid
 5. Validate accountAddress matches account for sourceAddress
 6. Call Account.validateOperation(sourceAddress, signBytes, txPayloadHashOffset, r, s, x, y, sequence, txPayload)
 7. If valid, decode calls from txPayload
@@ -351,14 +351,13 @@ Every transaction should validate:
 
 #### Chain ID Validation
 
-- EntryPoint validates `chainId` in txPayload against `EXPECTED_CHAIN_ID`
-- Currently uses string comparison (e.g., "ethereum-1")
-- TODO: Migrate to numeric `block.chainid` for stronger validation
+- EntryPoint validates `evmChainId` in txPayload against `block.chainid`
+- Uses numeric comparison (e.g., 1 for Ethereum, 137 for Polygon, 31337 for Hardhat)
+- Gas-efficient: single `uint256` comparison vs. string hashing
 
 ### Known Limitations
 
 - Recovery path does not validate `chain_id` (cross-chain replay risk if same account on multiple chains)
-- Chain ID validation uses string comparison instead of numeric `block.chainid`
 - Debug events (DebugReason) are retained for production debugging (zero gas cost when not triggered)
 
 ## Example Implementations
@@ -371,6 +370,7 @@ Every transaction should validate:
 - May 8, 2025 - Draft written
 - January 30, 2026 - Updated to reflect current implementation (multisig model, batch transactions, recovery path, removed recover address field)
 - February 3, 2026 - Updated payload format with hash commitment (signBytes + txPayloadHashOffset), chainId validation
+- February 4, 2026 - Changed txPayload chainId from string to uint256 evmChainId, validated against block.chainid
 
 ## Copyright
 

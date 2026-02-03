@@ -16,8 +16,7 @@ uint64 constant EXECUTE_TX_HEADER_SIZE = 192;      // Category 2 (legacy): categ
 uint64 constant NEW_HEADER_SIZE = 128;             // Category 2 (new): category(32) + signBytesLen(32) + hashOffset(32) + numSigners(32)
 uint256 constant TX_ITEM_HEADER_SIZE = 96;         // Transaction item: dest(32) + value(32) + dataLen(32)
 
-// Chain ID constant - hardcoded for now, see TODO.md for numeric chainId improvement
-string constant EXPECTED_CHAIN_ID = "ethereum-1";
+// No chain ID constant needed - we use block.chainid for validation
 
 contract EntryPoint is IEntryPoint {
     IAccountFactory public immutable accountFactory;
@@ -143,11 +142,11 @@ contract EntryPoint is IEntryPoint {
             // Remaining is txPayload
             bytes calldata txPayload = _payload[offset:];
 
-            // Decode txPayload header to get chainId, target, and sequence
-            (string memory chainId, address target, uint64 sequence) = _decodeTxPayloadHeader(txPayload);
+            // Decode txPayload header to get evmChainId, target, and sequence
+            (uint256 evmChainId, address target, uint64 sequence) = _decodeTxPayloadHeader(txPayload);
 
-            // Validate chainId (hardcoded for now - see TODO.md for future improvement)
-            if (keccak256(bytes(chainId)) != keccak256(bytes(EXPECTED_CHAIN_ID))) {
+            // Validate chain ID against current chain
+            if (evmChainId != block.chainid) {
                 revert InvalidChainId();
             }
 
@@ -208,9 +207,9 @@ contract EntryPoint is IEntryPoint {
         bytes32 signBytesHash = sha256(signBytes);
         emit SignatureValidated(signBytesHash, r, s);
 
-        // txPayload is ABI-encoded: (string chainId, address accountAddress, uint64 sequence, uint64 count)
+        // txPayload is ABI-encoded: (uint256 evmChainId, address accountAddress, uint64 sequence, uint64 count)
         // followed by packed calls data
-        // Count is at fixed offset 96 (slot 3: after string offset pointer, address, sequence)
+        // Count is at fixed offset 96 (slot 3: after evmChainId, address, sequence)
         if (txPayload.length < 128) {
             revert PayloadTooShort();
         }
@@ -268,20 +267,20 @@ contract EntryPoint is IEntryPoint {
     }
 
     /**
-     * @dev Decodes the txPayload header to extract chainId, target address, and sequence.
+     * @dev Decodes the txPayload header to extract evmChainId, target address, and sequence.
      * @param txPayload The transaction payload.
-     * @return chainId The chain ID string.
+     * @return evmChainId The EVM chain ID (e.g., 1 for Ethereum, 137 for Polygon).
      * @return target The target account address.
      * @return sequence The sequence number.
      */
-    function _decodeTxPayloadHeader(bytes calldata txPayload) internal pure returns (string memory, address, uint64) {
-        // txPayload is ABI-encoded: (string chainId, address accountAddress, uint64 sequence, uint64 count, calls[])
-        // We need to decode chainId (dynamic), accountAddress, and sequence
-        (string memory chainId, address target, uint64 sequence) = abi.decode(
+    function _decodeTxPayloadHeader(bytes calldata txPayload) internal pure returns (uint256, address, uint64) {
+        // txPayload is ABI-encoded: (uint256 evmChainId, address accountAddress, uint64 sequence, uint64 count, calls[])
+        // We decode evmChainId, accountAddress, and sequence
+        (uint256 evmChainId, address target, uint64 sequence) = abi.decode(
             txPayload,
-            (string, address, uint64)
+            (uint256, address, uint64)
         );
-        return (chainId, target, sequence);
+        return (evmChainId, target, sequence);
     }
 
     /**
@@ -290,25 +289,14 @@ contract EntryPoint is IEntryPoint {
      * @return The offset where packed calls data begins.
      */
     function _getCallsOffset(bytes calldata txPayload) internal pure returns (uint256) {
-        // ABI encoding layout for (string, address, uint64, uint64):
-        // - Slot 0 (0-32): offset to string data (points to slot 4 = 128)
-        // - Slot 1 (32-64): address
+        // ABI encoding layout for (uint256, address, uint64, uint64):
+        // - Slot 0 (0-32): uint256 evmChainId
+        // - Slot 1 (32-64): address accountAddress
         // - Slot 2 (64-96): uint64 sequence
         // - Slot 3 (96-128): uint64 count
-        // - Slot 4 (128-160): string length
-        // - Slot 5+ (160+): string data (padded to 32 bytes)
         //
-        // Packed calls data starts AFTER the entire ABI header
-
-        // Read the offset to string data from first slot
-        uint256 stringOffset = abi.decode(txPayload[:32], (uint256));
-        // String length is at stringOffset
-        uint256 stringLength = abi.decode(txPayload[stringOffset:stringOffset + 32], (uint256));
-        // String data is padded to 32 bytes
-        uint256 paddedStringLength = ((stringLength + 31) / 32) * 32;
-
-        // Packed calls start after: string offset slot + string length slot + padded string data
-        return stringOffset + 32 + paddedStringLength;
+        // Packed calls data starts at fixed offset 128 (4 slots × 32 bytes)
+        return 128;
     }
 
     /**

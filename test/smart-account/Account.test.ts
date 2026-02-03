@@ -8,7 +8,7 @@ import { generateSignatureWithMnemonic, getPublicKeyFromMnemonic } from "../../s
 import { combineHexStrings, encodeNewTxPayload, computeTxPayloadHash, createSignBytes } from "../utils/lib";
 
 const TEST_MNEMONIC = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-const EXPECTED_CHAIN_ID = "ethereum-1";
+const EXPECTED_CHAIN_ID = 31337n; // Hardhat default chain ID
 
 /**
  * Helper to encode the txPayload as a recoverProposal function call.

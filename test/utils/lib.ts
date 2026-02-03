@@ -26,24 +26,24 @@ export function encodeMultiPayload(items: { dest: string; value: bigint; data: s
 
 /**
  * Encode the new txPayload structure.
- * @param chainId The destination chain ID (e.g., "ethereum-1")
+ * @param evmChainId The EVM chain ID (e.g., 1 for Ethereum, 137 for Polygon)
  * @param accountAddress The destination smart account address
  * @param sequence The replay protection nonce
  * @param calls Array of calls to execute
  * @returns The ABI-encoded txPayload
  */
 export function encodeNewTxPayload(
-    chainId: string,
+    evmChainId: bigint,
     accountAddress: string,
     sequence: bigint,
     calls: { to: string; value: bigint; data: string }[]
 ): string {
     const coder = new AbiCoder();
 
-    // Encode the header: chainId (string), accountAddress (address), sequence (uint64), count (uint64)
+    // Encode the header: evmChainId (uint256), accountAddress (address), sequence (uint64), count (uint64)
     const header = coder.encode(
-        ["string", "address", "uint64", "uint64"],
-        [chainId, accountAddress, sequence, BigInt(calls.length)]
+        ["uint256", "address", "uint64", "uint64"],
+        [evmChainId, accountAddress, sequence, BigInt(calls.length)]
     );
 
     // Encode calls: each call is to(32) + value(32) + dataLen(32) + data(variable)
