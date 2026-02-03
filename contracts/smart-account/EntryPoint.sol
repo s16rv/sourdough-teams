@@ -12,8 +12,12 @@ uint64 constant SLOT_SIZE = 32;                    // Size of an ABI-encoded slo
 uint64 constant PUBKEY_SIZE = 64;                  // Size of a public key (x + y)
 uint64 constant SIGNER_WITH_SIG_SIZE = 128;        // Size of signer block (r + s + x + y)
 uint64 constant CREATE_ACCOUNT_HEADER_SIZE = 96;   // Category 1: category(32) + totalSigners(32) + threshold(32)
-uint64 constant EXECUTE_TX_HEADER_SIZE = 192;      // Category 2: category(32) + target(32) + messageHash(32) + proof(32) + sequence(32) + numberSigners(32)
+uint64 constant EXECUTE_TX_HEADER_SIZE = 192;      // Category 2 (legacy): category(32) + target(32) + messageHash(32) + proof(32) + sequence(32) + numberSigners(32)
+uint64 constant NEW_HEADER_SIZE = 128;             // Category 2 (new): category(32) + signBytesLen(32) + hashOffset(32) + numSigners(32)
 uint256 constant TX_ITEM_HEADER_SIZE = 96;         // Transaction item: dest(32) + value(32) + dataLen(32)
+
+// Chain ID constant - hardcoded for now, see TODO.md for numeric chainId improvement
+string constant EXPECTED_CHAIN_ID = "ethereum-1";
 
 contract EntryPoint is IEntryPoint {
     IAccountFactory public immutable accountFactory;
@@ -105,12 +109,17 @@ contract EntryPoint is IEntryPoint {
 
             _createAccount(x, y, threshold, _sourceAddress);
         } else if (category == 2) {
-            (address target, bytes32 messageHash, bytes32 proof, uint64 sequence, uint64 numberSigners) = abi.decode(
-                _payload[SLOT_SIZE:EXECUTE_TX_HEADER_SIZE],
-                (address, bytes32, bytes32, uint64, uint64)
+            // Parse new payload format
+            (uint256 signBytesLength, uint256 txPayloadHashOffset, uint64 numberSigners) = abi.decode(
+                _payload[SLOT_SIZE:NEW_HEADER_SIZE],
+                (uint256, uint256, uint64)
             );
 
-            uint64 offset = EXECUTE_TX_HEADER_SIZE;
+            uint256 offset = NEW_HEADER_SIZE;
+
+            // Extract signBytes
+            bytes calldata signBytes = _payload[offset:offset + signBytesLength];
+            offset += signBytesLength;
 
             // Dynamic arrays for r, s, x, y based on the number of signers
             bytes32[] memory r = new bytes32[](numberSigners);
@@ -120,7 +129,7 @@ contract EntryPoint is IEntryPoint {
 
             // Loop through the total signers to extract their signatures and public keys
             for (uint64 i = 0; i < numberSigners; i++) {
-                uint64 index = offset + i * SIGNER_WITH_SIG_SIZE;
+                uint256 index = offset + i * SIGNER_WITH_SIG_SIZE;
 
                 // Decode r, s, x, and y for the current signer
                 (r[i], s[i], x[i], y[i]) = abi.decode(
@@ -129,11 +138,26 @@ contract EntryPoint is IEntryPoint {
                 );
             }
 
-            uint64 txPayloadOffset = offset + numberSigners * SIGNER_WITH_SIG_SIZE;
+            offset += numberSigners * SIGNER_WITH_SIG_SIZE;
 
-            bytes calldata txPayload = _payload[txPayloadOffset:];
+            // Remaining is txPayload
+            bytes calldata txPayload = _payload[offset:];
 
-            _handleTransaction(target, messageHash, r, s, x, y, proof, sequence, _sourceAddress, txPayload);
+            // Decode txPayload header to get chainId, target, and sequence
+            (string memory chainId, address target, uint64 sequence) = _decodeTxPayloadHeader(txPayload);
+
+            // Validate chainId (hardcoded for now - see TODO.md for future improvement)
+            if (keccak256(bytes(chainId)) != keccak256(bytes(EXPECTED_CHAIN_ID))) {
+                revert InvalidChainId();
+            }
+
+            // Validate target account
+            address expectedAccount = accountFactory.getAccount(_sourceAddress);
+            if (target != expectedAccount) {
+                revert InvalidTargetAccount();
+            }
+
+            _handleTransaction(target, signBytes, txPayloadHashOffset, r, s, x, y, sequence, _sourceAddress, txPayload);
         }
 
         emit Executed(_sourceChain, _sourceAddress);
@@ -142,39 +166,36 @@ contract EntryPoint is IEntryPoint {
     /**
      * @dev Handles the execution of a transaction on the destination chain by validating the signature and calling the target account's `executeTransaction` function.
      * @param target The target address to execute the transaction.
-     * @param messageHash The hash of the message used for signature verification.
+     * @param signBytes The AMINO_JSON message that was signed.
+     * @param txPayloadHashOffset The offset to the hash in signBytes.
      * @param r Part of the signature (r).
      * @param s Part of the signature (s).
-     * @param proof The proof of the transaction.
+     * @param x Part of the public key (x).
+     * @param y Part of the public key (y).
+     * @param sequence The sequence number of the transaction.
      * @param sourceAddress The address on the source chain where the transaction originated.
-     * @param txPayload The transaction payload containing the destination address and value.
+     * @param txPayload The transaction payload containing chainId, accountAddress, sequence, and calls.
      */
     function _handleTransaction(
         address target,
-        bytes32 messageHash,
+        bytes calldata signBytes,
+        uint256 txPayloadHashOffset,
         bytes32[] memory r,
         bytes32[] memory s,
         bytes32[] memory x,
         bytes32[] memory y,
-        bytes32 proof,
         uint64 sequence,
         string calldata sourceAddress,
         bytes calldata txPayload
     ) internal {
-        // Validate target is a known account
-        address expectedAccount = accountFactory.getAccount(sourceAddress);
-        if (target != expectedAccount) {
-            revert InvalidTargetAccount();
-        }
-
         (bool valid, string memory reason) = IAccount(payable(target)).validateOperation(
             sourceAddress,
-            messageHash,
+            signBytes,
+            txPayloadHashOffset,
             r,
             s,
             x,
             y,
-            proof,
             sequence,
             txPayload
         );
@@ -184,22 +205,31 @@ contract EntryPoint is IEntryPoint {
             return;
         }
 
-        emit SignatureValidated(messageHash, r, s);
-        if (txPayload.length < SLOT_SIZE) {
+        bytes32 signBytesHash = sha256(signBytes);
+        emit SignatureValidated(signBytesHash, r, s);
+
+        // txPayload is ABI-encoded: (string chainId, address accountAddress, uint64 sequence, uint64 count)
+        // followed by packed calls data
+        // Count is at fixed offset 96 (slot 3: after string offset pointer, address, sequence)
+        if (txPayload.length < 128) {
             revert PayloadTooShort();
         }
 
-        uint64 count = abi.decode(txPayload[:SLOT_SIZE], (uint64));
-        if (count == 0) {
+        uint64 count = abi.decode(txPayload[96:128], (uint64));
+        if (count == 0 || count > MAX_BATCH_SIZE) {
             revert InvalidPayloadArray();
         }
 
-        if (count == 0 || count > MAX_BATCH_SIZE) { revert InvalidPayloadArray(); }
+        // Packed calls start after the entire ABI header (including string data)
+        uint256 callsStartOffset = _getCallsOffset(txPayload);
+        if (txPayload.length < callsStartOffset) {
+            revert PayloadTooShort();
+        }
 
         address[] memory destList = new address[](count);
         uint256[] memory valueList = new uint256[](count);
         bytes[] memory dataList = new bytes[](count);
-        uint256 offset = SLOT_SIZE;
+        uint256 offset = callsStartOffset;
         for (uint64 i = 0; i < count; i++) {
             address dest;
             uint256 value;
@@ -235,6 +265,50 @@ contract EntryPoint is IEntryPoint {
         }
 
         emit TransactionHandled(target, sequence);
+    }
+
+    /**
+     * @dev Decodes the txPayload header to extract chainId, target address, and sequence.
+     * @param txPayload The transaction payload.
+     * @return chainId The chain ID string.
+     * @return target The target account address.
+     * @return sequence The sequence number.
+     */
+    function _decodeTxPayloadHeader(bytes calldata txPayload) internal pure returns (string memory, address, uint64) {
+        // txPayload is ABI-encoded: (string chainId, address accountAddress, uint64 sequence, uint64 count, calls[])
+        // We need to decode chainId (dynamic), accountAddress, and sequence
+        (string memory chainId, address target, uint64 sequence) = abi.decode(
+            txPayload,
+            (string, address, uint64)
+        );
+        return (chainId, target, sequence);
+    }
+
+    /**
+     * @dev Gets the offset where packed calls data starts in txPayload.
+     * @param txPayload The transaction payload (ABI-encoded header + packed calls).
+     * @return The offset where packed calls data begins.
+     */
+    function _getCallsOffset(bytes calldata txPayload) internal pure returns (uint256) {
+        // ABI encoding layout for (string, address, uint64, uint64):
+        // - Slot 0 (0-32): offset to string data (points to slot 4 = 128)
+        // - Slot 1 (32-64): address
+        // - Slot 2 (64-96): uint64 sequence
+        // - Slot 3 (96-128): uint64 count
+        // - Slot 4 (128-160): string length
+        // - Slot 5+ (160+): string data (padded to 32 bytes)
+        //
+        // Packed calls data starts AFTER the entire ABI header
+
+        // Read the offset to string data from first slot
+        uint256 stringOffset = abi.decode(txPayload[:32], (uint256));
+        // String length is at stringOffset
+        uint256 stringLength = abi.decode(txPayload[stringOffset:stringOffset + 32], (uint256));
+        // String data is padded to 32 bytes
+        uint256 paddedStringLength = ((stringLength + 31) / 32) * 32;
+
+        // Packed calls start after: string offset slot + string length slot + padded string data
+        return stringOffset + 32 + paddedStringLength;
     }
 
     /**

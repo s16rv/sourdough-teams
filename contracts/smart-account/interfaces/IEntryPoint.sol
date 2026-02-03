@@ -59,6 +59,11 @@ interface IEntryPoint {
     error InvalidTargetAccount();
 
     /**
+     * @dev Error thrown when the chain ID in the payload doesn't match expected.
+     */
+    error InvalidChainId();
+
+    /**
      * @dev Event emitted when an account is created.
      * @param accountAddress The address of the newly created account.
      */

@@ -1,4 +1,4 @@
-import { AbiCoder } from "ethers";
+import { AbiCoder, keccak256 } from "ethers";
 
 export function combineHexStrings(hexString1: string, hexString2: string): string {
     const buffer1 = Buffer.from(hexString1.slice(2), "hex");
@@ -21,5 +21,118 @@ export function encodeMultiPayload(items: { dest: string; value: bigint; data: s
         payload = combineHexStrings(payload, fixed);
         payload = combineHexStrings(payload, it.data);
     }
+    return payload;
+}
+
+/**
+ * Encode the new txPayload structure.
+ * @param chainId The destination chain ID (e.g., "ethereum-1")
+ * @param accountAddress The destination smart account address
+ * @param sequence The replay protection nonce
+ * @param calls Array of calls to execute
+ * @returns The ABI-encoded txPayload
+ */
+export function encodeNewTxPayload(
+    chainId: string,
+    accountAddress: string,
+    sequence: bigint,
+    calls: { to: string; value: bigint; data: string }[]
+): string {
+    const coder = new AbiCoder();
+
+    // Encode the header: chainId (string), accountAddress (address), sequence (uint64), count (uint64)
+    const header = coder.encode(
+        ["string", "address", "uint64", "uint64"],
+        [chainId, accountAddress, sequence, BigInt(calls.length)]
+    );
+
+    // Encode calls: each call is to(32) + value(32) + dataLen(32) + data(variable)
+    let callsPayload = "0x";
+    for (const call of calls) {
+        const dataLen = BigInt((call.data.length - 2) / 2);
+        const callHeader = coder.encode(["address", "uint256", "uint256"], [call.to, call.value, dataLen]);
+        callsPayload = combineHexStrings(callsPayload === "0x" ? "0x" : callsPayload, callHeader);
+        if (call.data !== "0x" && call.data.length > 2) {
+            callsPayload = combineHexStrings(callsPayload, call.data);
+        }
+    }
+
+    if (callsPayload === "0x") {
+        return header;
+    }
+    return combineHexStrings(header, callsPayload);
+}
+
+/**
+ * Compute the keccak256 hash of a txPayload.
+ * @param txPayload The encoded txPayload
+ * @returns The keccak256 hash as a hex string
+ */
+export function computeTxPayloadHash(txPayload: string): string {
+    return keccak256(txPayload);
+}
+
+/**
+ * Create signBytes with embedded hash at a specific offset.
+ * This creates an AMINO_JSON-like structure with the hash embedded.
+ * @param txPayloadHash The keccak256 hash of txPayload
+ * @param prefix Optional prefix before the hash (default: some JSON-like structure)
+ * @param suffix Optional suffix after the hash (default: closing brace)
+ * @returns Object containing signBytes and the offset to the hash
+ */
+export function createSignBytes(
+    txPayloadHash: string,
+    prefix: string = '{"tx_hash":"',
+    suffix: string = '"}'
+): { signBytes: string; hashOffset: number } {
+    // Convert prefix to bytes and calculate offset
+    const prefixBytes = Buffer.from(prefix, "utf8");
+    const hashOffset = prefixBytes.length;
+
+    // The hash should include "0x" prefix in the signBytes
+    const fullString = prefix + txPayloadHash + suffix;
+    const signBytes = "0x" + Buffer.from(fullString, "utf8").toString("hex");
+
+    return { signBytes, hashOffset };
+}
+
+/**
+ * Encode the new payload format for Category 2 transactions.
+ * @param signBytes The signed message bytes (hex encoded)
+ * @param txPayloadHashOffset Offset to the hash in signBytes
+ * @param signatures Array of signatures with public keys
+ * @param txPayload The encoded txPayload
+ * @returns The full encoded payload
+ */
+export function encodeNewPayload(
+    signBytes: string,
+    txPayloadHashOffset: number,
+    signatures: { r: string; s: string; x: string; y: string }[],
+    txPayload: string
+): string {
+    const coder = new AbiCoder();
+
+    // Get signBytes as raw bytes (remove 0x prefix)
+    const signBytesBuffer = Buffer.from(signBytes.slice(2), "hex");
+    const signBytesLength = signBytesBuffer.length;
+
+    // Encode header: category(uint8), signBytesLength(uint256), txPayloadHashOffset(uint256), numberSigners(uint64)
+    const header = coder.encode(
+        ["uint8", "uint256", "uint256", "uint64"],
+        [2, signBytesLength, txPayloadHashOffset, BigInt(signatures.length)]
+    );
+
+    // Add signBytes (raw, not ABI encoded)
+    let payload = combineHexStrings(header, signBytes);
+
+    // Add signatures: r(32) + s(32) + x(32) + y(32) for each signer
+    for (const sig of signatures) {
+        const sigData = coder.encode(["bytes32", "bytes32", "bytes32", "bytes32"], [sig.r, sig.s, sig.x, sig.y]);
+        payload = combineHexStrings(payload, sigData);
+    }
+
+    // Add txPayload (raw, not ABI encoded)
+    payload = combineHexStrings(payload, txPayload);
+
     return payload;
 }

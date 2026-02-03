@@ -72,39 +72,48 @@ contract Account is IAccount {
     }
 
     /**
-     * @dev Validates an operation by verifying the provided signature against the stored signer.
+     * @dev Validates an operation by verifying the provided signatures over signBytes.
      * @param sourceAddress The address on the source chain where the transaction originated.
-     * @param messageHash The hash of the message to be validated.
+     * @param signBytes The AMINO_JSON message that was signed.
+     * @param txPayloadHashOffset The offset to the hash in signBytes (points to "0x" prefix).
      * @param r Part of the signature (r).
      * @param s Part of the signature (s).
-     * @param proof The proof of the transaction.
-     * @param data The data to pass to the destination contract.
+     * @param x Part of the public key (x).
+     * @param y Part of the public key (y).
+     * @param sequence The sequence number of the transaction.
+     * @param txPayload The transaction payload containing chainId, accountAddress, sequence, and calls.
      * @return A boolean indicating whether the signature is valid.
+     * @return A string reason for failure (empty if valid).
      */
     function validateOperation(
         string calldata sourceAddress,
-        bytes32 messageHash,
+        bytes calldata signBytes,
+        uint256 txPayloadHashOffset,
         bytes32[] memory r,
         bytes32[] memory s,
         bytes32[] memory x,
         bytes32[] memory y,
-        bytes32 proof,
         uint64 sequence,
-        bytes calldata data
+        bytes calldata txPayload
     ) external view returns (bool, string memory) {
+        // 1. Validate source address
         if (!compareSourceAddress(sourceAddress)) {
             return (false, "InvalidSourceAddress");
         }
 
+        // 2. Validate sequence
         if (sequence != accountSequence + 1) {
             return (false, "InvalidSequence");
         }
 
-        bytes32 expectedProof = sha256(abi.encodePacked(messageHash, data));
-        if (proof != expectedProof) {
-            return (false, "InvalidProof");
+        // 3. Extract and verify hash commitment
+        bytes32 expectedHash = _extractHashFromSignBytes(signBytes, txPayloadHashOffset);
+        bytes32 actualHash = keccak256(txPayload);
+        if (expectedHash != actualHash) {
+            return (false, "InvalidHashCommitment");
         }
 
+        // 4. Validate signature arrays
         if (x.length != y.length) {
             return (false, "InvalidPubKeyLength");
         }
@@ -117,7 +126,7 @@ contract Account is IAccount {
             return (false, "InvalidThreshold");
         }
 
-        // Check for duplicate public keys
+        // 5. Check for duplicate public keys
         for (uint64 i = 0; i < x.length; i++) {
             for (uint64 j = i + 1; j < x.length; j++) {
                 if (x[i] == x[j] && y[i] == y[j]) {
@@ -126,26 +135,71 @@ contract Account is IAccount {
             }
         }
 
-        // check if x and y is included in the xPubKeys and yPubKeys
+        // 6. Validate public keys are authorized
         for (uint64 i = 0; i < x.length; i++) {
+            bool found = false;
             for (uint64 j = 0; j < xPubKeys.length; j++) {
                 if (x[i] == xPubKeys[j] && y[i] == yPubKeys[j]) {
+                    found = true;
                     break;
                 }
-                if (j == xPubKeys.length - 1) {
-                    return (false, "InvalidPubKey");
-                }
+            }
+            if (!found) {
+                return (false, "InvalidPubKey");
             }
         }
 
+        // 7. Verify signatures against sha256(signBytes)
+        bytes32 signBytesHash = sha256(signBytes);
         for (uint64 i = 0; i < x.length; i++) {
-            bool isValidSignature = SignatureVerifier.verifySignature(verifier, messageHash, r[i], s[i], x[i], y[i]);
+            bool isValidSignature = SignatureVerifier.verifySignature(verifier, signBytesHash, r[i], s[i], x[i], y[i]);
             if (!isValidSignature) {
                 return (false, "InvalidSignature");
             }
         }
 
         return (true, "");
+    }
+
+    /**
+     * @dev Extract bytes32 hash from hex string in signBytes at given offset.
+     * @param signBytes The signed message bytes.
+     * @param offset Offset to "0x" prefix of 66-char hex string.
+     * @return The parsed bytes32 hash, or bytes32(0) if parsing fails (except for out-of-bounds which reverts).
+     */
+    function _extractHashFromSignBytes(bytes calldata signBytes, uint256 offset) internal pure returns (bytes32) {
+        // Out of bounds is a fundamental error - revert
+        if (signBytes.length < offset + 66) revert InvalidHashOffset();
+
+        // Invalid "0x" prefix - return 0 to cause hash mismatch (will be caught as InvalidHashCommitment)
+        if (signBytes[offset] != "0" || signBytes[offset + 1] != "x") {
+            return bytes32(0);
+        }
+
+        bytes32 result;
+        for (uint256 i = 0; i < 32; i++) {
+            (uint8 hi, bool hiValid) = _hexCharToValueSafe(signBytes[offset + 2 + i * 2]);
+            (uint8 lo, bool loValid) = _hexCharToValueSafe(signBytes[offset + 3 + i * 2]);
+            // Invalid hex character - return 0 to cause hash mismatch
+            if (!hiValid || !loValid) {
+                return bytes32(0);
+            }
+            result |= bytes32(bytes1(hi * 16 + lo)) >> (i * 8);
+        }
+        return result;
+    }
+
+    /**
+     * @dev Convert a hex character to its numeric value (safe version that returns validity).
+     * @param char The hex character (0-9, a-f, A-F).
+     * @return value The numeric value (0-15).
+     * @return valid Whether the character is a valid hex character.
+     */
+    function _hexCharToValueSafe(bytes1 char) internal pure returns (uint8 value, bool valid) {
+        if (char >= "0" && char <= "9") return (uint8(char) - 48, true);
+        if (char >= "a" && char <= "f") return (uint8(char) - 87, true);
+        if (char >= "A" && char <= "F") return (uint8(char) - 55, true);
+        return (0, false);
     }
 
     /**

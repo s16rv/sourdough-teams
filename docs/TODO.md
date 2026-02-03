@@ -17,8 +17,8 @@ Tracking missing functionality, security fixes, and improvements for audit readi
 - [x] **ReentrancyGuard for RoutingRailgun** - FIXED: Added OpenZeppelin's `ReentrancyGuard` with `nonReentrant` modifier on `refund()` and `executeRailgunCall()`.
 - [x] **Debug events** - KEPT: DebugReason, DebugTxHash, DebugError events retained for debugging. Zero-cost when not triggered, valuable for diagnosing failures.
 - [ ] **Recovery path chain binding** - `recoverTransaction` has no chain_id validation. Add `chainId` to `recoverProposal` payload and validate against `block.chainid` to prevent cross-chain replay if same account exists on multiple chains via CREATE2
-- [ ] **Owner signature doesn't bind to data** - In normal path, owner signs `messageHash` but not `data`. The `proof = sha256(messageHash || data)` binds them, but `proof` itself isn't signed. Payload integrity relies entirely on MPC signature. If MPC is compromised, attacker could substitute `data` and compute valid `proof`. Consider: should `messageHash` on source chain include commitment to `data`? Or is MPC trust acceptable?
-- [ ] **chain_id validation missing** - Neither normal path nor recovery path validates `block.chainid` at Account level. Normal path only has it in MPC txHash. Add explicit chain_id validation in Account contract for both paths.
+- [x] **Owner signature doesn't bind to data** - FIXED: New payload format includes hash commitment in signBytes. Owner signs `sha256(signBytes)` which contains `keccak256(txPayload)`. Account verifies `keccak256(txPayload) == extractedHash` before execution.
+- [ ] **chain_id validation (numeric)** - Current implementation validates chainId as string (e.g., "ethereum-1"). Should migrate to use `block.chainid` (numeric) for stronger validation. String comparison is gas-inefficient and requires hardcoded constant. Recovery path also needs chain_id validation.
 
 ## Gas Optimizations
 
@@ -33,7 +33,7 @@ Tracking missing functionality, security fixes, and improvements for audit readi
 
 ## Testing
 
-- [x] **Unit tests** - 184 tests, 87%+ coverage for production contracts
+- [x] **Unit tests** - 174 tests, 87%+ coverage for production contracts
 - [x] **Security tests** - Access control, reentrancy, error paths covered
 - [x] **Integration tests** - Full flow from MPCGateway to Account execution
 - [x] **Batch limits** - MAX_BATCH_SIZE (20) enforcement verified
@@ -43,7 +43,7 @@ Tracking missing functionality, security fixes, and improvements for audit readi
 - [ ] **Fork tests** - Test RoutingRailgun against real Railgun on mainnet fork
 - [ ] **Secp256k1Verifier edge cases** - Point-at-infinity and EC math edge cases (81% coverage)
 
-### Test Coverage Summary (as of 2026-01-31)
+### Test Coverage Summary (as of 2026-02-03)
 
 | Contract              | Lines  | Notes                         |
 | --------------------- | ------ | ----------------------------- |
@@ -86,7 +86,6 @@ Tracking missing functionality, security fixes, and improvements for audit readi
 
 - [ ] Define RoutingRailgun controller expectations (always Account? can be EOA?)
 - [ ] **Grants system** - Delegation/grants not implemented (planned feature from CosmWasm version). Confirm requirements with team.
-- [ ] **Owner signature doesn't bind to data** - In normal path, owner signs `messageHash` but not `data`. The `proof = sha256(messageHash || data)` binds them, but `proof` itself isn't signed. Payload integrity relies entirely on MPC signature. If MPC is compromised, attacker could substitute `data` and compute valid `proof`. Consider: should `messageHash` on source chain include commitment to `data`? Or is MPC trust acceptable?
 - [ ] **Use ecrecover instead of custom Secp256k1Verifier** - Current signature verification costs ~50,000-80,000 gas per signer using pure Solidity EC math. Native `ecrecover` precompile costs ~3,000 gas (15-25x cheaper). Requires storing signer addresses instead of raw public key coordinates (x, y), and signatures must include `v` recovery parameter. For 3 signers: saves ~171,000 gas per transaction. Tradeoff: changes signer storage model.
 - [ ] **Multiple accounts per source address** - Currently AccountFactory enforces 1 account per source address. sd-ica (CosmWasm version) allows multiple accounts per source address. Consider adding an `accountIndex` parameter to CREATE2 salt to allow users to create multiple accounts (e.g., for different purposes like trading vs savings). Tradeoffs:
     - Current: simpler lookup, prevents accidental duplicates

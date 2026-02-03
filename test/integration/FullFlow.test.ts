@@ -5,7 +5,13 @@ import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 
 import { Account, AccountFactory, EntryPoint, MPCGateway, MPCVerifier, Secp256k1Verifier } from "../../typechain-types";
 import { generateSignatureWithMnemonic, getPublicKeyFromMnemonic } from "../../scripts/generateSignature";
-import { combineHexStrings, encodeMultiPayload } from "../utils/lib";
+import {
+    combineHexStrings,
+    encodeNewTxPayload,
+    computeTxPayloadHash,
+    createSignBytes,
+    encodeNewPayload,
+} from "../utils/lib";
 
 /**
  * Full integration tests: MPCGateway -> EntryPoint -> Account
@@ -20,6 +26,7 @@ describe("Integration: Full Flow", function () {
     const SOURCE_CHAIN = "sourdough-1";
     const SOURCE_ADDRESS = "neutron1chcktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
     const DESTINATION_CHAIN = "ethereum";
+    const CHAIN_ID = "ethereum-1"; // Chain ID for txPayload
 
     let mpcGateway: MPCGateway;
     let mpcVerifier: MPCVerifier;
@@ -39,6 +46,42 @@ describe("Integration: Full Flow", function () {
     const MPC_MNEMONIC = "test test test test test test test test test test test junk";
     let mpcPublicKeyX: string;
     let mpcPublicKeyY: string;
+
+    /**
+     * Helper function to create a new format payload for Category 2 transactions
+     */
+    async function createNewFormatPayload(
+        accountAddress: string,
+        sequence: bigint,
+        calls: { to: string; value: bigint; data: string }[],
+        signerMnemonic: string,
+        signerPubKeyX: string,
+        signerPubKeyY: string
+    ): Promise<string> {
+        // 1. Encode txPayload with chainId, accountAddress, sequence, calls
+        const txPayload = encodeNewTxPayload(CHAIN_ID, accountAddress, sequence, calls);
+
+        // 2. Compute hash of txPayload
+        const txPayloadHash = computeTxPayloadHash(txPayload);
+
+        // 3. Create signBytes with embedded hash
+        const { signBytes, hashOffset } = createSignBytes(txPayloadHash);
+
+        // 4. Sign sha256(signBytes) with user's key
+        // Note: generateSignatureWithMnemonic computes sha256 internally, so we pass the raw signBytes content
+        const signBytesBuffer = Buffer.from(signBytes.slice(2), "hex");
+        const userSig = await generateSignatureWithMnemonic(signerMnemonic, signBytesBuffer.toString("hex"));
+
+        // 5. Encode the full payload
+        const fullPayload = encodeNewPayload(
+            signBytes,
+            hashOffset,
+            [{ r: userSig.r, s: userSig.s, x: signerPubKeyX, y: signerPubKeyY }],
+            txPayload
+        );
+
+        return fullPayload;
+    }
 
     beforeEach(async function () {
         [owner, mpcOwner, relayer] = await hre.ethers.getSigners();
@@ -115,64 +158,26 @@ describe("Integration: Full Flow", function () {
             const initialRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
             const accountSequence = await account.accountSequence();
 
-            // 1. Prepare the transaction payload for Account
-            const txPayload = encodeMultiPayload([{ dest: RECIPIENT_ADDRESS, value: amountToSend, data: "0x" }]);
-
-            // 2. Create messageHash preimage and hash
-            // generateSignatureWithMnemonic hashes its input, so we pass the preimage
-            const messageHashPreimage = new AbiCoder().encode(
-                ["string", "uint64", "address", "uint256"],
-                [SOURCE_ADDRESS, accountSequence + 1n, RECIPIENT_ADDRESS, amountToSend]
+            // 1. Create the new format payload for EntryPoint
+            const fullPayload = await createNewFormatPayload(
+                accountAddress,
+                accountSequence + 1n,
+                [{ to: RECIPIENT_ADDRESS, value: amountToSend, data: "0x" }],
+                TEST_MNEMONIC,
+                publicKeyX[0],
+                publicKeyY[0]
             );
-            const messageHash = sha256(messageHashPreimage);
 
-            // 3. Compute proof = sha256(messageHash || txPayload)
-            const proof = sha256(combineHexStrings(messageHash, txPayload));
-
-            // 4. Sign the preimage with user's key (generateSignatureWithMnemonic will hash it to get messageHash)
-            const userSig = await generateSignatureWithMnemonic(TEST_MNEMONIC, messageHashPreimage.slice(2));
-
-            // 5. Encode the EntryPoint payload (category 2 = transaction)
-            const entryPointPayload = new AbiCoder().encode(
-                [
-                    "uint8",
-                    "address",
-                    "bytes32",
-                    "bytes32",
-                    "uint64",
-                    "uint64",
-                    "bytes32",
-                    "bytes32",
-                    "bytes32",
-                    "bytes32",
-                ],
-                [
-                    2, // category
-                    accountAddress,
-                    messageHash,
-                    proof,
-                    accountSequence + 1n,
-                    1, // numberSigners
-                    userSig.r,
-                    userSig.s,
-                    publicKeyX[0],
-                    publicKeyY[0],
-                ]
-            );
-            const fullPayload = combineHexStrings(entryPointPayload, txPayload);
-
-            // 6. Compute txHash preimage for MPC signature
-            // generateSignatureWithMnemonic hashes its input, so we pass the preimage
-            // txHash = sha256(abi.encode(sourceChain, sourceAddress, destChain, destAddress, payload))
+            // 2. Compute txHash preimage for MPC signature
             const txHashPreimage = new AbiCoder().encode(
                 ["string", "string", "string", "address", "bytes"],
                 [SOURCE_CHAIN, SOURCE_ADDRESS, DESTINATION_CHAIN, entryPoint.target, fullPayload]
             );
 
-            // 7. Sign txHash preimage with MPC key (generateSignatureWithMnemonic will hash it to get txHash)
+            // 3. Sign txHash preimage with MPC key
             const mpcSig = await generateSignatureWithMnemonic(MPC_MNEMONIC, txHashPreimage.slice(2));
 
-            // 8. Execute via MPCGateway
+            // 4. Execute via MPCGateway
             const tx = await mpcGateway
                 .connect(relayer)
                 .executeContractCall(
@@ -185,17 +190,17 @@ describe("Integration: Full Flow", function () {
                     fullPayload
                 );
 
-            // 9. Verify the transaction succeeded
+            // 5. Verify the transaction succeeded
             await expect(tx)
                 .to.emit(mpcGateway, "ContractCallApproved")
                 .and.to.emit(mpcGateway, "ContractCallExecuted")
                 .and.to.emit(entryPoint, "TransactionHandled");
 
-            // 10. Verify funds transferred
+            // 6. Verify funds transferred
             const finalRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
             expect(finalRecipientBalance).to.equal(initialRecipientBalance + amountToSend);
 
-            // 11. Verify sequence incremented
+            // 7. Verify sequence incremented
             expect(await account.accountSequence()).to.equal(accountSequence + 1n);
         });
 
@@ -204,44 +209,14 @@ describe("Integration: Full Flow", function () {
             const accountAddress = await account.getAddress();
             const accountSequence = await account.accountSequence();
 
-            const txPayload = encodeMultiPayload([{ dest: RECIPIENT_ADDRESS, value: amountToSend, data: "0x" }]);
-
-            const messageHashPreimage = new AbiCoder().encode(
-                ["string", "uint64", "address", "uint256"],
-                [SOURCE_ADDRESS, accountSequence + 1n, RECIPIENT_ADDRESS, amountToSend]
+            const fullPayload = await createNewFormatPayload(
+                accountAddress,
+                accountSequence + 1n,
+                [{ to: RECIPIENT_ADDRESS, value: amountToSend, data: "0x" }],
+                TEST_MNEMONIC,
+                publicKeyX[0],
+                publicKeyY[0]
             );
-            const messageHash = sha256(messageHashPreimage);
-            const proof = sha256(combineHexStrings(messageHash, txPayload));
-
-            const userSig = await generateSignatureWithMnemonic(TEST_MNEMONIC, messageHashPreimage.slice(2));
-
-            const entryPointPayload = new AbiCoder().encode(
-                [
-                    "uint8",
-                    "address",
-                    "bytes32",
-                    "bytes32",
-                    "uint64",
-                    "uint64",
-                    "bytes32",
-                    "bytes32",
-                    "bytes32",
-                    "bytes32",
-                ],
-                [
-                    2,
-                    accountAddress,
-                    messageHash,
-                    proof,
-                    accountSequence + 1n,
-                    1,
-                    userSig.r,
-                    userSig.s,
-                    publicKeyX[0],
-                    publicKeyY[0],
-                ]
-            );
-            const fullPayload = combineHexStrings(entryPointPayload, txPayload);
 
             // Use WRONG MPC key to sign
             const WRONG_MPC_MNEMONIC = "legal winner thank year wave sausage worth useful legal winner thank yellow";
@@ -272,44 +247,14 @@ describe("Integration: Full Flow", function () {
             const accountAddress = await account.getAddress();
             const accountSequence = await account.accountSequence();
 
-            const txPayload = encodeMultiPayload([{ dest: RECIPIENT_ADDRESS, value: amountToSend, data: "0x" }]);
-
-            const messageHashPreimage = new AbiCoder().encode(
-                ["string", "uint64", "address", "uint256"],
-                [SOURCE_ADDRESS, accountSequence + 1n, RECIPIENT_ADDRESS, amountToSend]
+            const fullPayload = await createNewFormatPayload(
+                accountAddress,
+                accountSequence + 1n,
+                [{ to: RECIPIENT_ADDRESS, value: amountToSend, data: "0x" }],
+                TEST_MNEMONIC,
+                publicKeyX[0],
+                publicKeyY[0]
             );
-            const messageHash = sha256(messageHashPreimage);
-            const proof = sha256(combineHexStrings(messageHash, txPayload));
-
-            const userSig = await generateSignatureWithMnemonic(TEST_MNEMONIC, messageHashPreimage.slice(2));
-
-            const entryPointPayload = new AbiCoder().encode(
-                [
-                    "uint8",
-                    "address",
-                    "bytes32",
-                    "bytes32",
-                    "uint64",
-                    "uint64",
-                    "bytes32",
-                    "bytes32",
-                    "bytes32",
-                    "bytes32",
-                ],
-                [
-                    2,
-                    accountAddress,
-                    messageHash,
-                    proof,
-                    accountSequence + 1n,
-                    1,
-                    userSig.r,
-                    userSig.s,
-                    publicKeyX[0],
-                    publicKeyY[0],
-                ]
-            );
-            const fullPayload = combineHexStrings(entryPointPayload, txPayload);
 
             const txHashPreimage = new AbiCoder().encode(
                 ["string", "string", "string", "address", "bytes"],
@@ -355,44 +300,14 @@ describe("Integration: Full Flow", function () {
             for (let i = 0; i < 3; i++) {
                 const accountSequence = await account.accountSequence();
 
-                const txPayload = encodeMultiPayload([{ dest: RECIPIENT_ADDRESS, value: amountToSend, data: "0x" }]);
-
-                const messageHashPreimage = new AbiCoder().encode(
-                    ["string", "uint64", "address", "uint256", "uint256"],
-                    [SOURCE_ADDRESS, accountSequence + 1n, RECIPIENT_ADDRESS, amountToSend, i]
+                const fullPayload = await createNewFormatPayload(
+                    accountAddress,
+                    accountSequence + 1n,
+                    [{ to: RECIPIENT_ADDRESS, value: amountToSend, data: "0x" }],
+                    TEST_MNEMONIC,
+                    publicKeyX[0],
+                    publicKeyY[0]
                 );
-                const messageHash = sha256(messageHashPreimage);
-                const proof = sha256(combineHexStrings(messageHash, txPayload));
-
-                const userSig = await generateSignatureWithMnemonic(TEST_MNEMONIC, messageHashPreimage.slice(2));
-
-                const entryPointPayload = new AbiCoder().encode(
-                    [
-                        "uint8",
-                        "address",
-                        "bytes32",
-                        "bytes32",
-                        "uint64",
-                        "uint64",
-                        "bytes32",
-                        "bytes32",
-                        "bytes32",
-                        "bytes32",
-                    ],
-                    [
-                        2,
-                        accountAddress,
-                        messageHash,
-                        proof,
-                        accountSequence + 1n,
-                        1,
-                        userSig.r,
-                        userSig.s,
-                        publicKeyX[0],
-                        publicKeyY[0],
-                    ]
-                );
-                const fullPayload = combineHexStrings(entryPointPayload, txPayload);
 
                 const txHashPreimage = new AbiCoder().encode(
                     ["string", "string", "string", "address", "bytes"],

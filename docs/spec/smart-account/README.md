@@ -5,7 +5,7 @@ category: Contract
 kind: instantiation
 author: S16 Research Ventures <team@s16.ventures>
 created: 2025-05-08
-modified: 2026-01-30
+modified: 2026-02-03
 requires:
 version compatibility:
 ---
@@ -27,8 +27,9 @@ This protocol establishes a unified authentication mechanism that operates seaml
 - `AccountFactory`: A factory contract for deploying new Account instances via CREATE2.
 - `Secp256k1Verifier`: A contract implementing EIP-7212 compatible secp256k1 signature verification.
 - `addrHash`: A keccak256 hash of the source chain address, used to bind the account to a specific source identity.
-- `messageHash`: A hash computed on the source chain that gets signed by account owners.
-- `proof`: A binding value `sha256(messageHash || data)` that links the signed message to the execution payload.
+- `signBytes`: The AMINO_JSON message signed by account owners on the source chain. Contains an embedded hash commitment to the txPayload.
+- `txPayload`: The ABI-encoded transaction payload containing chainId, accountAddress, sequence, and calls to execute.
+- `txPayloadHashOffset`: The byte offset within signBytes where the keccak256(txPayload) hash is embedded (pointing to the "0x" prefix).
 
 ## Desired Properties
 
@@ -36,6 +37,7 @@ This protocol establishes a unified authentication mechanism that operates seaml
 - `Threshold Security`: Requires M-of-N valid signatures to authorize transactions.
 - `Censorship Resistance`: Recovery path allows direct transaction execution bypassing infrastructure.
 - `Immutability`: Account signers and threshold cannot be changed after creation.
+- `Hash Commitment`: Owner signatures cryptographically bind to the exact transaction payload via hash commitment in signBytes.
 
 ## Technical Specification
 
@@ -57,6 +59,43 @@ Recovery Path (censorship resistant):
 
 ### Data Structures
 
+#### Payload Format (Category 2 - Transaction Execution)
+
+```
+┌─────────────────────────┬────────────┐
+│ category (uint8)        │ 32 bytes   │
+├─────────────────────────┼────────────┤
+│ signBytesLength (uint256)│ 32 bytes  │
+├─────────────────────────┼────────────┤
+│ txPayloadHashOffset     │ 32 bytes   │
+├─────────────────────────┼────────────┤
+│ numberSigners (uint64)  │ 32 bytes   │
+├─────────────────────────┼────────────┤
+│ signBytes (bytes)       │ variable   │  ← AMINO_JSON message with embedded hash
+├─────────────────────────┼────────────┤
+│ signatures              │ 128 × N    │  ← (r, s, x, y) for each signer
+├─────────────────────────┼────────────┤
+│ txPayload (bytes)       │ variable   │  ← ABI-encoded transaction data
+└─────────────────────────┴────────────┘
+```
+
+#### txPayload Structure
+
+```
+ABI-encoded: (string chainId, address accountAddress, uint64 sequence, uint64 count)
+followed by packed calls:
+┌─────────────────────────┬────────────┐
+│ dest (address)          │ 32 bytes   │
+├─────────────────────────┼────────────┤
+│ value (uint256)         │ 32 bytes   │
+├─────────────────────────┼────────────┤
+│ dataLen (uint256)       │ 32 bytes   │
+├─────────────────────────┼────────────┤
+│ data (bytes)            │ dataLen    │
+└─────────────────────────┴────────────┘
+(repeated for each call)
+```
+
 #### Account Contract
 
 ```solidity
@@ -67,12 +106,18 @@ interface IAccount {
     error InvalidPubKey();
     error NotEntryPoint();
     error InvalidSourceAddress();
-    error InvalidProof();
     error InvalidAuthorization();
     error InvalidSequence();
     error InvalidInputLength();
+    error InvalidPubKeyLength();
+    error InvalidSignatureLength();
+    error DuplicatePubKey();
     error NotExecutable();
     error InvalidPayload();
+    error InvalidHashOffset();
+    error InvalidHexPrefix();
+    error InvalidHexCharacter();
+    error InvalidHashCommitment();
 
     // Events
     event AccountInitialized(address indexed verifier);
@@ -89,14 +134,14 @@ interface IAccount {
 
     function validateOperation(
         string calldata sourceAddress,
-        bytes32 messageHash,
+        bytes calldata signBytes,
+        uint256 txPayloadHashOffset,
         bytes32[] memory r,
         bytes32[] memory s,
         bytes32[] memory x,
         bytes32[] memory y,
-        bytes32 proof,
         uint64 sequence,
-        bytes calldata data
+        bytes calldata txPayload
     ) external view returns (bool, string memory);
 
     function executeTransactions(
@@ -162,11 +207,14 @@ interface IEntryPoint {
     error NotExecutor();
     error InvalidPayloadArray();
     error InvalidTargetAccount();
+    error InvalidChainId();
+    error ZeroAddress();
+    error OnlyOwner();
 
     // Events
     event AccountCreated(address indexed accountAddress);
     event TransactionHandled(address indexed target, uint256 indexed sequence);
-    event SignatureValidated(bytes32 indexed messageHash, bytes32[] indexed r, bytes32[] indexed s);
+    event SignatureValidated(bytes32 indexed signBytesHash, bytes32[] indexed r, bytes32[] indexed s);
     event Executed(string sourceChain, string sourceAddress);
     event DebugReason(string str);
 
@@ -198,11 +246,15 @@ When EntryPoint receives a payload with `category == 1`:
 When EntryPoint receives a payload with `category == 2`:
 
 ```
-1. Decode payload: (target, messageHash, proof, sequence, numberSigners, [r[], s[], x[], y[]], txPayload)
-2. Call Account.validateOperation(sourceAddress, messageHash, r, s, x, y, proof, sequence, txPayload)
-3. If valid, decode txPayload into (destList[], valueList[], dataList[])
-4. Call Account.executeTransactions(destList, valueList, dataList)
-5. Emit TransactionHandled event
+1. Decode header: (signBytesLength, txPayloadHashOffset, numberSigners)
+2. Extract signBytes, signatures (r[], s[], x[], y[]), and txPayload
+3. Decode txPayload header: (chainId, accountAddress, sequence)
+4. Validate chainId matches expected chain ID
+5. Validate accountAddress matches account for sourceAddress
+6. Call Account.validateOperation(sourceAddress, signBytes, txPayloadHashOffset, r, s, x, y, sequence, txPayload)
+7. If valid, decode calls from txPayload
+8. Call Account.executeTransactions(destList, valueList, dataList)
+9. Emit TransactionHandled event
 ```
 
 #### validateOperation
@@ -212,13 +264,22 @@ Validates a transaction request in the normal path:
 ```
 1. Compare hash(sourceAddress) against stored addrHash (source binding)
 2. Check sequence == accountSequence + 1 (replay protection)
-3. Verify proof == sha256(messageHash || data) (payload binding)
-4. Check provided public keys are subset of stored xPubKeys/yPubKeys
-5. Check number of signatures >= threshold
-6. Check for duplicate public keys
-7. For each signature: verify against messageHash using Secp256k1Verifier
-8. Return (true, "") if all checks pass
+3. Extract hash from signBytes at txPayloadHashOffset
+4. Verify keccak256(txPayload) == extractedHash (hash commitment)
+5. Validate signature array lengths match
+6. Check number of signatures >= threshold
+7. Check for duplicate public keys
+8. Check provided public keys are subset of stored xPubKeys/yPubKeys
+9. For each signature: verify against sha256(signBytes) using Secp256k1Verifier
+10. Return (true, "") if all checks pass
 ```
+
+The hash extraction process:
+
+1. Read 66 characters starting at txPayloadHashOffset (expects "0x" + 64 hex chars)
+2. Verify "0x" prefix exists
+3. Parse hex string to bytes32
+4. Compare against keccak256(txPayload)
 
 #### recoverTransaction
 
@@ -234,8 +295,8 @@ Censorship-resistant recovery path that bypasses MPC infrastructure:
 5. Validate txPayload starts with recoverProposal selector
 6. Decode txPayload: (sequence, dest, value, data)
 7. Check sequence == accountSequence + 1
-8. Execute _call(dest, value, data)
-9. Increment accountSequence
+8. Increment accountSequence (before external call - CEI pattern)
+9. Execute _call(dest, value, data)
 ```
 
 The `recoverProposal` function signature defines the expected payload format:
@@ -250,13 +311,14 @@ This function always reverts and exists only as a template for constructing `txP
 
 Every transaction should validate:
 
-| Requirement    | Normal Path                                | Recovery Path                     |
-| -------------- | ------------------------------------------ | --------------------------------- |
-| chain_id       | In MPC txHash                              | **NOT VALIDATED** (TODO)          |
-| target_address | In MPC txHash, routed by Gateway           | Implicit (calling the contract)   |
-| source_address | `compareSourceAddress()`                   | Not applicable (pubkey auth)      |
-| sequence       | `sequence == accountSequence + 1`          | `sequence == accountSequence + 1` |
-| auth           | Owner signs messageHash, MPC signs payload | Owner signs txPayload directly    |
+| Requirement    | Normal Path                                       | Recovery Path                     |
+| -------------- | ------------------------------------------------- | --------------------------------- |
+| chain_id       | Validated in EntryPoint against EXPECTED_CHAIN_ID | **NOT VALIDATED** (TODO)          |
+| target_address | Validated in EntryPoint against account lookup    | Implicit (calling the contract)   |
+| source_address | `compareSourceAddress()`                          | Not applicable (pubkey auth)      |
+| sequence       | `sequence == accountSequence + 1`                 | `sequence == accountSequence + 1` |
+| hash_commit    | `keccak256(txPayload) == extractedHash`           | Not applicable (direct signing)   |
+| auth           | Owner signs sha256(signBytes), MPC signs payload  | Owner signs sha256(txPayload)     |
 
 ### Security Considerations
 
@@ -265,27 +327,39 @@ Every transaction should validate:
 - Uses secp256k1 ECDSA via `Secp256k1Verifier` (EIP-7212 compatible)
 - Verifies threshold number of valid signatures from registered public keys
 - Checks for duplicate public keys to prevent signature reuse
+- Normal path: signatures verified against `sha256(signBytes)`
+- Recovery path: signatures verified against `sha256(txPayload)`
 
 #### Replay Protection
 
 - `accountSequence` increments after each successful transaction
 - Sequence must be exactly `accountSequence + 1` (no gaps, no reuse)
+- Sequence is incremented BEFORE external calls (Checks-Effects-Interactions pattern)
 
 #### Source Binding
 
 - `addrHash` is set at account creation from `keccak256(sourceAddress)`
 - All transactions must originate from the bound source address
 
-#### Proof Binding
+#### Hash Commitment (Normal Path)
 
-- `proof = sha256(messageHash || data)` binds the signed message to the execution payload
-- Prevents substitution of execution data after signing
+- Owner signs `sha256(signBytes)` on the source chain
+- `signBytes` contains an embedded `keccak256(txPayload)` hash at a known offset
+- Account extracts and verifies this hash commitment before execution
+- This cryptographically binds the owner's signature to the exact transaction payload
+- Prevents any party (including compromised MPC) from substituting transaction data
+
+#### Chain ID Validation
+
+- EntryPoint validates `chainId` in txPayload against `EXPECTED_CHAIN_ID`
+- Currently uses string comparison (e.g., "ethereum-1")
+- TODO: Migrate to numeric `block.chainid` for stronger validation
 
 ### Known Limitations
 
 - Recovery path does not validate `chain_id` (cross-chain replay risk if same account on multiple chains)
-- Owner signature doesn't directly bind to execution `data` in normal path (relies on MPC for payload integrity)
-- Debug events should be removed for production
+- Chain ID validation uses string comparison instead of numeric `block.chainid`
+- Debug events (DebugReason) are retained for production debugging (zero gas cost when not triggered)
 
 ## Example Implementations
 
@@ -296,6 +370,7 @@ Every transaction should validate:
 
 - May 8, 2025 - Draft written
 - January 30, 2026 - Updated to reflect current implementation (multisig model, batch transactions, recovery path, removed recover address field)
+- February 3, 2026 - Updated payload format with hash commitment (signBytes + txPayloadHashOffset), chainId validation
 
 ## Copyright
 

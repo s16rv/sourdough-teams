@@ -2,6 +2,7 @@
 pragma solidity ^0.8.21;
 
 import "../smart-account/interfaces/IEntryPoint.sol";
+import "../smart-account/interfaces/IAccount.sol";
 
 contract MockEntryPoint is IEntryPoint {
     bool private shouldSucceed = true;
@@ -23,7 +24,7 @@ contract MockEntryPoint is IEntryPoint {
     ) external override returns (bool) {
         // Emit the event for testing purposes
         emit Executed(_sourceChain, _sourceAddress);
-        
+
         // Return the configured success value
         return shouldSucceed;
     }
@@ -31,5 +32,15 @@ contract MockEntryPoint is IEntryPoint {
     function setExecutor(address _executor, bool _isExecutor) external override {
         require(msg.sender == owner, "Only owner can set executor");
         executors[_executor] = _isExecutor;
+    }
+
+    // Helper for testing: call executeTransactions on an Account
+    function callExecuteTransactions(
+        address account,
+        address[] calldata destList,
+        uint256[] calldata valueList,
+        bytes[] calldata dataList
+    ) external returns (bool) {
+        return IAccount(payable(account)).executeTransactions(destList, valueList, dataList);
     }
 }

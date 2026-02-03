@@ -70,6 +70,26 @@ interface IAccount {
     error InvalidPayload();
 
     /**
+     * @dev Error thrown when the hash offset in signBytes is invalid.
+     */
+    error InvalidHashOffset();
+
+    /**
+     * @dev Error thrown when the hex prefix is invalid (not "0x").
+     */
+    error InvalidHexPrefix();
+
+    /**
+     * @dev Error thrown when an invalid hex character is encountered.
+     */
+    error InvalidHexCharacter();
+
+    /**
+     * @dev Error thrown when the hash commitment verification fails.
+     */
+    error InvalidHashCommitment();
+
+    /**
      * @dev Event emitted when the account is initialized.
      * @param verifier The verifier address of the account.
      */
@@ -84,26 +104,29 @@ interface IAccount {
     event TransactionExecuted(address indexed dest, uint256 value, bytes data);
 
     /**
-     * @dev Validates an operation by verifying the provided signature.
+     * @dev Validates an operation by verifying the provided signatures over signBytes.
      * @param sourceAddress The address on the source chain where the transaction originated.
-     * @param messageHash The hash of the message to be validated.
+     * @param signBytes The AMINO_JSON message that was signed.
+     * @param txPayloadHashOffset The offset to the hash in signBytes (points to "0x" prefix).
      * @param r Part of the signature (r).
      * @param s Part of the signature (s).
-     * @param proof The proof of the transaction.
+     * @param x Part of the public key (x).
+     * @param y Part of the public key (y).
      * @param sequence The sequence number of the transaction.
-     * @param data The data to pass to the destination contract.
+     * @param txPayload The transaction payload containing chainId, accountAddress, sequence, and calls.
      * @return bool indicating whether the signature is valid.
+     * @return string reason for failure (empty if valid).
      */
     function validateOperation(
         string calldata sourceAddress,
-        bytes32 messageHash,
+        bytes calldata signBytes,
+        uint256 txPayloadHashOffset,
         bytes32[] memory r,
         bytes32[] memory s,
         bytes32[] memory x,
         bytes32[] memory y,
-        bytes32 proof,
         uint64 sequence,
-        bytes calldata data
+        bytes calldata txPayload
     ) external view returns (bool, string memory);
 
     /**
