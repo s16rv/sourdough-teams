@@ -116,6 +116,7 @@ contract MPCGateway is IMPCGateway {
         );
         if (!isApproved) {
             emit DebugError("TransactionNotApproved");
+            executedCalls[txHash] = false;
             return false;
         }
 
@@ -128,6 +129,7 @@ contract MPCGateway is IMPCGateway {
         );
         if (!result) {
             emit DebugError("CallFailed");
+            executedCalls[txHash] = false;
             return false;
         }
 
