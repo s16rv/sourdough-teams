@@ -22,7 +22,7 @@ Tracking missing functionality, security fixes, and improvements for audit readi
 
 ## Gas Optimizations
 
-- [ ] **Use ecrecover instead of custom Secp256k1Verifier** - Current signature verification costs ~50,000-80,000 gas per signer using pure Solidity EC math. Native `ecrecover` precompile costs ~3,000 gas (15-25x cheaper). Requires storing signer addresses instead of raw public key coordinates (x, y), and signatures must include `v` recovery parameter. For 3 signers: saves ~171,000 gas per transaction.
+- [x] **Use ecrecover instead of custom Secp256k1Verifier** - DONE: Account.sol now uses native `ecrecover` precompile (~3,000 gas) instead of Secp256k1Verifier (~50,000-80,000 gas per signer). Signatures now include `v` recovery parameter. AccountFactory no longer requires a verifier. Note: MPCVerifier still uses Secp256k1Verifier for MPC signature validation.
 
 ## Code Quality
 
@@ -86,7 +86,8 @@ Tracking missing functionality, security fixes, and improvements for audit readi
 
 - [ ] Define RoutingRailgun controller expectations (always Account? can be EOA?)
 - [ ] **Grants system** - Delegation/grants not implemented (planned feature from CosmWasm version). Confirm requirements with team.
-- [ ] **Use ecrecover instead of custom Secp256k1Verifier** - Current signature verification costs ~50,000-80,000 gas per signer using pure Solidity EC math. Native `ecrecover` precompile costs ~3,000 gas (15-25x cheaper). Requires storing signer addresses instead of raw public key coordinates (x, y), and signatures must include `v` recovery parameter. For 3 signers: saves ~171,000 gas per transaction. Tradeoff: changes signer storage model.
+- [x] **Use ecrecover instead of custom Secp256k1Verifier** - DONE: Account.sol now uses native `ecrecover` precompile. See Gas Optimizations section above.
+- [x] **Owner signature doesn't bind to data** - FIXED: New payload format with hash commitment in signBytes. See Security Fixes section above.
 - [ ] **Multiple accounts per source address** - Currently AccountFactory enforces 1 account per source address. sd-ica (CosmWasm version) allows multiple accounts per source address. Consider adding an `accountIndex` parameter to CREATE2 salt to allow users to create multiple accounts (e.g., for different purposes like trading vs savings). Tradeoffs:
     - Current: simpler lookup, prevents accidental duplicates
     - Multiple: more flexible, matches sd-ica behavior, requires index coordination across chains

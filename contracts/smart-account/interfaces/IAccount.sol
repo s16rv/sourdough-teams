@@ -91,9 +91,8 @@ interface IAccount {
 
     /**
      * @dev Event emitted when the account is initialized.
-     * @param verifier The verifier address of the account.
      */
-    event AccountInitialized(address indexed verifier);
+    event AccountInitialized();
 
     /**
      * @dev Event emitted when a transaction is executed by the account.
@@ -104,10 +103,11 @@ interface IAccount {
     event TransactionExecuted(address indexed dest, uint256 value, bytes data);
 
     /**
-     * @dev Validates an operation by verifying the provided signatures over signBytes.
+     * @dev Validates an operation by verifying the provided signatures over signBytes using ecrecover.
      * @param sourceAddress The address on the source chain where the transaction originated.
      * @param signBytes The AMINO_JSON message that was signed.
      * @param txPayloadHashOffset The offset to the hash in signBytes (points to "0x" prefix).
+     * @param v Recovery id array (0-3, will be adjusted to 27-30 for ecrecover).
      * @param r Part of the signature (r).
      * @param s Part of the signature (s).
      * @param x Part of the public key (x).
@@ -121,6 +121,7 @@ interface IAccount {
         string calldata sourceAddress,
         bytes calldata signBytes,
         uint256 txPayloadHashOffset,
+        uint8[] memory v,
         bytes32[] memory r,
         bytes32[] memory s,
         bytes32[] memory x,
@@ -144,6 +145,7 @@ interface IAccount {
 
     /**
      * @dev Recovers a transaction by validating the provided signature and executing the transaction if valid.
+     * @param v Recovery id array (0-3, will be adjusted to 27-30 for ecrecover).
      * @param r Part of the signature (r) from secp256k1 signature.
      * @param s Part of the signature (s) from secp256k1 signature.
      * @param x Part of the public key (x) that signed the message.
@@ -152,6 +154,7 @@ interface IAccount {
      * @return A boolean indicating whether the transaction was successfully recovered.
      */
     function recoverTransaction(
+        uint8[] memory v,
         bytes32[] memory r,
         bytes32[] memory s,
         bytes32[] memory x,

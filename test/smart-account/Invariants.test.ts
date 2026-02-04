@@ -3,7 +3,7 @@ import { expect } from "chai";
 import { keccak256, parseEther, toUtf8Bytes } from "ethers";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 
-import { Account, Secp256k1Verifier } from "../../typechain-types";
+import { Account } from "../../typechain-types";
 import { generateSignatureWithMnemonic, getPublicKeyFromMnemonic } from "../../scripts/generateSignature";
 
 /**
@@ -28,7 +28,6 @@ describe("Invariants", function () {
     const SOURCE_ADDRESS_HASH = keccak256(toUtf8Bytes(SOURCE_ADDRESS));
 
     let account: Account;
-    let verifier: Secp256k1Verifier;
     let owner: HardhatEthersSigner;
     let publicKeyX: string[];
     let publicKeyY: string[];
@@ -40,19 +39,8 @@ describe("Invariants", function () {
         publicKeyX = [pubKey.x];
         publicKeyY = [pubKey.y];
 
-        const Secp256k1VerifierContract = await hre.ethers.getContractFactory("Secp256k1Verifier");
-        verifier = await Secp256k1VerifierContract.deploy();
-        await verifier.waitForDeployment();
-
         const AccountContract = await hre.ethers.getContractFactory("Account");
-        account = await AccountContract.deploy(
-            verifier.target,
-            ENTRYPOINT_ADDRESS,
-            publicKeyX,
-            publicKeyY,
-            SOURCE_ADDRESS_HASH,
-            1
-        );
+        account = await AccountContract.deploy(ENTRYPOINT_ADDRESS, publicKeyX, publicKeyY, SOURCE_ADDRESS_HASH, 1);
         await account.waitForDeployment();
 
         await owner.sendTransaction({
@@ -130,7 +118,14 @@ describe("Invariants", function () {
             const sigResult = await generateSignatureWithMnemonic(TEST_MNEMONIC, wrongPayload.slice(2));
 
             await expect(
-                account.recoverTransaction([sigResult.r], [sigResult.s], publicKeyX, publicKeyY, correctPayload)
+                account.recoverTransaction(
+                    [sigResult.v],
+                    [sigResult.r],
+                    [sigResult.s],
+                    publicKeyX,
+                    publicKeyY,
+                    correctPayload
+                )
             ).to.be.reverted;
 
             expect(await account.accountSequence()).to.equal(initialSequence);
@@ -148,7 +143,14 @@ describe("Invariants", function () {
 
             // Try to replay - should fail even with valid signature
             await expect(
-                account.recoverTransaction([sigResult.r], [sigResult.s], publicKeyX, publicKeyY, txPayload)
+                account.recoverTransaction(
+                    [sigResult.v],
+                    [sigResult.r],
+                    [sigResult.s],
+                    publicKeyX,
+                    publicKeyY,
+                    txPayload
+                )
             ).to.be.revertedWithCustomError(account, "InvalidSequence");
         });
 
@@ -162,7 +164,14 @@ describe("Invariants", function () {
             // Try to replay 10 times - all should fail
             for (let i = 0; i < 10; i++) {
                 await expect(
-                    account.recoverTransaction([sigResult.r], [sigResult.s], publicKeyX, publicKeyY, txPayload)
+                    account.recoverTransaction(
+                        [sigResult.v],
+                        [sigResult.r],
+                        [sigResult.s],
+                        publicKeyX,
+                        publicKeyY,
+                        txPayload
+                    )
                 ).to.be.revertedWithCustomError(account, "InvalidSequence");
             }
 
@@ -192,8 +201,9 @@ describe("Invariants", function () {
             const badPayload = encodeTxPayload(2n, RECIPIENT_ADDRESS, parseEther("1"), "0x");
             const wrongSig = await generateSignatureWithMnemonic(TEST_MNEMONIC, "deadbeef");
 
-            await expect(account.recoverTransaction([wrongSig.r], [wrongSig.s], publicKeyX, publicKeyY, badPayload)).to
-                .be.reverted;
+            await expect(
+                account.recoverTransaction([wrongSig.v], [wrongSig.r], [wrongSig.s], publicKeyX, publicKeyY, badPayload)
+            ).to.be.reverted;
 
             // Balance unchanged after failed attempts
             expect(await hre.ethers.provider.getBalance(accountAddress)).to.equal(balanceBeforeInvalid);
@@ -207,8 +217,16 @@ describe("Invariants", function () {
             const txPayload = encodeTxPayload(1n, RECIPIENT_ADDRESS, balance + parseEther("1"), "0x");
             const sigResult = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayload.slice(2));
 
-            await expect(account.recoverTransaction([sigResult.r], [sigResult.s], publicKeyX, publicKeyY, txPayload)).to
-                .be.reverted;
+            await expect(
+                account.recoverTransaction(
+                    [sigResult.v],
+                    [sigResult.r],
+                    [sigResult.s],
+                    publicKeyX,
+                    publicKeyY,
+                    txPayload
+                )
+            ).to.be.reverted;
 
             // Balance unchanged
             expect(await hre.ethers.provider.getBalance(accountAddress)).to.equal(balance);
@@ -242,7 +260,14 @@ describe("Invariants", function () {
             const sigResult = await generateSignatureWithMnemonic(UNREGISTERED_MNEMONIC, txPayload.slice(2));
 
             await expect(
-                account.recoverTransaction([sigResult.r], [sigResult.s], [sigResult.x], [sigResult.y], txPayload)
+                account.recoverTransaction(
+                    [sigResult.v],
+                    [sigResult.r],
+                    [sigResult.s],
+                    [sigResult.x],
+                    [sigResult.y],
+                    txPayload
+                )
             ).to.be.revertedWithCustomError(account, "InvalidPubKey");
         });
 
@@ -265,7 +290,6 @@ describe("Invariants", function () {
 
             const AccountContract = await hre.ethers.getContractFactory("Account");
             multiSigAccount = await AccountContract.deploy(
-                verifier.target,
                 ENTRYPOINT_ADDRESS,
                 [pubKey1.x, pubKey2.x],
                 [pubKey1.y, pubKey2.y],
@@ -286,7 +310,7 @@ describe("Invariants", function () {
 
             // Only 1 signature for 2-of-2
             await expect(
-                multiSigAccount.recoverTransaction([sig1.r], [sig1.s], [sig1.x], [sig1.y], txPayload)
+                multiSigAccount.recoverTransaction([sig1.v], [sig1.r], [sig1.s], [sig1.x], [sig1.y], txPayload)
             ).to.be.revertedWithCustomError(multiSigAccount, "InvalidThreshold");
         });
 
@@ -297,6 +321,7 @@ describe("Invariants", function () {
 
             // 2 signatures for 2-of-2
             await multiSigAccount.recoverTransaction(
+                [sig1.v, sig2.v],
                 [sig1.r, sig2.r],
                 [sig1.s, sig2.s],
                 [sig1.x, sig2.x],
@@ -317,7 +342,14 @@ describe("Invariants", function () {
         const txPayload = encodeTxPayload(sequence, RECIPIENT_ADDRESS, amount, "0x");
         const sigResult = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayload.slice(2));
 
-        return account.recoverTransaction([sigResult.r], [sigResult.s], publicKeyX, publicKeyY, txPayload);
+        return account.recoverTransaction(
+            [sigResult.v],
+            [sigResult.r],
+            [sigResult.s],
+            publicKeyX,
+            publicKeyY,
+            txPayload
+        );
     }
 
     function encodeTxPayload(sequence: bigint, dest: string, value: bigint, data: string): string {

@@ -3,7 +3,7 @@ import { expect } from "chai";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { AbiCoder, keccak256, parseEther, sha256, toUtf8Bytes } from "ethers";
 
-import { Account, AccountFactory, EntryPoint, MyToken, Secp256k1Verifier } from "../../typechain-types";
+import { Account, AccountFactory, EntryPoint, MyToken } from "../../typechain-types";
 import {
     combineHexStrings,
     encodeMultiPayload,
@@ -44,7 +44,7 @@ async function createNewFormatPayload(
     const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, signBytesForSigning.toString("hex"));
 
     // 5. Create full payload
-    const signatures = [{ r: sig.r, s: sig.s, x: publicKeyX[0], y: publicKeyY[0] }];
+    const signatures = [{ v: sig.v, r: sig.r, s: sig.s, x: publicKeyX[0], y: publicKeyY[0] }];
     return encodeNewPayload(signBytes, hashOffset, signatures, txPayload);
 }
 
@@ -72,12 +72,8 @@ describe("EntryPoint", function () {
         PUBLIC_KEY_X = [pubKey.x];
         PUBLIC_KEY_Y = [pubKey.y];
 
-        const Secp256k1VerifierContract = await hre.ethers.getContractFactory("Secp256k1Verifier");
-        const verifier = await Secp256k1VerifierContract.deploy();
-        await verifier.waitForDeployment();
-
         const AccountFactoryContract = await hre.ethers.getContractFactory("AccountFactory");
-        accountFactory = await AccountFactoryContract.deploy(verifier.target);
+        accountFactory = await AccountFactoryContract.deploy();
         await accountFactory.waitForDeployment();
 
         const EntryPointContract = await hre.ethers.getContractFactory("EntryPoint");
@@ -235,12 +231,8 @@ describe("EntryPoint Multi-Payload", function () {
         PUBLIC_KEY_X = [pubKey.x];
         PUBLIC_KEY_Y = [pubKey.y];
 
-        const Secp256k1VerifierContract = await hre.ethers.getContractFactory("Secp256k1Verifier");
-        const verifier = await Secp256k1VerifierContract.deploy();
-        await verifier.waitForDeployment();
-
         const AccountFactoryContract = await hre.ethers.getContractFactory("AccountFactory");
-        const accountFactory = await AccountFactoryContract.deploy(verifier.target);
+        const accountFactory = await AccountFactoryContract.deploy();
         await accountFactory.waitForDeployment();
 
         const EntryPointContract = await hre.ethers.getContractFactory("EntryPoint");
@@ -386,12 +378,8 @@ describe("EntryPoint Multisig 2 of 2", function () {
         PUBLIC_KEY_X = [pubKey1.x, pubKey2.x];
         PUBLIC_KEY_Y = [pubKey1.y, pubKey2.y];
 
-        const Secp256k1VerifierContract = await hre.ethers.getContractFactory("Secp256k1Verifier");
-        const verifier = await Secp256k1VerifierContract.deploy();
-        await verifier.waitForDeployment();
-
         const AccountFactoryContract = await hre.ethers.getContractFactory("AccountFactory");
-        const accountFactory = await AccountFactoryContract.deploy(verifier.target);
+        const accountFactory = await AccountFactoryContract.deploy();
         await accountFactory.waitForDeployment();
 
         const EntryPointContract = await hre.ethers.getContractFactory("EntryPoint");
@@ -448,8 +436,8 @@ describe("EntryPoint Multisig 2 of 2", function () {
         const sig2 = await generateSignatureWithMnemonic(MNEMONIC_2, signBytesForSigning.toString("hex"));
 
         const signatures = [
-            { r: sig1.r, s: sig1.s, x: PUBLIC_KEY_X[0], y: PUBLIC_KEY_Y[0] },
-            { r: sig2.r, s: sig2.s, x: PUBLIC_KEY_X[1], y: PUBLIC_KEY_Y[1] },
+            { v: sig1.v, r: sig1.r, s: sig1.s, x: PUBLIC_KEY_X[0], y: PUBLIC_KEY_Y[0] },
+            { v: sig2.v, r: sig2.r, s: sig2.s, x: PUBLIC_KEY_X[1], y: PUBLIC_KEY_Y[1] },
         ];
 
         const payload = encodeNewPayload(signBytes, hashOffset, signatures, txPayload);
@@ -486,12 +474,8 @@ describe("EntryPoint Multisig 1 of 2", function () {
         PUBLIC_KEY_X = [pubKey1.x, pubKey2.x];
         PUBLIC_KEY_Y = [pubKey1.y, pubKey2.y];
 
-        const Secp256k1VerifierContract = await hre.ethers.getContractFactory("Secp256k1Verifier");
-        const verifier = await Secp256k1VerifierContract.deploy();
-        await verifier.waitForDeployment();
-
         const AccountFactoryContract = await hre.ethers.getContractFactory("AccountFactory");
-        const accountFactory = await AccountFactoryContract.deploy(verifier.target);
+        const accountFactory = await AccountFactoryContract.deploy();
         await accountFactory.waitForDeployment();
 
         const EntryPointContract = await hre.ethers.getContractFactory("EntryPoint");
@@ -567,7 +551,7 @@ describe("EntryPoint Multisig 1 of 2", function () {
         const signBytesForSigning = Buffer.from(signBytes.slice(2), "hex");
         const sig = await generateSignatureWithMnemonic(MNEMONIC_2, signBytesForSigning.toString("hex"));
 
-        const signatures = [{ r: sig.r, s: sig.s, x: PUBLIC_KEY_X[1], y: PUBLIC_KEY_Y[1] }];
+        const signatures = [{ v: sig.v, r: sig.r, s: sig.s, x: PUBLIC_KEY_X[1], y: PUBLIC_KEY_Y[1] }];
 
         const payload = encodeNewPayload(signBytes, hashOffset, signatures, txPayload);
 
@@ -586,7 +570,6 @@ describe("EntryPoint Error Paths", function () {
 
     let entryPoint: EntryPoint;
     let accountFactory: AccountFactory;
-    let secp256k1Verifier: Secp256k1Verifier;
     let account: Account;
 
     let owner: HardhatEthersSigner;
@@ -602,12 +585,8 @@ describe("EntryPoint Error Paths", function () {
         publicKeyX = [pubKey.x];
         publicKeyY = [pubKey.y];
 
-        const Secp256k1VerifierContract = await hre.ethers.getContractFactory("Secp256k1Verifier");
-        secp256k1Verifier = await Secp256k1VerifierContract.deploy();
-        await secp256k1Verifier.waitForDeployment();
-
         const AccountFactoryContract = await hre.ethers.getContractFactory("AccountFactory");
-        accountFactory = await AccountFactoryContract.deploy(secp256k1Verifier.target);
+        accountFactory = await AccountFactoryContract.deploy();
         await accountFactory.waitForDeployment();
 
         const EntryPointContract = await hre.ethers.getContractFactory("EntryPoint");
@@ -667,7 +646,7 @@ describe("EntryPoint Error Paths", function () {
             const signBytesForSigning = Buffer.from(signBytes.slice(2), "hex");
             const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, signBytesForSigning.toString("hex"));
 
-            const signatures = [{ r: sig.r, s: sig.s, x: publicKeyX[0], y: publicKeyY[0] }];
+            const signatures = [{ v: sig.v, r: sig.r, s: sig.s, x: publicKeyX[0], y: publicKeyY[0] }];
             const payload = encodeNewPayload(signBytes, hashOffset, signatures, txPayload);
 
             const balanceBefore = await hre.ethers.provider.getBalance(owner.address);
@@ -697,7 +676,7 @@ describe("EntryPoint Error Paths", function () {
             const signBytesForSigning = Buffer.from(signBytes.slice(2), "hex");
             const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, signBytesForSigning.toString("hex"));
 
-            const signatures = [{ r: sig.r, s: sig.s, x: publicKeyX[0], y: publicKeyY[0] }];
+            const signatures = [{ v: sig.v, r: sig.r, s: sig.s, x: publicKeyX[0], y: publicKeyY[0] }];
             const payload = encodeNewPayload(signBytes, hashOffset, signatures, txPayload);
 
             await expect(
@@ -720,7 +699,7 @@ describe("EntryPoint Error Paths", function () {
             const signBytesForSigning = Buffer.from(signBytes.slice(2), "hex");
             const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, signBytesForSigning.toString("hex"));
 
-            const signatures = [{ r: sig.r, s: sig.s, x: publicKeyX[0], y: publicKeyY[0] }];
+            const signatures = [{ v: sig.v, r: sig.r, s: sig.s, x: publicKeyX[0], y: publicKeyY[0] }];
             const payload = encodeNewPayload(signBytes, hashOffset, signatures, txPayload);
 
             await expect(
@@ -743,7 +722,7 @@ describe("EntryPoint Error Paths", function () {
             const signBytesForSigning = Buffer.from(signBytes.slice(2), "hex");
             const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, signBytesForSigning.toString("hex"));
 
-            const signatures = [{ r: sig.r, s: sig.s, x: publicKeyX[0], y: publicKeyY[0] }];
+            const signatures = [{ v: sig.v, r: sig.r, s: sig.s, x: publicKeyX[0], y: publicKeyY[0] }];
 
             // Create a different txPayload (tampered)
             const tamperedTxPayload = encodeNewTxPayload(EXPECTED_CHAIN_ID, accountAddress, sequence, [
@@ -806,7 +785,6 @@ describe("EntryPoint Edge Cases", function () {
 
     let entryPoint: EntryPoint;
     let accountFactory: AccountFactory;
-    let secp256k1Verifier: Secp256k1Verifier;
     let account: Account;
 
     let owner: HardhatEthersSigner;
@@ -822,12 +800,8 @@ describe("EntryPoint Edge Cases", function () {
         publicKeyX = [pubKey.x];
         publicKeyY = [pubKey.y];
 
-        const Secp256k1VerifierContract = await hre.ethers.getContractFactory("Secp256k1Verifier");
-        secp256k1Verifier = await Secp256k1VerifierContract.deploy();
-        await secp256k1Verifier.waitForDeployment();
-
         const AccountFactoryContract = await hre.ethers.getContractFactory("AccountFactory");
-        accountFactory = await AccountFactoryContract.deploy(secp256k1Verifier.target);
+        accountFactory = await AccountFactoryContract.deploy();
         await accountFactory.waitForDeployment();
 
         const EntryPointContract = await hre.ethers.getContractFactory("EntryPoint");
@@ -928,7 +902,7 @@ describe("EntryPoint Edge Cases", function () {
             const signBytesForSigning = Buffer.from(invalidSignBytes.slice(2), "hex");
             const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, signBytesForSigning.toString("hex"));
 
-            const signatures = [{ r: sig.r, s: sig.s, x: publicKeyX[0], y: publicKeyY[0] }];
+            const signatures = [{ v: sig.v, r: sig.r, s: sig.s, x: publicKeyX[0], y: publicKeyY[0] }];
             const payload = encodeNewPayload(invalidSignBytes, hashOffset, signatures, txPayload);
 
             // Should fail validation due to invalid hex prefix
@@ -952,7 +926,7 @@ describe("EntryPoint Edge Cases", function () {
             const signBytesForSigning = Buffer.from(signBytes.slice(2), "hex");
             const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, signBytesForSigning.toString("hex"));
 
-            const signatures = [{ r: sig.r, s: sig.s, x: publicKeyX[0], y: publicKeyY[0] }];
+            const signatures = [{ v: sig.v, r: sig.r, s: sig.s, x: publicKeyX[0], y: publicKeyY[0] }];
             const payload = encodeNewPayload(signBytes, invalidOffset, signatures, txPayload);
 
             // Should revert with InvalidHashOffset
@@ -968,7 +942,6 @@ describe("EntryPoint Batch Transaction Limits", function () {
 
     let entryPoint: EntryPoint;
     let accountFactory: AccountFactory;
-    let secp256k1Verifier: Secp256k1Verifier;
     let account: Account;
 
     let owner: HardhatEthersSigner;
@@ -985,12 +958,8 @@ describe("EntryPoint Batch Transaction Limits", function () {
         publicKeyX = [pubKey.x];
         publicKeyY = [pubKey.y];
 
-        const Secp256k1VerifierContract = await hre.ethers.getContractFactory("Secp256k1Verifier");
-        secp256k1Verifier = await Secp256k1VerifierContract.deploy();
-        await secp256k1Verifier.waitForDeployment();
-
         const AccountFactoryContract = await hre.ethers.getContractFactory("AccountFactory");
-        accountFactory = await AccountFactoryContract.deploy(secp256k1Verifier.target);
+        accountFactory = await AccountFactoryContract.deploy();
         await accountFactory.waitForDeployment();
 
         const EntryPointContract = await hre.ethers.getContractFactory("EntryPoint");
@@ -1098,12 +1067,8 @@ describe("EntryPoint ERC20 Operations", function () {
         PUBLIC_KEY_X = [pubKey.x];
         PUBLIC_KEY_Y = [pubKey.y];
 
-        const Secp256k1VerifierContract = await hre.ethers.getContractFactory("Secp256k1Verifier");
-        const verifier = await Secp256k1VerifierContract.deploy();
-        await verifier.waitForDeployment();
-
         const AccountFactoryContract = await hre.ethers.getContractFactory("AccountFactory");
-        const accountFactory = await AccountFactoryContract.deploy(verifier.target);
+        const accountFactory = await AccountFactoryContract.deploy();
         await accountFactory.waitForDeployment();
 
         const EntryPointContract = await hre.ethers.getContractFactory("EntryPoint");

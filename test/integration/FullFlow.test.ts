@@ -76,7 +76,7 @@ describe("Integration: Full Flow", function () {
         const fullPayload = encodeNewPayload(
             signBytes,
             hashOffset,
-            [{ r: userSig.r, s: userSig.s, x: signerPubKeyX, y: signerPubKeyY }],
+            [{ v: userSig.v, r: userSig.r, s: userSig.s, x: signerPubKeyX, y: signerPubKeyY }],
             txPayload
         );
 
@@ -113,7 +113,7 @@ describe("Integration: Full Flow", function () {
 
         // Deploy AccountFactory
         const AccountFactoryContract = await hre.ethers.getContractFactory("AccountFactory");
-        accountFactory = await AccountFactoryContract.deploy(secp256k1Verifier.target);
+        accountFactory = await AccountFactoryContract.deploy();
         await accountFactory.waitForDeployment();
 
         // Deploy EntryPoint
@@ -356,7 +356,14 @@ describe("Integration: Full Flow", function () {
             const userSig = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayload.slice(2));
 
             // Execute recovery transaction directly on Account
-            await account.recoverTransaction([userSig.r], [userSig.s], [publicKeyX[0]], [publicKeyY[0]], txPayload);
+            await account.recoverTransaction(
+                [userSig.v],
+                [userSig.r],
+                [userSig.s],
+                [publicKeyX[0]],
+                [publicKeyY[0]],
+                txPayload
+            );
 
             // Verify funds transferred
             const finalRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);

@@ -3,7 +3,7 @@ import { expect } from "chai";
 import { AbiCoder, keccak256, parseEther, sha256, toUtf8Bytes } from "ethers";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 
-import { Account, Secp256k1Verifier } from "../../typechain-types";
+import { Account } from "../../typechain-types";
 import { generateSignatureWithMnemonic, getPublicKeyFromMnemonic } from "../../scripts/generateSignature";
 import { combineHexStrings, encodeNewTxPayload, computeTxPayloadHash, createSignBytes } from "../utils/lib";
 
@@ -48,6 +48,7 @@ async function createValidateParams(
     return {
         signBytes,
         txPayloadHashOffset: hashOffset,
+        v: [sig.v],
         r: [sig.r],
         s: [sig.s],
         x: publicKeyX,
@@ -69,7 +70,6 @@ describe("Account", function () {
     const THRESHOLD = 1;
 
     let account: Account;
-    let verifier: Secp256k1Verifier;
     let recover: HardhatEthersSigner;
     let stranger: HardhatEthersSigner;
 
@@ -81,13 +81,8 @@ describe("Account", function () {
         PUBLIC_KEY_X = [pubKey.x];
         PUBLIC_KEY_Y = [pubKey.y];
 
-        const Secp256k1VerifierContract = await hre.ethers.getContractFactory("Secp256k1Verifier");
-        verifier = await Secp256k1VerifierContract.deploy();
-        await verifier.waitForDeployment();
-
         const AccountContract = await hre.ethers.getContractFactory("Account");
         account = await AccountContract.deploy(
-            verifier.target,
             ENTRYPOINT_ADDRESS,
             PUBLIC_KEY_X,
             PUBLIC_KEY_Y,
@@ -125,6 +120,7 @@ describe("Account", function () {
             SOURCE_ADDRESS,
             params.signBytes,
             params.txPayloadHashOffset,
+            params.v,
             params.r,
             params.s,
             params.x,
@@ -154,6 +150,7 @@ describe("Account", function () {
             SOURCE_ADDRESS,
             params.signBytes,
             params.txPayloadHashOffset,
+            params.v,
             params.r,
             params.s,
             params.x,
@@ -183,6 +180,7 @@ describe("Account", function () {
             SOURCE_ADDRESS,
             params.signBytes,
             params.txPayloadHashOffset,
+            params.v,
             invalidR,
             params.s,
             params.x,
@@ -220,7 +218,6 @@ describe("Account Multisig", function () {
     const THRESHOLD = 1;
 
     let account: Account;
-    let verifier: Secp256k1Verifier;
     let recover: HardhatEthersSigner;
 
     beforeEach(async function () {
@@ -231,13 +228,8 @@ describe("Account Multisig", function () {
         PUBLIC_KEY_X = [pubKey.x, pubKey.x];
         PUBLIC_KEY_Y = [pubKey.y, pubKey.y];
 
-        const Secp256k1VerifierContract = await hre.ethers.getContractFactory("Secp256k1Verifier");
-        verifier = await Secp256k1VerifierContract.deploy();
-        await verifier.waitForDeployment();
-
         const AccountContract = await hre.ethers.getContractFactory("Account");
         account = await AccountContract.deploy(
-            verifier.target,
             ENTRYPOINT_ADDRESS,
             PUBLIC_KEY_X,
             PUBLIC_KEY_Y,
@@ -275,6 +267,7 @@ describe("Account Multisig", function () {
             SOURCE_ADDRESS,
             params.signBytes,
             params.txPayloadHashOffset,
+            params.v,
             params.r,
             params.s,
             params.x,
@@ -300,6 +293,7 @@ describe("Account Multisig", function () {
             SOURCE_ADDRESS,
             params.signBytes,
             params.txPayloadHashOffset,
+            [params.v[0], params.v[0]], // Duplicate v
             [params.r[0], params.r[0]], // Duplicate r
             [params.s[0], params.s[0]], // Duplicate s
             PUBLIC_KEY_X,
@@ -314,7 +308,7 @@ describe("Account Multisig", function () {
 
 /**
  * Tests for Account getter functions to improve coverage
- * Covers: getX(), getY(), getVerifier(), receive()
+ * Covers: getX(), getY(), receive()
  */
 describe("Account Getters and ETH Handling", function () {
     const ENTRYPOINT_ADDRESS = "0x3bd70e10d71c6e882e3c1809d26a310d793646eb";
@@ -325,7 +319,6 @@ describe("Account Getters and ETH Handling", function () {
     const SOURCE_ADDRESS_HASH = keccak256(toUtf8Bytes(SOURCE_ADDRESS));
 
     let account: Account;
-    let verifier: Secp256k1Verifier;
     let owner: HardhatEthersSigner;
 
     let publicKeyX: string[];
@@ -339,13 +332,8 @@ describe("Account Getters and ETH Handling", function () {
             publicKeyX = [pubKey.x];
             publicKeyY = [pubKey.y];
 
-            const Secp256k1VerifierContract = await hre.ethers.getContractFactory("Secp256k1Verifier");
-            verifier = await Secp256k1VerifierContract.deploy();
-            await verifier.waitForDeployment();
-
             const AccountContract = await hre.ethers.getContractFactory("Account");
             account = await AccountContract.deploy(
-                verifier.target,
                 ENTRYPOINT_ADDRESS,
                 publicKeyX,
                 publicKeyY,
@@ -353,10 +341,6 @@ describe("Account Getters and ETH Handling", function () {
                 1 // threshold
             );
             await account.waitForDeployment();
-        });
-
-        it("Should return correct verifier address", async function () {
-            expect(await account.getVerifier()).to.equal(verifier.target);
         });
 
         it("Should return correct X public keys", async function () {
@@ -417,13 +401,8 @@ describe("Account Getters and ETH Handling", function () {
             publicKeyX = [pubKey1.x, pubKey2.x];
             publicKeyY = [pubKey1.y, pubKey2.y];
 
-            const Secp256k1VerifierContract = await hre.ethers.getContractFactory("Secp256k1Verifier");
-            verifier = await Secp256k1VerifierContract.deploy();
-            await verifier.waitForDeployment();
-
             const AccountContract = await hre.ethers.getContractFactory("Account");
             account = await AccountContract.deploy(
-                verifier.target,
                 ENTRYPOINT_ADDRESS,
                 publicKeyX,
                 publicKeyY,
@@ -460,7 +439,6 @@ describe("Account Recover", function () {
     const SOURCE_ADDRESS_HASH = keccak256(toUtf8Bytes(SOURCE_ADDRESS));
 
     let account: Account;
-    let verifier: Secp256k1Verifier;
     let owner: HardhatEthersSigner;
 
     let publicKeyX: string[];
@@ -473,13 +451,8 @@ describe("Account Recover", function () {
         publicKeyX = [pubKey.x];
         publicKeyY = [pubKey.y];
 
-        const Secp256k1VerifierContract = await hre.ethers.getContractFactory("Secp256k1Verifier");
-        verifier = await Secp256k1VerifierContract.deploy();
-        await verifier.waitForDeployment();
-
         const AccountContract = await hre.ethers.getContractFactory("Account");
         account = await AccountContract.deploy(
-            verifier.target,
             ENTRYPOINT_ADDRESS,
             publicKeyX,
             publicKeyY,
@@ -506,7 +479,7 @@ describe("Account Recover", function () {
 
         const initialBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
 
-        await account.recoverTransaction([sig.r], [sig.s], publicKeyX, publicKeyY, txPayload);
+        await account.recoverTransaction([sig.v], [sig.r], [sig.s], publicKeyX, publicKeyY, txPayload);
 
         const finalBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
         expect(finalBalance).to.equal(initialBalance + value);
@@ -520,7 +493,7 @@ describe("Account Recover", function () {
         const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayload.slice(2));
 
         await expect(
-            account.recoverTransaction([sig.r], [sig.s], [wrongPubKey.x], [wrongPubKey.y], txPayload)
+            account.recoverTransaction([sig.v], [sig.r], [sig.s], [wrongPubKey.x], [wrongPubKey.y], txPayload)
         ).to.be.revertedWithCustomError(account, "InvalidPubKey");
     });
 
@@ -532,7 +505,7 @@ describe("Account Recover", function () {
         const invalidS = "0x2222222222222222222222222222222222222222222222222222222222222222";
 
         await expect(
-            account.recoverTransaction([invalidR], [invalidS], publicKeyX, publicKeyY, txPayload)
+            account.recoverTransaction([27], [invalidR], [invalidS], publicKeyX, publicKeyY, txPayload)
         ).to.be.revertedWithCustomError(account, "InvalidSignature");
     });
 
@@ -543,7 +516,7 @@ describe("Account Recover", function () {
         const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayload.slice(2));
 
         await expect(
-            account.recoverTransaction([sig.r], [sig.s], publicKeyX, publicKeyY, txPayload)
+            account.recoverTransaction([sig.v], [sig.r], [sig.s], publicKeyX, publicKeyY, txPayload)
         ).to.be.revertedWithCustomError(account, "InvalidSequence");
     });
 
@@ -561,7 +534,7 @@ describe("Account Recover", function () {
         const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayload.slice(2));
 
         await expect(
-            account.recoverTransaction([sig.r], [sig.s], publicKeyX, publicKeyY, txPayload)
+            account.recoverTransaction([sig.v], [sig.r], [sig.s], publicKeyX, publicKeyY, txPayload)
         ).to.be.revertedWithCustomError(account, "InvalidPayload");
     });
 
@@ -572,7 +545,7 @@ describe("Account Recover", function () {
         const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayload.slice(2));
 
         await expect(
-            account.recoverTransaction([sig.r], [sig.s], publicKeyX, [], txPayload)
+            account.recoverTransaction([sig.v], [sig.r], [sig.s], publicKeyX, [], txPayload)
         ).to.be.revertedWithCustomError(account, "InvalidInputLength");
     });
 
@@ -583,7 +556,7 @@ describe("Account Recover", function () {
         const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayload.slice(2));
 
         await expect(
-            account.recoverTransaction([sig.r, sig.r], [sig.s], publicKeyX, publicKeyY, txPayload)
+            account.recoverTransaction([sig.v, sig.v], [sig.r, sig.r], [sig.s], publicKeyX, publicKeyY, txPayload)
         ).to.be.revertedWithCustomError(account, "InvalidInputLength");
     });
 
@@ -593,7 +566,6 @@ describe("Account Recover", function () {
         const twoSignerAccount = await (
             await hre.ethers.getContractFactory("Account")
         ).deploy(
-            verifier.target,
             ENTRYPOINT_ADDRESS,
             [publicKeyX[0], pubKey2.x],
             [publicKeyY[0], pubKey2.y],
@@ -612,7 +584,7 @@ describe("Account Recover", function () {
 
         // Only provide 1 signature when threshold is 2
         await expect(
-            twoSignerAccount.recoverTransaction([sig.r], [sig.s], [publicKeyX[0]], [publicKeyY[0]], txPayload)
+            twoSignerAccount.recoverTransaction([sig.v], [sig.r], [sig.s], [publicKeyX[0]], [publicKeyY[0]], txPayload)
         ).to.be.revertedWithCustomError(twoSignerAccount, "InvalidThreshold");
     });
 });
@@ -628,7 +600,6 @@ describe("Account Security", function () {
     const SOURCE_ADDRESS_HASH = keccak256(toUtf8Bytes(SOURCE_ADDRESS));
 
     let account: Account;
-    let verifier: Secp256k1Verifier;
     let owner: HardhatEthersSigner;
 
     let publicKeyX: string[];
@@ -641,13 +612,8 @@ describe("Account Security", function () {
         publicKeyX = [pubKey.x];
         publicKeyY = [pubKey.y];
 
-        const Secp256k1VerifierContract = await hre.ethers.getContractFactory("Secp256k1Verifier");
-        verifier = await Secp256k1VerifierContract.deploy();
-        await verifier.waitForDeployment();
-
         const AccountContract = await hre.ethers.getContractFactory("Account");
         account = await AccountContract.deploy(
-            verifier.target,
             ENTRYPOINT_ADDRESS,
             publicKeyX,
             publicKeyY,
@@ -677,6 +643,7 @@ describe("Account Security", function () {
                 "wrong-source-address",
                 params.signBytes,
                 params.txPayloadHashOffset,
+                params.v,
                 params.r,
                 params.s,
                 params.x,
@@ -703,6 +670,7 @@ describe("Account Security", function () {
                 SOURCE_ADDRESS,
                 params.signBytes,
                 params.txPayloadHashOffset,
+                params.v,
                 params.r,
                 params.s,
                 params.x,
@@ -736,6 +704,7 @@ describe("Account Security", function () {
                 SOURCE_ADDRESS,
                 params.signBytes,
                 params.txPayloadHashOffset,
+                params.v,
                 params.r,
                 params.s,
                 params.x,
@@ -762,6 +731,7 @@ describe("Account Security", function () {
                 SOURCE_ADDRESS,
                 params.signBytes,
                 params.txPayloadHashOffset,
+                params.v,
                 params.r,
                 params.s,
                 params.x,
@@ -780,7 +750,7 @@ describe("Account Security", function () {
             const txPayload = encodeTxPayload(1n, RECIPIENT_ADDRESS, parseEther("0.01"), "0x");
             const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayload.slice(2));
 
-            await account.recoverTransaction([sig.r], [sig.s], publicKeyX, publicKeyY, txPayload);
+            await account.recoverTransaction([sig.v], [sig.r], [sig.s], publicKeyX, publicKeyY, txPayload);
 
             expect(await account.accountSequence()).to.equal(1);
         });
@@ -789,11 +759,11 @@ describe("Account Security", function () {
             const txPayload = encodeTxPayload(1n, RECIPIENT_ADDRESS, parseEther("0.01"), "0x");
             const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayload.slice(2));
 
-            await account.recoverTransaction([sig.r], [sig.s], publicKeyX, publicKeyY, txPayload);
+            await account.recoverTransaction([sig.v], [sig.r], [sig.s], publicKeyX, publicKeyY, txPayload);
 
             // Try to replay
             await expect(
-                account.recoverTransaction([sig.r], [sig.s], publicKeyX, publicKeyY, txPayload)
+                account.recoverTransaction([sig.v], [sig.r], [sig.s], publicKeyX, publicKeyY, txPayload)
             ).to.be.revertedWithCustomError(account, "InvalidSequence");
         });
     });
@@ -804,7 +774,6 @@ describe("Account Security", function () {
             const twoOfTwoAccount = await (
                 await hre.ethers.getContractFactory("Account")
             ).deploy(
-                verifier.target,
                 ENTRYPOINT_ADDRESS,
                 [publicKeyX[0], pubKey2.x],
                 [publicKeyY[0], pubKey2.y],
@@ -821,7 +790,14 @@ describe("Account Security", function () {
             const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayload.slice(2));
 
             await expect(
-                twoOfTwoAccount.recoverTransaction([sig.r], [sig.s], [publicKeyX[0]], [publicKeyY[0]], txPayload)
+                twoOfTwoAccount.recoverTransaction(
+                    [sig.v],
+                    [sig.r],
+                    [sig.s],
+                    [publicKeyX[0]],
+                    [publicKeyY[0]],
+                    txPayload
+                )
             ).to.be.revertedWithCustomError(twoOfTwoAccount, "InvalidThreshold");
         });
 
@@ -831,7 +807,7 @@ describe("Account Security", function () {
 
             const initialBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
 
-            await account.recoverTransaction([sig.r], [sig.s], publicKeyX, publicKeyY, txPayload);
+            await account.recoverTransaction([sig.v], [sig.r], [sig.s], publicKeyX, publicKeyY, txPayload);
 
             const finalBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
             expect(finalBalance).to.equal(initialBalance + parseEther("0.01"));
@@ -842,7 +818,6 @@ describe("Account Security", function () {
             const twoOfTwoAccount = await (
                 await hre.ethers.getContractFactory("Account")
             ).deploy(
-                verifier.target,
                 ENTRYPOINT_ADDRESS,
                 [publicKeyX[0], pubKey2.x],
                 [publicKeyY[0], pubKey2.y],
@@ -863,6 +838,7 @@ describe("Account Security", function () {
                 SOURCE_ADDRESS,
                 params.signBytes,
                 params.txPayloadHashOffset,
+                params.v,
                 params.r,
                 params.s,
                 params.x,
@@ -897,6 +873,7 @@ describe("Account Security", function () {
                 SOURCE_ADDRESS,
                 signBytes,
                 hashOffset,
+                [sig.v],
                 [sig.r],
                 [sig.s],
                 [wrongPubKey.x],
@@ -925,6 +902,7 @@ describe("Account Security", function () {
                 SOURCE_ADDRESS,
                 params.signBytes,
                 params.txPayloadHashOffset,
+                [params.v[0], params.v[0]], // 2 v values
                 [params.r[0], params.r[0]], // 2 r values
                 params.s, // Only 1 s value
                 params.x,
@@ -956,6 +934,7 @@ describe("Account Security", function () {
                 SOURCE_ADDRESS,
                 signBytes,
                 hashOffset,
+                [sig.v],
                 [sig.r],
                 [sig.s],
                 [wrongPubKey.x],
@@ -978,7 +957,6 @@ describe("Account Reentrancy", function () {
     const SOURCE_ADDRESS_HASH = keccak256(toUtf8Bytes(SOURCE_ADDRESS));
 
     let account: Account;
-    let verifier: Secp256k1Verifier;
     let owner: HardhatEthersSigner;
 
     let publicKeyX: string[];
@@ -990,10 +968,6 @@ describe("Account Reentrancy", function () {
         const pubKey = await getPublicKeyFromMnemonic(TEST_MNEMONIC);
         publicKeyX = [pubKey.x];
         publicKeyY = [pubKey.y];
-
-        const Secp256k1VerifierContract = await hre.ethers.getContractFactory("Secp256k1Verifier");
-        verifier = await Secp256k1VerifierContract.deploy();
-        await verifier.waitForDeployment();
     });
 
     describe("recoverTransaction Reentrancy", function () {
@@ -1004,7 +978,6 @@ describe("Account Reentrancy", function () {
 
             const AccountContract = await hre.ethers.getContractFactory("Account");
             account = await AccountContract.deploy(
-                verifier.target,
                 attacker.target, // attacker is the "entrypoint"
                 publicKeyX,
                 publicKeyY,
@@ -1024,12 +997,12 @@ describe("Account Reentrancy", function () {
             const txPayload = encodeTxPayload(sequence, await attacker.getAddress(), value, "0x");
             const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayload.slice(2));
 
-            await attacker.setAttackPayload([sig.r], [sig.s], publicKeyX, publicKeyY, txPayload);
+            await attacker.setAttackPayload([sig.v], [sig.r], [sig.s], publicKeyX, publicKeyY, txPayload);
 
             const accountBalanceBefore = await hre.ethers.provider.getBalance(await account.getAddress());
             const attackerBalanceBefore = await hre.ethers.provider.getBalance(await attacker.getAddress());
 
-            await account.recoverTransaction([sig.r], [sig.s], publicKeyX, publicKeyY, txPayload);
+            await account.recoverTransaction([sig.v], [sig.r], [sig.s], publicKeyX, publicKeyY, txPayload);
 
             const accountBalanceAfter = await hre.ethers.provider.getBalance(await account.getAddress());
             const attackerBalanceAfter = await hre.ethers.provider.getBalance(await attacker.getAddress());
@@ -1050,14 +1023,7 @@ describe("Account Reentrancy", function () {
             await checker.waitForDeployment();
 
             const AccountContract = await hre.ethers.getContractFactory("Account");
-            account = await AccountContract.deploy(
-                verifier.target,
-                checker.target,
-                publicKeyX,
-                publicKeyY,
-                SOURCE_ADDRESS_HASH,
-                1
-            );
+            account = await AccountContract.deploy(checker.target, publicKeyX, publicKeyY, SOURCE_ADDRESS_HASH, 1);
 
             await owner.sendTransaction({
                 to: await account.getAddress(),
@@ -1069,7 +1035,7 @@ describe("Account Reentrancy", function () {
             const txPayload = encodeTxPayload(1n, await checker.getAddress(), parseEther("0.01"), "0x");
             const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayload.slice(2));
 
-            await account.recoverTransaction([sig.r], [sig.s], publicKeyX, publicKeyY, txPayload);
+            await account.recoverTransaction([sig.v], [sig.r], [sig.s], publicKeyX, publicKeyY, txPayload);
 
             // Sequence should have been 1 when the checker received the call
             expect(await checker.sequenceAtCallTime()).to.equal(1);
@@ -1097,7 +1063,6 @@ describe("Account Reentrancy", function () {
 
             const AccountContract = await hre.ethers.getContractFactory("Account");
             account = await AccountContract.deploy(
-                verifier.target,
                 mockEntryPoint.target,
                 publicKeyX,
                 publicKeyY,
@@ -1144,16 +1109,11 @@ describe("Account Sequence Overflow", function () {
 
             const pubKey = await getPublicKeyFromMnemonic(TEST_MNEMONIC);
 
-            const Secp256k1VerifierContract = await hre.ethers.getContractFactory("Secp256k1Verifier");
-            const verifier = await Secp256k1VerifierContract.deploy();
-            await verifier.waitForDeployment();
-
             const SOURCE_ADDRESS = "neutron1chcktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
             const SOURCE_ADDRESS_HASH = keccak256(toUtf8Bytes(SOURCE_ADDRESS));
 
             const AccountContract = await hre.ethers.getContractFactory("Account");
             const account = await AccountContract.deploy(
-                verifier.target,
                 owner.address, // Use owner as entrypoint for this test
                 [pubKey.x],
                 [pubKey.y],

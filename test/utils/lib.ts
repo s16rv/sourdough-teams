@@ -11,6 +11,20 @@ export function combineHexStrings(hexString1: string, hexString2: string): strin
     return "0x" + combinedHex;
 }
 
+/**
+ * Encodes signer data in the new 129-byte format: v(1) + r(32) + s(32) + x(32) + y(32)
+ */
+export function encodeSignerBlock(v: number, r: string, s: string, x: string, y: string): string {
+    // v is a single byte (0-3)
+    const vHex = v.toString(16).padStart(2, "0");
+    // r, s, x, y are each 32 bytes (without 0x prefix, 64 hex chars)
+    const rHex = r.slice(2);
+    const sHex = s.slice(2);
+    const xHex = x.slice(2);
+    const yHex = y.slice(2);
+    return "0x" + vHex + rHex + sHex + xHex + yHex;
+}
+
 export function encodeMultiPayload(items: { dest: string; value: bigint; data: string }[]): string {
     const coder = new AbiCoder();
     const count = coder.encode(["uint64"], [BigInt(items.length)]);
@@ -100,14 +114,14 @@ export function createSignBytes(
  * Encode the new payload format for Category 2 transactions.
  * @param signBytes The signed message bytes (hex encoded)
  * @param txPayloadHashOffset Offset to the hash in signBytes
- * @param signatures Array of signatures with public keys
+ * @param signatures Array of signatures with public keys (includes v for ecrecover)
  * @param txPayload The encoded txPayload
  * @returns The full encoded payload
  */
 export function encodeNewPayload(
     signBytes: string,
     txPayloadHashOffset: number,
-    signatures: { r: string; s: string; x: string; y: string }[],
+    signatures: { v: number; r: string; s: string; x: string; y: string }[],
     txPayload: string
 ): string {
     const coder = new AbiCoder();
@@ -125,10 +139,10 @@ export function encodeNewPayload(
     // Add signBytes (raw, not ABI encoded)
     let payload = combineHexStrings(header, signBytes);
 
-    // Add signatures: r(32) + s(32) + x(32) + y(32) for each signer
+    // Add signatures using encodeSignerBlock: v(1) + r(32) + s(32) + x(32) + y(32) for each signer
     for (const sig of signatures) {
-        const sigData = coder.encode(["bytes32", "bytes32", "bytes32", "bytes32"], [sig.r, sig.s, sig.x, sig.y]);
-        payload = combineHexStrings(payload, sigData);
+        const signerBlock = encodeSignerBlock(sig.v, sig.r, sig.s, sig.x, sig.y);
+        payload = combineHexStrings(payload, signerBlock);
     }
 
     // Add txPayload (raw, not ABI encoded)

@@ -102,7 +102,8 @@ export async function generateSignature(
 
 /**
  * Generate a signature using a specific mnemonic (for testing).
- * Returns signature components (r, s) and public key (x, y) in hex format.
+ * Returns signature components (v, r, s) and public key (x, y) in hex format.
+ * v is the recovery id (0-3) needed for ecrecover. Add 27 to get the actual ecrecover v value.
  * @param mnemonic The mnemonic to use for signing
  * @param messageHex The message to sign (hex encoded bytes)
  */
@@ -110,6 +111,7 @@ export async function generateSignatureWithMnemonic(
     mnemonic: string,
     messageHex: string
 ): Promise<{
+    v: number;
     r: string;
     s: string;
     x: string;
@@ -132,7 +134,7 @@ export async function generateSignatureWithMnemonic(
     const messageBytes = fromHex(messageHex);
     const digest = sha256(messageBytes);
 
-    // Sign the digest
+    // Sign the digest - this returns an ExtendedSecp256k1Signature which has recovery
     const sig = await Secp256k1.createSignature(digest, privkey);
     const fixed = sig.toFixedLength();
 
@@ -140,7 +142,12 @@ export async function generateSignatureWithMnemonic(
     const r = fixed.slice(0, 32);
     const s = fixed.slice(32, 64);
 
+    // Get the recovery parameter (v) - 0 or 1 typically
+    // The recovery param tells which of the two possible public keys corresponds to the signature
+    const recovery = sig.recovery;
+
     return {
+        v: recovery,
         r: "0x" + toHex(r),
         s: "0x" + toHex(s),
         x: "0x" + toHex(x),

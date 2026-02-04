@@ -3,7 +3,7 @@ import { expect } from "chai";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { keccak256, toUtf8Bytes } from "ethers";
 
-import { AccountFactory, Secp256k1Verifier } from "../../typechain-types";
+import { AccountFactory } from "../../typechain-types";
 
 const ENTRYPOINT_ADDRESS = "0x3bd70e10d71c6e882e3c1809d26a310d793646eb";
 
@@ -18,18 +18,13 @@ const THRESHOLD = 1;
 
 describe("AccountFactory", function () {
     let accountFactory: AccountFactory;
-    let verifier: Secp256k1Verifier;
     let owner: HardhatEthersSigner;
 
     beforeEach(async function () {
         [owner] = await hre.ethers.getSigners();
 
-        const Secp256k1VerifierContract = await hre.ethers.getContractFactory("Secp256k1Verifier");
-        verifier = await Secp256k1VerifierContract.deploy();
-        await verifier.waitForDeployment();
-
         const AccountFactoryContract = await hre.ethers.getContractFactory("AccountFactory");
-        accountFactory = await AccountFactoryContract.deploy(verifier.target);
+        accountFactory = await AccountFactoryContract.deploy();
         await accountFactory.waitForDeployment();
     });
 

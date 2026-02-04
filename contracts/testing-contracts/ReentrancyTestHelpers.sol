@@ -8,6 +8,7 @@ import "../smart-account/interfaces/IAccount.sol";
  */
 contract ReentrantRecoverAttacker {
     address public target;
+    uint8[] public v;
     bytes32[] public r;
     bytes32[] public s;
     bytes32[] public x;
@@ -20,12 +21,14 @@ contract ReentrantRecoverAttacker {
     }
 
     function setAttackPayload(
+        uint8[] calldata _v,
         bytes32[] calldata _r,
         bytes32[] calldata _s,
         bytes32[] calldata _x,
         bytes32[] calldata _y,
         bytes calldata _payload
     ) external {
+        v = _v;
         r = _r;
         s = _s;
         x = _x;
@@ -36,7 +39,7 @@ contract ReentrantRecoverAttacker {
     receive() external payable {
         attackCount++;
         if (attackCount < 3 && address(target).balance > 0) {
-            try IAccount(payable(target)).recoverTransaction(r, s, x, y, payload) {
+            try IAccount(payable(target)).recoverTransaction(v, r, s, x, y, payload) {
                 // Reentrancy succeeded (unexpected if protected)
             } catch {
                 // Reentrancy blocked (expected)

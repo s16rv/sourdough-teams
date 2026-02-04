@@ -10,9 +10,8 @@ uint64 constant MAX_BATCH_SIZE = 20;
 // Payload parsing constants
 uint64 constant SLOT_SIZE = 32;                    // Size of an ABI-encoded slot
 uint64 constant PUBKEY_SIZE = 64;                  // Size of a public key (x + y)
-uint64 constant SIGNER_WITH_SIG_SIZE = 128;        // Size of signer block (r + s + x + y)
+uint64 constant SIGNER_WITH_SIG_SIZE = 129;        // Size of signer block (v(1) + r(32) + s(32) + x(32) + y(32))
 uint64 constant CREATE_ACCOUNT_HEADER_SIZE = 96;   // Category 1: category(32) + totalSigners(32) + threshold(32)
-uint64 constant EXECUTE_TX_HEADER_SIZE = 192;      // Category 2 (legacy): category(32) + target(32) + messageHash(32) + proof(32) + sequence(32) + numberSigners(32)
 uint64 constant NEW_HEADER_SIZE = 128;             // Category 2 (new): category(32) + signBytesLen(32) + hashOffset(32) + numSigners(32)
 uint256 constant TX_ITEM_HEADER_SIZE = 96;         // Transaction item: dest(32) + value(32) + dataLen(32)
 
@@ -121,21 +120,24 @@ contract EntryPoint is IEntryPoint {
             bytes calldata signBytes = _payload[offset:offset + signBytesLength];
             offset += signBytesLength;
 
-            // Dynamic arrays for r, s, x, y based on the number of signers
+            // Dynamic arrays for v, r, s, x, y based on the number of signers
+            uint8[] memory v = new uint8[](numberSigners);
             bytes32[] memory r = new bytes32[](numberSigners);
             bytes32[] memory s = new bytes32[](numberSigners);
             bytes32[] memory x = new bytes32[](numberSigners);
             bytes32[] memory y = new bytes32[](numberSigners);
 
             // Loop through the total signers to extract their signatures and public keys
+            // New payload format per signer: v(1) + r(32) + s(32) + x(32) + y(32) = 129 bytes
             for (uint64 i = 0; i < numberSigners; i++) {
                 uint256 index = offset + i * SIGNER_WITH_SIG_SIZE;
 
-                // Decode r, s, x, and y for the current signer
-                (r[i], s[i], x[i], y[i]) = abi.decode(
-                    _payload[index:index + SIGNER_WITH_SIG_SIZE],
-                    (bytes32, bytes32, bytes32, bytes32)
-                );
+                // Manual byte extraction for tight-packed format
+                v[i] = uint8(_payload[index]);
+                r[i] = bytes32(_payload[index + 1:index + 33]);
+                s[i] = bytes32(_payload[index + 33:index + 65]);
+                x[i] = bytes32(_payload[index + 65:index + 97]);
+                y[i] = bytes32(_payload[index + 97:index + 129]);
             }
 
             offset += numberSigners * SIGNER_WITH_SIG_SIZE;
@@ -157,7 +159,7 @@ contract EntryPoint is IEntryPoint {
                 revert InvalidTargetAccount();
             }
 
-            _handleTransaction(target, signBytes, txPayloadHashOffset, r, s, x, y, sequence, _sourceAddress, txPayload);
+            _handleTransaction(target, signBytes, txPayloadHashOffset, v, r, s, x, y, sequence, _sourceAddress, txPayload);
         }
 
         emit Executed(_sourceChain, _sourceAddress);
@@ -168,6 +170,7 @@ contract EntryPoint is IEntryPoint {
      * @param target The target address to execute the transaction.
      * @param signBytes The AMINO_JSON message that was signed.
      * @param txPayloadHashOffset The offset to the hash in signBytes.
+     * @param v Recovery id array (0-3 from MPC).
      * @param r Part of the signature (r).
      * @param s Part of the signature (s).
      * @param x Part of the public key (x).
@@ -180,6 +183,7 @@ contract EntryPoint is IEntryPoint {
         address target,
         bytes calldata signBytes,
         uint256 txPayloadHashOffset,
+        uint8[] memory v,
         bytes32[] memory r,
         bytes32[] memory s,
         bytes32[] memory x,
@@ -192,6 +196,7 @@ contract EntryPoint is IEntryPoint {
             sourceAddress,
             signBytes,
             txPayloadHashOffset,
+            v,
             r,
             s,
             x,

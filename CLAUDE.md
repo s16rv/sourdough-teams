@@ -29,7 +29,7 @@ Account --> RoutingRailgun --> Railgun Protocol
 | `EntryPoint`            | Routes payloads to Accounts, manages executors                    |
 | `AccountFactory`        | Creates Account instances via CREATE2                             |
 | `Account`               | User's smart account with multisig, holds funds                   |
-| `Secp256k1Verifier`     | EIP-7212 compatible signature verification                        |
+| `Secp256k1Verifier`     | EIP-7212 compatible signature verification (used by MPCVerifier)  |
 | `RoutingRailgun`        | Intermediary for Railgun privacy transactions                     |
 | `RoutingRailgunFactory` | Deploys RoutingRailgun instances                                  |
 
