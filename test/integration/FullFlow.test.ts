@@ -3,7 +3,7 @@ import { expect } from "chai";
 import { AbiCoder, parseEther, sha256 } from "ethers";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 
-import { Account, AccountFactory, EntryPoint, MPCGateway, MPCVerifier, Secp256k1Verifier } from "../../typechain-types";
+import { Account, AccountFactory, EntryPoint, MPCGateway, MPCVerifier } from "../../typechain-types";
 import { generateSignatureWithMnemonic, getPublicKeyFromMnemonic } from "../../scripts/generateSignature";
 import {
     combineHexStrings,
@@ -32,7 +32,6 @@ describe("Integration: Full Flow", function () {
     let mpcVerifier: MPCVerifier;
     let entryPoint: EntryPoint;
     let accountFactory: AccountFactory;
-    let secp256k1Verifier: Secp256k1Verifier;
     let account: Account;
 
     let owner: HardhatEthersSigner;
@@ -96,19 +95,9 @@ describe("Integration: Full Flow", function () {
         mpcPublicKeyX = mpcPubKey.x;
         mpcPublicKeyY = mpcPubKey.y;
 
-        // Deploy Secp256k1Verifier (for both MPC and Account signature verification)
-        const Secp256k1VerifierContract = await hre.ethers.getContractFactory("Secp256k1Verifier");
-        secp256k1Verifier = await Secp256k1VerifierContract.deploy();
-        await secp256k1Verifier.waitForDeployment();
-
         // Deploy MPCVerifier with MPC public key
         const MPCVerifierContract = await hre.ethers.getContractFactory("MPCVerifier");
-        mpcVerifier = await MPCVerifierContract.deploy(
-            mpcOwner.address,
-            secp256k1Verifier.target,
-            mpcPublicKeyX,
-            mpcPublicKeyY
-        );
+        mpcVerifier = await MPCVerifierContract.deploy(mpcOwner.address, mpcPublicKeyX, mpcPublicKeyY);
         await mpcVerifier.waitForDeployment();
 
         // Deploy AccountFactory
@@ -181,6 +170,7 @@ describe("Integration: Full Flow", function () {
             const tx = await mpcGateway
                 .connect(relayer)
                 .executeContractCall(
+                    mpcSig.v,
                     mpcSig.r,
                     mpcSig.s,
                     SOURCE_CHAIN,
@@ -230,6 +220,7 @@ describe("Integration: Full Flow", function () {
             const result = await mpcGateway
                 .connect(relayer)
                 .executeContractCall.staticCall(
+                    wrongMpcSig.v,
                     wrongMpcSig.r,
                     wrongMpcSig.s,
                     SOURCE_CHAIN,
@@ -266,6 +257,7 @@ describe("Integration: Full Flow", function () {
             await mpcGateway
                 .connect(relayer)
                 .executeContractCall(
+                    mpcSig.v,
                     mpcSig.r,
                     mpcSig.s,
                     SOURCE_CHAIN,
@@ -279,6 +271,7 @@ describe("Integration: Full Flow", function () {
             const result = await mpcGateway
                 .connect(relayer)
                 .executeContractCall.staticCall(
+                    mpcSig.v,
                     mpcSig.r,
                     mpcSig.s,
                     SOURCE_CHAIN,
@@ -318,6 +311,7 @@ describe("Integration: Full Flow", function () {
                 await mpcGateway
                     .connect(relayer)
                     .executeContractCall(
+                        mpcSig.v,
                         mpcSig.r,
                         mpcSig.s,
                         SOURCE_CHAIN,

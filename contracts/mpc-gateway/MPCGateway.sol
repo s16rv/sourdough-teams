@@ -11,7 +11,7 @@ contract MPCGateway is IMPCGateway {
 
     /**
      * @dev Constructor that initializes the contract.
-     * @param _verifierAddress The address of the secp256k1 verifier contract.
+     * @param _verifierAddress The address of the MPC verifier contract.
      */
     constructor(address _verifierAddress) {
         if (_verifierAddress == address(0)) revert ZeroAddress();
@@ -22,6 +22,7 @@ contract MPCGateway is IMPCGateway {
      * @notice Approves a contract call by validating the MPC signature
      * @dev Internal function that validates the MPC signature against the transaction hash
      * @param txHash The hash of the transaction parameters
+     * @param v The recovery id of the MPC signature
      * @param r The r component of the MPC signature
      * @param s The s component of the MPC signature
      * @param sourceChain Identifier of the chain where the transaction originated
@@ -31,6 +32,7 @@ contract MPCGateway is IMPCGateway {
      */
     function _approveContractCall(
         bytes32 txHash,
+        uint8 v,
         bytes32 r,
         bytes32 s,
         string calldata sourceChain,
@@ -38,7 +40,7 @@ contract MPCGateway is IMPCGateway {
         address destinationAddress
     ) internal returns (bool) {
         // Call Verifier to validate MPC signature
-        bool isValidSignature = verifier.validateMPCSignature(txHash, r, s);
+        bool isValidSignature = verifier.validateMPCSignature(txHash, v, r, s);
         if (!isValidSignature) {
             return false;
         }
@@ -57,6 +59,7 @@ contract MPCGateway is IMPCGateway {
     /**
      * @notice Executes a contract call on the destination chain.
      * @dev This function is called by the relayer on the destination chain to execute a contract call.
+     * @param mpcSignatureV The recovery id of the MPC signature.
      * @param mpcSignatureR The r component of the MPC signature.
      * @param mpcSignatureS The s component of the MPC signature.
      * @param sourceChain Identifier of the chain where the transaction originated
@@ -66,6 +69,7 @@ contract MPCGateway is IMPCGateway {
      * @param payload Encoded call data to be executed
      */
     function executeContractCall(
+        uint8 mpcSignatureV,
         bytes32 mpcSignatureR,
         bytes32 mpcSignatureS,
         string calldata sourceChain,
@@ -75,6 +79,7 @@ contract MPCGateway is IMPCGateway {
         bytes calldata payload
     ) external returns (bool) {
         emit ContractCallExecuting(
+            mpcSignatureV,
             mpcSignatureR,
             mpcSignatureS,
             sourceChain,
@@ -102,6 +107,7 @@ contract MPCGateway is IMPCGateway {
         // Ensure transaction is approved
         bool isApproved = _approveContractCall(
             txHash,
+            mpcSignatureV,
             mpcSignatureR,
             mpcSignatureS,
             sourceChain,

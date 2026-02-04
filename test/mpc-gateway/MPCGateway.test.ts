@@ -1,7 +1,7 @@
 import hre from "hardhat";
 import { expect } from "chai";
 import { ethers } from "hardhat";
-import { EntryPoint, MPCGateway, MPCVerifier, Secp256k1Verifier } from "../../typechain-types";
+import { EntryPoint, MPCGateway, MPCVerifier } from "../../typechain-types";
 
 describe("MPCGateway", function () {
     let mpcGateway: MPCGateway;
@@ -14,6 +14,7 @@ describe("MPCGateway", function () {
     // Test values for signature validation
     const signatureR = "0x9272896f66ef96f4516bbea12ee7e04673060df8dc07b2b79b261ed611ac8b08";
     const signatureS = "0x7143dfd748a847b8961a4a57902c4f3198e80d94b165a63625ae8b227fdb649e";
+    const signatureV = 27;
 
     // Test values for contract call parameters
     const sourceChain = "sourdough-1";
@@ -52,6 +53,7 @@ describe("MPCGateway", function () {
             const result1 = await mpcGateway
                 .connect(relayer)
                 .executeContractCall.staticCall(
+                    signatureV,
                     signatureR,
                     signatureS,
                     sourceChain,
@@ -72,6 +74,7 @@ describe("MPCGateway", function () {
             const result2 = await mpcGateway
                 .connect(relayer)
                 .executeContractCall.staticCall(
+                    signatureV,
                     signatureR,
                     signatureS,
                     sourceChain,
@@ -96,6 +99,7 @@ describe("MPCGateway", function () {
             const result1 = await mpcGateway
                 .connect(relayer)
                 .executeContractCall(
+                    signatureV,
                     signatureR,
                     signatureS,
                     sourceChain,
@@ -110,6 +114,7 @@ describe("MPCGateway", function () {
             const result2 = await mpcGateway
                 .connect(relayer)
                 .executeContractCall.staticCall(
+                    signatureV,
                     signatureR,
                     signatureS,
                     sourceChain,
@@ -132,6 +137,7 @@ describe("MPCGateway", function () {
             const result = await mpcGateway
                 .connect(relayer)
                 .executeContractCall.staticCall(
+                    signatureV,
                     signatureR,
                     signatureS,
                     sourceChain,
@@ -162,6 +168,7 @@ describe("MPCGateway", function () {
                 mpcGateway
                     .connect(relayer)
                     .executeContractCall(
+                        signatureV,
                         signatureR,
                         signatureS,
                         sourceChain,
@@ -190,6 +197,7 @@ describe("MPCGateway", function () {
             const result = await mpcGateway
                 .connect(relayer)
                 .executeContractCall.staticCall(
+                    signatureV,
                     signatureR,
                     signatureS,
                     sourceChain,
@@ -214,6 +222,7 @@ describe("MPCGateway Entrypoint Integration", function () {
     // Test values for signature validation
     const signatureR = "0x9272896f66ef96f4516bbea12ee7e04673060df8dc07b2b79b261ed611ac8b08";
     const signatureS = "0x7143dfd748a847b8961a4a57902c4f3198e80d94b165a63625ae8b227fdb649e";
+    const signatureV = 27;
 
     // Test values for contract call parameters
     const sourceChain = "sourdough-1";
@@ -264,6 +273,7 @@ describe("MPCGateway Entrypoint Integration", function () {
             const result1 = await mpcGateway
                 .connect(relayer)
                 .executeContractCall.staticCall(
+                    signatureV,
                     signatureR,
                     signatureS,
                     sourceChain,
@@ -281,6 +291,7 @@ describe("MPCGateway Entrypoint Integration", function () {
             const result2 = await mpcGateway
                 .connect(relayer)
                 .executeContractCall.staticCall(
+                    signatureV,
                     signatureR,
                     signatureS,
                     sourceChain,
@@ -301,6 +312,7 @@ describe("MPCGateway Entrypoint Integration", function () {
             const result = await mpcGateway
                 .connect(relayer)
                 .executeContractCall.staticCall(
+                    signatureV,
                     signatureR,
                     signatureS,
                     sourceChain,
@@ -314,6 +326,7 @@ describe("MPCGateway Entrypoint Integration", function () {
             const tx = await mpcGateway
                 .connect(relayer)
                 .executeContractCall(
+                    signatureV,
                     signatureR,
                     signatureS,
                     sourceChain,
@@ -332,6 +345,7 @@ describe("MPCGateway Entrypoint Integration", function () {
             const result = await mpcGateway
                 .connect(relayer)
                 .executeContractCall.staticCall(
+                    signatureV,
                     signatureR,
                     signatureS,
                     sourceChain,
@@ -345,6 +359,7 @@ describe("MPCGateway Entrypoint Integration", function () {
             const tx = await mpcGateway
                 .connect(relayer)
                 .executeContractCall(
+                    signatureV,
                     signatureR,
                     signatureS,
                     sourceChain,
@@ -361,7 +376,6 @@ describe("MPCGateway Entrypoint Integration", function () {
 describe("MPCGateway Verifier Integration", function () {
     let mpcGateway: MPCGateway;
     let mpcVerifier: MPCVerifier;
-    let secp256k1Verifier: Secp256k1Verifier;
     let mockEntryPoint: any;
     let owner: any;
     let nonOwner: any;
@@ -411,19 +425,9 @@ describe("MPCGateway Verifier Integration", function () {
     beforeEach(async function () {
         [owner, nonOwner, relayer] = await ethers.getSigners();
 
-        // Deploy Secp256k1Verifier
-        const Secp256k1VerifierFactory = await hre.ethers.getContractFactory("Secp256k1Verifier");
-        secp256k1Verifier = await Secp256k1VerifierFactory.deploy();
-        await secp256k1Verifier.waitForDeployment();
-
         // Deploy MPCVerifier with the provided public key
         const MPCVerifierFactory = await hre.ethers.getContractFactory("MPCVerifier");
-        mpcVerifier = await MPCVerifierFactory.deploy(
-            owner.address,
-            secp256k1Verifier.target,
-            MPC_PUBLIC_KEY_X,
-            MPC_PUBLIC_KEY_Y
-        );
+        mpcVerifier = await MPCVerifierFactory.deploy(owner.address, MPC_PUBLIC_KEY_X, MPC_PUBLIC_KEY_Y);
         await mpcVerifier.waitForDeployment();
 
         // Deploy MockEntryPoint
@@ -463,7 +467,12 @@ describe("MPCGateway Verifier Integration", function () {
 
             // Try to validate the signature directly with the MPCVerifier
             // This should fail because the signature doesn't match the public key
-            const isValid = await mpcVerifier.validateMPCSignature(payloadHash, params.signatureR, params.signatureS);
+            const isValid = await mpcVerifier.validateMPCSignature(
+                payloadHash,
+                0,
+                params.signatureR,
+                params.signatureS
+            );
 
             // The validation should pass
             expect(isValid).to.be.true;
@@ -482,6 +491,7 @@ describe("MPCGateway Verifier Integration", function () {
             const result = await mpcGateway
                 .connect(relayer)
                 .executeContractCall.staticCall(
+                    0,
                     params.signatureR,
                     params.signatureS,
                     params.sourceChain,
