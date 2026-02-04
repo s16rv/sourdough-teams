@@ -239,12 +239,8 @@ describe("MPCGateway Entrypoint Integration", function () {
         mockMPCVerifier = await MockMPCVerifierFactory.deploy();
         await mockMPCVerifier.waitForDeployment();
 
-        const Secp256k1VerifierContract = await hre.ethers.getContractFactory("Secp256k1Verifier");
-        const verifier = await Secp256k1VerifierContract.deploy();
-        await verifier.waitForDeployment();
-
         const AccountFactoryContract = await hre.ethers.getContractFactory("AccountFactory");
-        const accountFactory = await AccountFactoryContract.deploy(verifier.target);
+        const accountFactory = await AccountFactoryContract.deploy();
         await accountFactory.waitForDeployment();
 
         const EntryPointContract = await hre.ethers.getContractFactory("EntryPoint");

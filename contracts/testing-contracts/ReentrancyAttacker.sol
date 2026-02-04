@@ -14,6 +14,7 @@ contract ReentrancyAttacker {
     bool public attacking;
 
     // For recover transaction attack
+    uint8[] public v;
     bytes32[] public r;
     bytes32[] public s;
     bytes32[] public x;
@@ -35,12 +36,14 @@ contract ReentrancyAttacker {
     }
 
     function setRecoverParams(
+        uint8[] calldata _v,
         bytes32[] calldata _r,
         bytes32[] calldata _s,
         bytes32[] calldata _x,
         bytes32[] calldata _y,
         bytes calldata _txPayload
     ) external {
+        v = _v;
         r = _r;
         s = _s;
         x = _x;
@@ -73,7 +76,7 @@ contract ReentrancyAttacker {
             // Attempt reentrancy via recoverTransaction
             // This should fail due to sequence check (sequence already incremented)
             // or revert if there's a reentrancy guard
-            try target.recoverTransaction(r, s, x, y, txPayload) {
+            try target.recoverTransaction(v, r, s, x, y, txPayload) {
                 // If this succeeds, reentrancy is possible!
             } catch {
                 // Expected - either sequence mismatch or reentrancy guard
@@ -106,6 +109,7 @@ contract MaliciousERC20 {
     Account public target;
     bool public attackOnTransfer;
 
+    uint8[] public v;
     bytes32[] public r;
     bytes32[] public s;
     bytes32[] public x;
@@ -127,6 +131,7 @@ contract MaliciousERC20 {
 
     function setAttackParams(
         address _target,
+        uint8[] calldata _v,
         bytes32[] calldata _r,
         bytes32[] calldata _s,
         bytes32[] calldata _x,
@@ -134,6 +139,7 @@ contract MaliciousERC20 {
         bytes calldata _txPayload
     ) external {
         target = Account(payable(_target));
+        v = _v;
         r = _r;
         s = _s;
         x = _x;
@@ -168,7 +174,7 @@ contract MaliciousERC20 {
 
         // Attempt reentrancy if enabled and transfer is FROM the target account
         if (attackOnTransfer && from == address(target)) {
-            try target.recoverTransaction(r, s, x, y, txPayload) {
+            try target.recoverTransaction(v, r, s, x, y, txPayload) {
                 emit ReentrancyAttempt(true);
             } catch {
                 emit ReentrancyAttempt(false);

@@ -5,7 +5,7 @@ category: Contract
 kind: instantiation
 author: S16 Research Ventures <team@s16.ventures>
 created: 2025-05-08
-modified: 2026-01-30
+modified: 2026-02-04
 requires:
 version compatibility:
 ---
@@ -25,7 +25,7 @@ This protocol establishes a unified authentication mechanism that operates seaml
 - `Smart Account`: A blockchain account that supports threshold multi-signature verification, allowing M-of-N signers to authorize transactions.
 - `EntryPoint`: The contract that receives cross-chain payloads and routes them to user Accounts.
 - `AccountFactory`: A factory contract for deploying new Account instances via CREATE2.
-- `Secp256k1Verifier`: A contract implementing EIP-7212 compatible secp256k1 signature verification.
+- `Secp256k1Verifier`: A contract implementing EIP-7212 compatible secp256k1 signature verification (used by MPCVerifier; Account uses native ecrecover).
 - `addrHash`: A keccak256 hash of the source chain address, used to bind the account to a specific source identity.
 - `messageHash`: A hash computed on the source chain that gets signed by account owners.
 - `proof`: A binding value `sha256(messageHash || data)` that links the signed message to the execution payload.
@@ -75,11 +75,10 @@ interface IAccount {
     error InvalidPayload();
 
     // Events
-    event AccountInitialized(address indexed verifier);
+    event AccountInitialized();
     event TransactionExecuted(address indexed dest, uint256 value, bytes data);
 
     // State (in implementation)
-    // address private immutable verifier;
     // EntryPoint private immutable entryPoint;
     // bytes32[] private xPubKeys;        // X coordinates of owner public keys
     // bytes32[] private yPubKeys;        // Y coordinates of owner public keys
@@ -90,6 +89,7 @@ interface IAccount {
     function validateOperation(
         string calldata sourceAddress,
         bytes32 messageHash,
+        uint8[] memory v,
         bytes32[] memory r,
         bytes32[] memory s,
         bytes32[] memory x,
@@ -106,6 +106,7 @@ interface IAccount {
     ) external returns (bool);
 
     function recoverTransaction(
+        uint8[] memory v,
         bytes32[] memory r,
         bytes32[] memory s,
         bytes32[] memory x,
@@ -198,8 +199,8 @@ When EntryPoint receives a payload with `category == 1`:
 When EntryPoint receives a payload with `category == 2`:
 
 ```
-1. Decode payload: (target, messageHash, proof, sequence, numberSigners, [r[], s[], x[], y[]], txPayload)
-2. Call Account.validateOperation(sourceAddress, messageHash, r, s, x, y, proof, sequence, txPayload)
+1. Decode payload: (target, messageHash, proof, sequence, numberSigners, [v[], r[], s[], x[], y[]], txPayload)
+2. Call Account.validateOperation(sourceAddress, messageHash, v, r, s, x, y, proof, sequence, txPayload)
 3. If valid, decode txPayload into (destList[], valueList[], dataList[])
 4. Call Account.executeTransactions(destList, valueList, dataList)
 5. Emit TransactionHandled event
@@ -216,7 +217,7 @@ Validates a transaction request in the normal path:
 4. Check provided public keys are subset of stored xPubKeys/yPubKeys
 5. Check number of signatures >= threshold
 6. Check for duplicate public keys
-7. For each signature: verify against messageHash using Secp256k1Verifier
+7. For each signature: verify against messageHash using native ecrecover (v + 27, r, s)
 8. Return (true, "") if all checks pass
 ```
 
@@ -262,9 +263,11 @@ Every transaction should validate:
 
 #### Signature Verification
 
-- Uses secp256k1 ECDSA via `Secp256k1Verifier` (EIP-7212 compatible)
+- Uses native `ecrecover` precompile for secp256k1 ECDSA verification
+- Signatures include recovery id `v` (0-3 from MPC, +27 for ecrecover)
 - Verifies threshold number of valid signatures from registered public keys
 - Checks for duplicate public keys to prevent signature reuse
+- Includes signature malleability protection (EIP-2)
 
 #### Replay Protection
 
@@ -296,6 +299,7 @@ Every transaction should validate:
 
 - May 8, 2025 - Draft written
 - January 30, 2026 - Updated to reflect current implementation (multisig model, batch transactions, recovery path, removed recover address field)
+- February 4, 2026 - Updated signature verification to use native ecrecover with v parameter instead of Secp256k1Verifier
 
 ## Copyright
 

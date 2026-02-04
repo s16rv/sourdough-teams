@@ -2,11 +2,9 @@
 pragma solidity ^0.8.21;
 
 import "../interfaces/IAccount.sol";
-import "../util/SignatureVerifier.sol";
 import "../EntryPoint.sol";
 
 contract Account is IAccount {
-    address private immutable verifier;
     EntryPoint private immutable entryPoint;
     bytes32[] private xPubKeys;
     bytes32[] private yPubKeys;
@@ -14,10 +12,13 @@ contract Account is IAccount {
     uint64 private threshold;
     uint64 public accountSequence;
 
+    // secp256k1 curve order / 2 for malleability check (EIP-2)
+    uint256 private constant SECP256K1_N_DIV_2 =
+        0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0;
+
     /**
-     * @dev Constructor that initializes the contract with the verifier address, signer address, and entry point address.
+     * @dev Constructor that initializes the contract with the entry point address and signer public keys.
      * Emits an `AccountInitialized` event.
-     * @param _verifierAddr The address of the secp256k1 verifier contract.
      * @param _entryPointAddr The address of the entry point contract.
      * @param _x The x part of the public key.
      * @param _y The y part of the public key.
@@ -25,21 +26,19 @@ contract Account is IAccount {
      * @param _threshold The threshold of the account.
      */
     constructor(
-        address _verifierAddr,
         address _entryPointAddr,
         bytes32[] memory _x,
         bytes32[] memory _y,
         bytes32 _addrHash,
         uint64 _threshold
     ) {
-        verifier = _verifierAddr;
         entryPoint = EntryPoint(_entryPointAddr);
         xPubKeys = _x;
         yPubKeys = _y;
         addrHash = _addrHash;
         threshold = _threshold;
 
-        emit AccountInitialized(verifier);
+        emit AccountInitialized();
     }
 
     /**
@@ -72,9 +71,47 @@ contract Account is IAccount {
     }
 
     /**
-     * @dev Validates an operation by verifying the provided signature against the stored signer.
+     * @dev Derives an Ethereum address from a public key.
+     * @param x The x coordinate of the public key.
+     * @param y The y coordinate of the public key.
+     * @return The derived Ethereum address.
+     */
+    function _pubKeyToAddress(bytes32 x, bytes32 y) internal pure returns (address) {
+        return address(uint160(uint256(keccak256(abi.encodePacked(x, y)))));
+    }
+
+    /**
+     * @dev Recovers the signer address using ecrecover.
+     * @param messageHash The hash that was signed.
+     * @param v Recovery id (27 or 28).
+     * @param r Signature r component.
+     * @param s Signature s component.
+     * @return The recovered address, or address(0) if invalid.
+     */
+    function _recoverSigner(
+        bytes32 messageHash,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) internal pure returns (address) {
+        // Check for signature malleability (EIP-2)
+        if (uint256(s) > SECP256K1_N_DIV_2) {
+            return address(0);
+        }
+
+        // v must be 27 or 28
+        if (v != 27 && v != 28) {
+            return address(0);
+        }
+
+        return ecrecover(messageHash, v, r, s);
+    }
+
+    /**
+     * @dev Validates an operation by verifying the provided signature against the stored signer using ecrecover.
      * @param sourceAddress The address on the source chain where the transaction originated.
      * @param messageHash The hash of the message to be validated.
+     * @param v Recovery id array (0-3, will be adjusted to 27-30 for ecrecover).
      * @param r Part of the signature (r).
      * @param s Part of the signature (s).
      * @param proof The proof of the transaction.
@@ -84,6 +121,7 @@ contract Account is IAccount {
     function validateOperation(
         string calldata sourceAddress,
         bytes32 messageHash,
+        uint8[] memory v,
         bytes32[] memory r,
         bytes32[] memory s,
         bytes32[] memory x,
@@ -109,7 +147,7 @@ contract Account is IAccount {
             return (false, "InvalidPubKeyLength");
         }
 
-        if (x.length != r.length || x.length != s.length) {
+        if (x.length != r.length || x.length != s.length || x.length != v.length) {
             return (false, "InvalidSignatureLength");
         }
 
@@ -138,9 +176,13 @@ contract Account is IAccount {
             }
         }
 
+        // Verify each signature using ecrecover
         for (uint64 i = 0; i < x.length; i++) {
-            bool isValidSignature = SignatureVerifier.verifySignature(verifier, messageHash, r[i], s[i], x[i], y[i]);
-            if (!isValidSignature) {
+            address expectedAddr = _pubKeyToAddress(x[i], y[i]);
+            // v is 0-3 from MPC, add 27 for ecrecover
+            address recovered = _recoverSigner(messageHash, v[i] + 27, r[i], s[i]);
+
+            if (recovered != expectedAddr) {
                 return (false, "InvalidSignature");
             }
         }
@@ -179,6 +221,7 @@ contract Account is IAccount {
 
     /**
      * @dev Recovers a transaction by validating the provided signature and executing the transaction if valid. Directly executes to the smart account.
+     * @param v Recovery id array (0-3, will be adjusted to 27-30 for ecrecover).
      * @param r Part of the signature (r) from secp256k1 signature.
      * @param s Part of the signature (s) from secp256k1 signature.
      * @param x Part of the public key (x) that signed the message.
@@ -187,6 +230,7 @@ contract Account is IAccount {
      * @return A boolean indicating whether the transaction was successfully recovered.
      */
     function recoverTransaction(
+        uint8[] memory v,
         bytes32[] memory r,
         bytes32[] memory s,
         bytes32[] memory x,
@@ -197,7 +241,7 @@ contract Account is IAccount {
             revert InvalidInputLength();
         }
 
-        if (x.length != r.length || x.length != s.length) {
+        if (x.length != r.length || x.length != s.length || x.length != v.length) {
             revert InvalidInputLength();
         }
 
@@ -217,8 +261,13 @@ contract Account is IAccount {
             if (!isPubKeyValid) {
                 revert InvalidPubKey();
             }
-            bool isValidSignature = SignatureVerifier.verifySignature(verifier, messageHash, r[i], s[i], x[i], y[i]);
-            if (!isValidSignature) {
+
+            // Verify signature using ecrecover
+            address expectedAddr = _pubKeyToAddress(x[i], y[i]);
+            // v is 0-3 from MPC, add 27 for ecrecover
+            address recovered = _recoverSigner(messageHash, v[i] + 27, r[i], s[i]);
+
+            if (recovered != expectedAddr) {
                 revert InvalidSignature();
             }
         }
@@ -255,14 +304,6 @@ contract Account is IAccount {
     // function recoverProposal(uint64 sequence, address dest, uint256 value, bytes calldata data) external {
     //     revert NotExecutable();
     // }
-
-    /**
-     * @dev Returns the verifier address.
-     * @return The address of the verifier.
-     */
-    function getVerifier() public view returns (address) {
-        return verifier;
-    }
 
     /**
      * @dev Returns the x part of the public key.

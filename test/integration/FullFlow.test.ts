@@ -5,7 +5,7 @@ import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 
 import { Account, AccountFactory, EntryPoint, MPCGateway, MPCVerifier, Secp256k1Verifier } from "../../typechain-types";
 import { generateSignatureWithMnemonic, getPublicKeyFromMnemonic } from "../../scripts/generateSignature";
-import { combineHexStrings, encodeMultiPayload } from "../utils/lib";
+import { combineHexStrings, encodeMultiPayload, encodeSignerBlock } from "../utils/lib";
 
 /**
  * Full integration tests: MPCGateway -> EntryPoint -> Account
@@ -70,7 +70,7 @@ describe("Integration: Full Flow", function () {
 
         // Deploy AccountFactory
         const AccountFactoryContract = await hre.ethers.getContractFactory("AccountFactory");
-        accountFactory = await AccountFactoryContract.deploy(secp256k1Verifier.target);
+        accountFactory = await AccountFactoryContract.deploy();
         await accountFactory.waitForDeployment();
 
         // Deploy EntryPoint
@@ -132,36 +132,19 @@ describe("Integration: Full Flow", function () {
             // 4. Sign the preimage with user's key (generateSignatureWithMnemonic will hash it to get messageHash)
             const userSig = await generateSignatureWithMnemonic(TEST_MNEMONIC, messageHashPreimage.slice(2));
 
-            // 5. Encode the EntryPoint payload (category 2 = transaction)
-            const entryPointPayload = new AbiCoder().encode(
-                [
-                    "uint8",
-                    "address",
-                    "bytes32",
-                    "bytes32",
-                    "uint64",
-                    "uint64",
-                    "bytes32",
-                    "bytes32",
-                    "bytes32",
-                    "bytes32",
-                ],
-                [
-                    2, // category
-                    accountAddress,
-                    messageHash,
-                    proof,
-                    accountSequence + 1n,
-                    1, // numberSigners
-                    userSig.r,
-                    userSig.s,
-                    publicKeyX[0],
-                    publicKeyY[0],
-                ]
+            // 5. Encode the EntryPoint header (category 2 = transaction)
+            const header = new AbiCoder().encode(
+                ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64"],
+                [2, accountAddress, messageHash, proof, accountSequence + 1n, 1]
             );
-            const fullPayload = combineHexStrings(entryPointPayload, txPayload);
 
-            // 6. Compute txHash preimage for MPC signature
+            // 6. Encode signer block (129 bytes: v + r + s + x + y, tight-packed)
+            const signerBlock = encodeSignerBlock(userSig.v, userSig.r, userSig.s, publicKeyX[0], publicKeyY[0]);
+
+            // 7. Combine: header + signerBlock + txPayload
+            const fullPayload = combineHexStrings(combineHexStrings(header, signerBlock), txPayload);
+
+            // 8. Compute txHash preimage for MPC signature
             // generateSignatureWithMnemonic hashes its input, so we pass the preimage
             // txHash = sha256(abi.encode(sourceChain, sourceAddress, destChain, destAddress, payload))
             const txHashPreimage = new AbiCoder().encode(
@@ -169,10 +152,10 @@ describe("Integration: Full Flow", function () {
                 [SOURCE_CHAIN, SOURCE_ADDRESS, DESTINATION_CHAIN, entryPoint.target, fullPayload]
             );
 
-            // 7. Sign txHash preimage with MPC key (generateSignatureWithMnemonic will hash it to get txHash)
+            // 9. Sign txHash preimage with MPC key (generateSignatureWithMnemonic will hash it to get txHash)
             const mpcSig = await generateSignatureWithMnemonic(MPC_MNEMONIC, txHashPreimage.slice(2));
 
-            // 8. Execute via MPCGateway
+            // 10. Execute via MPCGateway
             const tx = await mpcGateway
                 .connect(relayer)
                 .executeContractCall(
@@ -185,17 +168,17 @@ describe("Integration: Full Flow", function () {
                     fullPayload
                 );
 
-            // 9. Verify the transaction succeeded
+            // 11. Verify the transaction succeeded
             await expect(tx)
                 .to.emit(mpcGateway, "ContractCallApproved")
                 .and.to.emit(mpcGateway, "ContractCallExecuted")
                 .and.to.emit(entryPoint, "TransactionHandled");
 
-            // 10. Verify funds transferred
+            // 12. Verify funds transferred
             const finalRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
             expect(finalRecipientBalance).to.equal(initialRecipientBalance + amountToSend);
 
-            // 11. Verify sequence incremented
+            // 13. Verify sequence incremented
             expect(await account.accountSequence()).to.equal(accountSequence + 1n);
         });
 
@@ -215,33 +198,16 @@ describe("Integration: Full Flow", function () {
 
             const userSig = await generateSignatureWithMnemonic(TEST_MNEMONIC, messageHashPreimage.slice(2));
 
-            const entryPointPayload = new AbiCoder().encode(
-                [
-                    "uint8",
-                    "address",
-                    "bytes32",
-                    "bytes32",
-                    "uint64",
-                    "uint64",
-                    "bytes32",
-                    "bytes32",
-                    "bytes32",
-                    "bytes32",
-                ],
-                [
-                    2,
-                    accountAddress,
-                    messageHash,
-                    proof,
-                    accountSequence + 1n,
-                    1,
-                    userSig.r,
-                    userSig.s,
-                    publicKeyX[0],
-                    publicKeyY[0],
-                ]
+            // Header part (ABI-encoded)
+            const header = new AbiCoder().encode(
+                ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64"],
+                [2, accountAddress, messageHash, proof, accountSequence + 1n, 1]
             );
-            const fullPayload = combineHexStrings(entryPointPayload, txPayload);
+
+            // Signer block (129 bytes: v + r + s + x + y, tight-packed)
+            const signerBlock = encodeSignerBlock(userSig.v, userSig.r, userSig.s, publicKeyX[0], publicKeyY[0]);
+
+            const fullPayload = combineHexStrings(combineHexStrings(header, signerBlock), txPayload);
 
             // Use WRONG MPC key to sign
             const WRONG_MPC_MNEMONIC = "legal winner thank year wave sausage worth useful legal winner thank yellow";
@@ -283,33 +249,16 @@ describe("Integration: Full Flow", function () {
 
             const userSig = await generateSignatureWithMnemonic(TEST_MNEMONIC, messageHashPreimage.slice(2));
 
-            const entryPointPayload = new AbiCoder().encode(
-                [
-                    "uint8",
-                    "address",
-                    "bytes32",
-                    "bytes32",
-                    "uint64",
-                    "uint64",
-                    "bytes32",
-                    "bytes32",
-                    "bytes32",
-                    "bytes32",
-                ],
-                [
-                    2,
-                    accountAddress,
-                    messageHash,
-                    proof,
-                    accountSequence + 1n,
-                    1,
-                    userSig.r,
-                    userSig.s,
-                    publicKeyX[0],
-                    publicKeyY[0],
-                ]
+            // Header part (ABI-encoded)
+            const header = new AbiCoder().encode(
+                ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64"],
+                [2, accountAddress, messageHash, proof, accountSequence + 1n, 1]
             );
-            const fullPayload = combineHexStrings(entryPointPayload, txPayload);
+
+            // Signer block (129 bytes: v + r + s + x + y, tight-packed)
+            const signerBlock = encodeSignerBlock(userSig.v, userSig.r, userSig.s, publicKeyX[0], publicKeyY[0]);
+
+            const fullPayload = combineHexStrings(combineHexStrings(header, signerBlock), txPayload);
 
             const txHashPreimage = new AbiCoder().encode(
                 ["string", "string", "string", "address", "bytes"],
@@ -366,33 +315,16 @@ describe("Integration: Full Flow", function () {
 
                 const userSig = await generateSignatureWithMnemonic(TEST_MNEMONIC, messageHashPreimage.slice(2));
 
-                const entryPointPayload = new AbiCoder().encode(
-                    [
-                        "uint8",
-                        "address",
-                        "bytes32",
-                        "bytes32",
-                        "uint64",
-                        "uint64",
-                        "bytes32",
-                        "bytes32",
-                        "bytes32",
-                        "bytes32",
-                    ],
-                    [
-                        2,
-                        accountAddress,
-                        messageHash,
-                        proof,
-                        accountSequence + 1n,
-                        1,
-                        userSig.r,
-                        userSig.s,
-                        publicKeyX[0],
-                        publicKeyY[0],
-                    ]
+                // Header part (ABI-encoded)
+                const header = new AbiCoder().encode(
+                    ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64"],
+                    [2, accountAddress, messageHash, proof, accountSequence + 1n, 1]
                 );
-                const fullPayload = combineHexStrings(entryPointPayload, txPayload);
+
+                // Signer block (129 bytes: v + r + s + x + y, tight-packed)
+                const signerBlock = encodeSignerBlock(userSig.v, userSig.r, userSig.s, publicKeyX[0], publicKeyY[0]);
+
+                const fullPayload = combineHexStrings(combineHexStrings(header, signerBlock), txPayload);
 
                 const txHashPreimage = new AbiCoder().encode(
                     ["string", "string", "string", "address", "bytes"],
@@ -440,8 +372,15 @@ describe("Integration: Full Flow", function () {
             // Sign with user key directly (no MPC involved)
             const userSig = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayload.slice(2));
 
-            // Execute recovery transaction directly on Account
-            await account.recoverTransaction([userSig.r], [userSig.s], [publicKeyX[0]], [publicKeyY[0]], txPayload);
+            // Execute recovery transaction directly on Account (with v parameter)
+            await account.recoverTransaction(
+                [userSig.v],
+                [userSig.r],
+                [userSig.s],
+                [publicKeyX[0]],
+                [publicKeyY[0]],
+                txPayload
+            );
 
             // Verify funds transferred
             const finalRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);

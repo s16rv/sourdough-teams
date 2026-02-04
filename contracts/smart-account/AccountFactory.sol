@@ -2,21 +2,12 @@
 pragma solidity ^0.8.21;
 
 import "./interfaces/IAccountFactory.sol";
-import "./util/SignatureVerifier.sol";
 import "./account/Account.sol";
 
 contract AccountFactory is IAccountFactory {
     mapping(bytes32 => address) private account;
-    address private immutable verifier;
 
-    /**
-     * @dev Constructor that initializes the contract with the secp256k1 verifier address.
-     * @param _verifierAddr The address of the secp256k1 verifier contract.
-     */
-    constructor(address _verifierAddr) {
-        if (_verifierAddr == address(0)) revert ZeroAddress();
-        verifier = _verifierAddr;
-    }
+    constructor() {}
 
     /**
      * @dev Creates a new account contract using a signature for verification.
@@ -67,7 +58,7 @@ contract AccountFactory is IAccountFactory {
     ) internal returns (address) {
         bytes memory bytecode = abi.encodePacked(
             type(Account).creationCode,
-            abi.encode(verifier, entryPoint, x, y, addrHash, threshold)
+            abi.encode(entryPoint, x, y, addrHash, threshold)
         );
 
         // Use CREATE2 with addrHash as salt - address depends only on addrHash
@@ -99,7 +90,7 @@ contract AccountFactory is IAccountFactory {
     ) external view returns (address) {
         bytes memory bytecode = abi.encodePacked(
             type(Account).creationCode,
-            abi.encode(verifier, entryPoint, x, y, addrHash, threshold)
+            abi.encode(entryPoint, x, y, addrHash, threshold)
         );
         bytes32 hash = keccak256(abi.encodePacked(bytes1(0xff), address(this), addrHash, keccak256(bytecode)));
         return address(uint160(uint256(hash)));

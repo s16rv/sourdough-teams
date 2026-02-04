@@ -3,7 +3,7 @@ import { expect } from "chai";
 import { AbiCoder, keccak256, parseEther, sha256, toUtf8Bytes } from "ethers";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 
-import { Account, Secp256k1Verifier } from "../../typechain-types";
+import { Account } from "../../typechain-types";
 import { generateSignatureWithMnemonic, getPublicKeyFromMnemonic } from "../../scripts/generateSignature";
 import { combineHexStrings } from "../utils/lib";
 
@@ -22,8 +22,9 @@ describe("Account", function () {
     const ENTRYPOINT_ADDRESS = "0x3bd70e10d71c6e882e3c1809d26a310d793646eb";
     const RECIPIENT_ADDRESS = "0xaa25Aa7a19f9c426E07dee59b12f944f4d9f1DD3";
 
-    const PUBLIC_KEY_X = ["0x90be7fe886c748be80e98b340d1418d0bfe7865675ee597d9d850526520085f0"];
-    const PUBLIC_KEY_Y = ["0x87b9efdb5c81e067890e9439bdf717cf1c22adfe29d802050a11414d66b6e338"];
+    // Use test mnemonic to derive keys
+    const TEST_MNEMONIC =
+        "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
 
     const SOURCE_ADDRESS = "neutron1chcktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
     const SOURCE_ADDRESS_HASH = keccak256(toUtf8Bytes(SOURCE_ADDRESS));
@@ -31,23 +32,23 @@ describe("Account", function () {
     const THRESHOLD = 1;
 
     let account: Account;
-    let verifier: Secp256k1Verifier;
     let recover: HardhatEthersSigner;
     let stranger: HardhatEthersSigner;
+    let publicKeyX: string[];
+    let publicKeyY: string[];
 
     beforeEach(async function () {
         [recover, stranger] = await hre.ethers.getSigners();
 
-        const Secp256k1VerifierContract = await hre.ethers.getContractFactory("Secp256k1Verifier");
-        verifier = await Secp256k1VerifierContract.deploy();
-        await verifier.waitForDeployment();
+        const pubKey = await getPublicKeyFromMnemonic(TEST_MNEMONIC);
+        publicKeyX = [pubKey.x];
+        publicKeyY = [pubKey.y];
 
         const AccountContract = await hre.ethers.getContractFactory("Account");
         account = await AccountContract.deploy(
-            verifier.target,
             ENTRYPOINT_ADDRESS,
-            PUBLIC_KEY_X,
-            PUBLIC_KEY_Y,
+            publicKeyX,
+            publicKeyY,
             SOURCE_ADDRESS_HASH,
             THRESHOLD
         );
@@ -69,20 +70,27 @@ describe("Account", function () {
     });
 
     it("Should validate operation", async function () {
-        const messageHash = "0x87a9afdf384bb934b0b7b383cab20a2f472d0e64bd0603f2072066be6796faf0";
-        const r = ["0x1d59ffe13a4c317e0346d6791f29ada0ff012451649e1c5670348d04a65c8afd"];
-        const s = ["0x7e6c637f57928d095dcc052a22da0c09b4c87614e91e21ff428840e93b90b13c"];
-        const proof = "0x557072bab6f803255768af1241504525bf58ade4438b23fd0f52909fa748e1f9";
-        const data =
-            "0x000000000000000000000000aa25aa7a19f9c426e07dee59b12f944f4d9f1dd3000000000000000000000000000000000000000000000000002386f26fc1000000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000000";
+        const abiCoder = new AbiCoder();
+        const preimage = abiCoder.encode(
+            ["string", "uint64", "address", "uint256"],
+            [SOURCE_ADDRESS, SEQUENCE, RECIPIENT_ADDRESS, parseEther("0.01")]
+        );
+        const messageHash = sha256(preimage);
+
+        const data = abiCoder.encode(["address", "uint256", "bytes"], [RECIPIENT_ADDRESS, parseEther("0.01"), "0x"]);
+
+        const proof = sha256(combineHexStrings(messageHash, data));
+
+        const sigResult = await generateSignatureWithMnemonic(TEST_MNEMONIC, preimage.slice(2));
 
         const [isValid] = await account.validateOperation(
             SOURCE_ADDRESS,
             messageHash,
-            r,
-            s,
-            PUBLIC_KEY_X,
-            PUBLIC_KEY_Y,
+            [sigResult.v],
+            [sigResult.r],
+            [sigResult.s],
+            publicKeyX,
+            publicKeyY,
             proof,
             SEQUENCE,
             data
@@ -91,19 +99,27 @@ describe("Account", function () {
     });
 
     it("Should not validate operation, invalid proof", async function () {
-        const messageHash = "0x87a9afdf384bb934b0b7b383cab20a2f472d0e64bd0603f2072066be6796faf0";
-        const r = ["0x1d59ffe13a4c317e0346d6791f29ada0ff012451649e1c5670348d04a65c8afd"];
-        const s = ["0x7e6c637f57928d095dcc052a22da0c09b4c87614e91e21ff428840e93b90b13c"];
-        const proof = "0x557072bab6f803255768af1241504525bf58ade4438b23fd0f52909fa748e1f9";
-        const data = "0x000000000000000000000000";
+        const abiCoder = new AbiCoder();
+        const preimage = abiCoder.encode(
+            ["string", "uint64", "address", "uint256"],
+            [SOURCE_ADDRESS, SEQUENCE, RECIPIENT_ADDRESS, parseEther("0.01")]
+        );
+        const messageHash = sha256(preimage);
+
+        const data = "0x000000000000000000000000"; // Different data causing invalid proof
+
+        const proof = sha256(combineHexStrings(messageHash, "0x")); // Wrong proof
+
+        const sigResult = await generateSignatureWithMnemonic(TEST_MNEMONIC, preimage.slice(2));
 
         const [isValid, msg] = await account.validateOperation(
             SOURCE_ADDRESS,
             messageHash,
-            r,
-            s,
-            PUBLIC_KEY_X,
-            PUBLIC_KEY_Y,
+            [sigResult.v],
+            [sigResult.r],
+            [sigResult.s],
+            publicKeyX,
+            publicKeyY,
             proof,
             SEQUENCE,
             data
@@ -114,20 +130,28 @@ describe("Account", function () {
     });
 
     it("Should not validate operation, invalid signature", async function () {
-        const messageHash = "0x87a9afdf384bb934b0b7b383cab20a2f472d0e64bd0603f2072066be6796faf0";
-        const r = ["0x2d59ffe13a4c317e0346d6791f29ada0ff012451649e1c5670348d04a65c8afd"];
-        const s = ["0x8e6c637f57928d095dcc052a22da0c09b4c87614e91e21ff428840e93b90b13c"];
-        const proof = "0x557072bab6f803255768af1241504525bf58ade4438b23fd0f52909fa748e1f9";
-        const data =
-            "0x000000000000000000000000aa25aa7a19f9c426e07dee59b12f944f4d9f1dd3000000000000000000000000000000000000000000000000002386f26fc1000000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000000";
+        const abiCoder = new AbiCoder();
+        const preimage = abiCoder.encode(
+            ["string", "uint64", "address", "uint256"],
+            [SOURCE_ADDRESS, SEQUENCE, RECIPIENT_ADDRESS, parseEther("0.01")]
+        );
+        const messageHash = sha256(preimage);
 
+        const data = abiCoder.encode(["address", "uint256", "bytes"], [RECIPIENT_ADDRESS, parseEther("0.01"), "0x"]);
+
+        const proof = sha256(combineHexStrings(messageHash, data));
+
+        const sigResult = await generateSignatureWithMnemonic(TEST_MNEMONIC, preimage.slice(2));
+
+        // Use wrong r and s values
         const [isValid, msg] = await account.validateOperation(
             SOURCE_ADDRESS,
             messageHash,
-            r,
-            s,
-            PUBLIC_KEY_X,
-            PUBLIC_KEY_Y,
+            [sigResult.v],
+            ["0x2d59ffe13a4c317e0346d6791f29ada0ff012451649e1c5670348d04a65c8afd"],
+            ["0x1e6c637f57928d095dcc052a22da0c09b4c87614e91e21ff428840e93b90b13c"],
+            publicKeyX,
+            publicKeyY,
             proof,
             SEQUENCE,
             data
@@ -151,15 +175,10 @@ describe("Account", function () {
 
 describe("Account Multisig", function () {
     const ENTRYPOINT_ADDRESS = "0x3bd70e10d71c6e882e3c1809d26a310d793646eb";
+    const RECIPIENT_ADDRESS = "0xaa25Aa7a19f9c426E07dee59b12f944f4d9f1DD3";
 
-    const PUBLIC_KEY_X = [
-        "0x90be7fe886c748be80e98b340d1418d0bfe7865675ee597d9d850526520085f0",
-        "0x90be7fe886c748be80e98b340d1418d0bfe7865675ee597d9d850526520085f0",
-    ];
-    const PUBLIC_KEY_Y = [
-        "0x87b9efdb5c81e067890e9439bdf717cf1c22adfe29d802050a11414d66b6e338",
-        "0x87b9efdb5c81e067890e9439bdf717cf1c22adfe29d802050a11414d66b6e338",
-    ];
+    const TEST_MNEMONIC =
+        "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
 
     const SOURCE_ADDRESS = "neutron1chcktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
     const SOURCE_ADDRESS_HASH = keccak256(toUtf8Bytes(SOURCE_ADDRESS));
@@ -167,22 +186,23 @@ describe("Account Multisig", function () {
     const THRESHOLD = 1;
 
     let account: Account;
-    let verifier: Secp256k1Verifier;
     let recover: HardhatEthersSigner;
+    let publicKeyX: string[];
+    let publicKeyY: string[];
 
     beforeEach(async function () {
         [recover] = await hre.ethers.getSigners();
 
-        const Secp256k1VerifierContract = await hre.ethers.getContractFactory("Secp256k1Verifier");
-        verifier = await Secp256k1VerifierContract.deploy();
-        await verifier.waitForDeployment();
+        const pubKey = await getPublicKeyFromMnemonic(TEST_MNEMONIC);
+        // Duplicate the same key for multisig testing
+        publicKeyX = [pubKey.x, pubKey.x];
+        publicKeyY = [pubKey.y, pubKey.y];
 
         const AccountContract = await hre.ethers.getContractFactory("Account");
         account = await AccountContract.deploy(
-            verifier.target,
             ENTRYPOINT_ADDRESS,
-            PUBLIC_KEY_X,
-            PUBLIC_KEY_Y,
+            publicKeyX,
+            publicKeyY,
             SOURCE_ADDRESS_HASH,
             THRESHOLD
         );
@@ -204,19 +224,27 @@ describe("Account Multisig", function () {
     });
 
     it("Should validate operation", async function () {
-        const messageHash = "0x87a9afdf384bb934b0b7b383cab20a2f472d0e64bd0603f2072066be6796faf0";
-        const r = ["0x1d59ffe13a4c317e0346d6791f29ada0ff012451649e1c5670348d04a65c8afd"];
-        const s = ["0x7e6c637f57928d095dcc052a22da0c09b4c87614e91e21ff428840e93b90b13c"];
-        const proof = "0x557072bab6f803255768af1241504525bf58ade4438b23fd0f52909fa748e1f9";
-        const data =
-            "0x000000000000000000000000aa25aa7a19f9c426e07dee59b12f944f4d9f1dd3000000000000000000000000000000000000000000000000002386f26fc1000000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000000";
+        const abiCoder = new AbiCoder();
+        const preimage = abiCoder.encode(
+            ["string", "uint64", "address", "uint256"],
+            [SOURCE_ADDRESS, SEQUENCE, RECIPIENT_ADDRESS, parseEther("0.01")]
+        );
+        const messageHash = sha256(preimage);
+
+        const data = abiCoder.encode(["address", "uint256", "bytes"], [RECIPIENT_ADDRESS, parseEther("0.01"), "0x"]);
+
+        const proof = sha256(combineHexStrings(messageHash, data));
+
+        const sigResult = await generateSignatureWithMnemonic(TEST_MNEMONIC, preimage.slice(2));
+
         const [isValid] = await account.validateOperation(
             SOURCE_ADDRESS,
             messageHash,
-            r,
-            s,
-            PUBLIC_KEY_X.slice(0, THRESHOLD),
-            PUBLIC_KEY_Y.slice(0, THRESHOLD),
+            [sigResult.v],
+            [sigResult.r],
+            [sigResult.s],
+            publicKeyX.slice(0, THRESHOLD),
+            publicKeyY.slice(0, THRESHOLD),
             proof,
             SEQUENCE,
             data
@@ -225,25 +253,27 @@ describe("Account Multisig", function () {
     });
 
     it("Should revert duplicate public key", async function () {
-        const messageHash = "0x87a9afdf384bb934b0b7b383cab20a2f472d0e64bd0603f2072066be6796faf0";
-        const r = [
-            "0x1d59ffe13a4c317e0346d6791f29ada0ff012451649e1c5670348d04a65c8afd",
-            "0x1d59ffe13a4c317e0346d6791f29ada0ff012451649e1c5670348d04a65c8afd",
-        ];
-        const s = [
-            "0x7e6c637f57928d095dcc052a22da0c09b4c87614e91e21ff428840e93b90b13c",
-            "0x7e6c637f57928d095dcc052a22da0c09b4c87614e91e21ff428840e93b90b13c",
-        ];
-        const proof = "0x557072bab6f803255768af1241504525bf58ade4438b23fd0f52909fa748e1f9";
-        const data =
-            "0x000000000000000000000000aa25aa7a19f9c426e07dee59b12f944f4d9f1dd3000000000000000000000000000000000000000000000000002386f26fc1000000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000000";
+        const abiCoder = new AbiCoder();
+        const preimage = abiCoder.encode(
+            ["string", "uint64", "address", "uint256"],
+            [SOURCE_ADDRESS, SEQUENCE, RECIPIENT_ADDRESS, parseEther("0.01")]
+        );
+        const messageHash = sha256(preimage);
+
+        const data = abiCoder.encode(["address", "uint256", "bytes"], [RECIPIENT_ADDRESS, parseEther("0.01"), "0x"]);
+
+        const proof = sha256(combineHexStrings(messageHash, data));
+
+        const sigResult = await generateSignatureWithMnemonic(TEST_MNEMONIC, preimage.slice(2));
+
         const [isValid, message] = await account.validateOperation(
             SOURCE_ADDRESS,
             messageHash,
-            r,
-            s,
-            PUBLIC_KEY_X,
-            PUBLIC_KEY_Y,
+            [sigResult.v, sigResult.v],
+            [sigResult.r, sigResult.r],
+            [sigResult.s, sigResult.s],
+            publicKeyX,
+            publicKeyY,
             proof,
             SEQUENCE,
             data
@@ -255,7 +285,7 @@ describe("Account Multisig", function () {
 
 /**
  * Tests for Account getter functions to improve coverage
- * Covers: getX(), getY(), getVerifier(), receive()
+ * Covers: getX(), getY(), receive()
  */
 describe("Account Getters and ETH Handling", function () {
     const ENTRYPOINT_ADDRESS = "0x3bd70e10d71c6e882e3c1809d26a310d793646eb";
@@ -268,7 +298,6 @@ describe("Account Getters and ETH Handling", function () {
     const SOURCE_ADDRESS_HASH = keccak256(toUtf8Bytes(SOURCE_ADDRESS));
 
     let account: Account;
-    let verifier: Secp256k1Verifier;
     let owner: HardhatEthersSigner;
 
     let publicKeyX: string[];
@@ -282,13 +311,8 @@ describe("Account Getters and ETH Handling", function () {
             publicKeyX = [pubKey.x];
             publicKeyY = [pubKey.y];
 
-            const Secp256k1VerifierContract = await hre.ethers.getContractFactory("Secp256k1Verifier");
-            verifier = await Secp256k1VerifierContract.deploy();
-            await verifier.waitForDeployment();
-
             const AccountContract = await hre.ethers.getContractFactory("Account");
             account = await AccountContract.deploy(
-                verifier.target,
                 ENTRYPOINT_ADDRESS,
                 publicKeyX,
                 publicKeyY,
@@ -296,10 +320,6 @@ describe("Account Getters and ETH Handling", function () {
                 1 // threshold
             );
             await account.waitForDeployment();
-        });
-
-        it("Should return correct verifier address", async function () {
-            expect(await account.getVerifier()).to.equal(verifier.target);
         });
 
         it("Should return correct X public keys", async function () {
@@ -365,13 +385,8 @@ describe("Account Getters and ETH Handling", function () {
             pubKeyX2 = [pubKey1.x, pubKey2.x];
             pubKeyY2 = [pubKey1.y, pubKey2.y];
 
-            const Secp256k1VerifierContract = await hre.ethers.getContractFactory("Secp256k1Verifier");
-            verifier = await Secp256k1VerifierContract.deploy();
-            await verifier.waitForDeployment();
-
             const AccountContract = await hre.ethers.getContractFactory("Account");
             multiSigAccount = await AccountContract.deploy(
-                verifier.target,
                 ENTRYPOINT_ADDRESS,
                 pubKeyX2,
                 pubKeyY2,
@@ -409,7 +424,6 @@ describe("Account Recover", function () {
     const THRESHOLD = 1;
 
     let account: Account;
-    let verifier: Secp256k1Verifier;
     let recover: HardhatEthersSigner;
     let publicKeyX: string[];
     let publicKeyY: string[];
@@ -421,13 +435,8 @@ describe("Account Recover", function () {
         publicKeyX = [pubKey.x];
         publicKeyY = [pubKey.y];
 
-        const Secp256k1VerifierContract = await hre.ethers.getContractFactory("Secp256k1Verifier");
-        verifier = await Secp256k1VerifierContract.deploy();
-        await verifier.waitForDeployment();
-
         const AccountContract = await hre.ethers.getContractFactory("Account");
         account = await AccountContract.deploy(
-            verifier.target,
             ENTRYPOINT_ADDRESS,
             publicKeyX,
             publicKeyY,
@@ -453,6 +462,7 @@ describe("Account Recover", function () {
 
         const sigResult = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayloadHex);
 
+        const v = [sigResult.v];
         const r = [sigResult.r];
         const s = [sigResult.s];
 
@@ -460,7 +470,7 @@ describe("Account Recover", function () {
 
         expect(await account.accountSequence()).to.equal(0);
 
-        await expect(account.recoverTransaction(r, s, publicKeyX, publicKeyY, txPayload))
+        await expect(account.recoverTransaction(v, r, s, publicKeyX, publicKeyY, txPayload))
             .to.emit(account, "TransactionExecuted")
             .withArgs(RECIPIENT_ADDRESS, amountToSend, "0x");
 
@@ -481,11 +491,12 @@ describe("Account Recover", function () {
 
         const invalidPubKeyX = [sigResult.x];
         const invalidPubKeyY = [sigResult.y];
+        const v = [sigResult.v];
         const r = [sigResult.r];
         const s = [sigResult.s];
 
         await expect(
-            account.recoverTransaction(r, s, invalidPubKeyX, invalidPubKeyY, txPayload)
+            account.recoverTransaction(v, r, s, invalidPubKeyX, invalidPubKeyY, txPayload)
         ).to.be.revertedWithCustomError(account, "InvalidPubKey");
     });
 
@@ -494,11 +505,12 @@ describe("Account Recover", function () {
         const amountToSend = parseEther("0.001");
         const txPayload = encodeTxPayload(sequence, RECIPIENT_ADDRESS, amountToSend, "0x");
 
+        const invalidV = [0];
         const invalidR = ["0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"];
-        const invalidS = ["0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"];
+        const invalidS = ["0x1bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"];
 
         await expect(
-            account.recoverTransaction(invalidR, invalidS, publicKeyX, publicKeyY, txPayload)
+            account.recoverTransaction(invalidV, invalidR, invalidS, publicKeyX, publicKeyY, txPayload)
         ).to.be.revertedWithCustomError(account, "InvalidSignature");
     });
 
@@ -509,13 +521,13 @@ describe("Account Recover", function () {
         const txPayloadHex = txPayload.slice(2);
 
         const sigResult = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayloadHex);
+        const v = [sigResult.v];
         const r = [sigResult.r];
         const s = [sigResult.s];
 
-        await expect(account.recoverTransaction(r, s, publicKeyX, publicKeyY, txPayload)).to.be.revertedWithCustomError(
-            account,
-            "InvalidSequence"
-        );
+        await expect(
+            account.recoverTransaction(v, r, s, publicKeyX, publicKeyY, txPayload)
+        ).to.be.revertedWithCustomError(account, "InvalidSequence");
     });
 
     it("Should revert with InvalidPayload when function selector is wrong", async function () {
@@ -532,13 +544,13 @@ describe("Account Recover", function () {
         const txPayloadHex = txPayload.slice(2);
 
         const sigResult = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayloadHex);
+        const v = [sigResult.v];
         const r = [sigResult.r];
         const s = [sigResult.s];
 
-        await expect(account.recoverTransaction(r, s, publicKeyX, publicKeyY, txPayload)).to.be.revertedWithCustomError(
-            account,
-            "InvalidPayload"
-        );
+        await expect(
+            account.recoverTransaction(v, r, s, publicKeyX, publicKeyY, txPayload)
+        ).to.be.revertedWithCustomError(account, "InvalidPayload");
     });
 
     it("Should revert with InvalidInputLength when x and y lengths mismatch", async function () {
@@ -548,10 +560,11 @@ describe("Account Recover", function () {
         const txPayloadHex = txPayload.slice(2);
 
         const sigResult = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayloadHex);
+        const v = [sigResult.v];
         const r = [sigResult.r];
         const s = [sigResult.s];
 
-        await expect(account.recoverTransaction(r, s, publicKeyX, [], txPayload)).to.be.revertedWithCustomError(
+        await expect(account.recoverTransaction(v, r, s, publicKeyX, [], txPayload)).to.be.revertedWithCustomError(
             account,
             "InvalidInputLength"
         );
@@ -566,7 +579,7 @@ describe("Account Recover", function () {
         const sigResult = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayloadHex);
 
         await expect(
-            account.recoverTransaction([sigResult.r], [], publicKeyX, publicKeyY, txPayload)
+            account.recoverTransaction([sigResult.v], [sigResult.r], [], publicKeyX, publicKeyY, txPayload)
         ).to.be.revertedWithCustomError(account, "InvalidInputLength");
     });
 
@@ -575,7 +588,7 @@ describe("Account Recover", function () {
         const amountToSend = parseEther("0.001");
         const txPayload = encodeTxPayload(sequence, RECIPIENT_ADDRESS, amountToSend, "0x");
 
-        await expect(account.recoverTransaction([], [], [], [], txPayload)).to.be.revertedWithCustomError(
+        await expect(account.recoverTransaction([], [], [], [], [], txPayload)).to.be.revertedWithCustomError(
             account,
             "InvalidThreshold"
         );
@@ -598,7 +611,6 @@ describe("Account Security", function () {
     const WRONG_SOURCE_ADDRESS = "neutron1wrongaddresswrongaddresswrongaddresswrongaddress";
 
     let account: Account;
-    let verifier: Secp256k1Verifier;
     let owner: HardhatEthersSigner;
     let publicKeyX: string[];
     let publicKeyY: string[];
@@ -610,13 +622,8 @@ describe("Account Security", function () {
         publicKeyX = [pubKey.x];
         publicKeyY = [pubKey.y];
 
-        const Secp256k1VerifierContract = await hre.ethers.getContractFactory("Secp256k1Verifier");
-        verifier = await Secp256k1VerifierContract.deploy();
-        await verifier.waitForDeployment();
-
         const AccountContract = await hre.ethers.getContractFactory("Account");
         account = await AccountContract.deploy(
-            verifier.target,
             ENTRYPOINT_ADDRESS,
             publicKeyX,
             publicKeyY,
@@ -652,6 +659,7 @@ describe("Account Security", function () {
 
             return {
                 messageHash,
+                v: [sigResult.v],
                 r: [sigResult.r],
                 s: [sigResult.s],
                 proof,
@@ -665,6 +673,7 @@ describe("Account Security", function () {
             const [isValid, reason] = await account.validateOperation(
                 WRONG_SOURCE_ADDRESS,
                 params.messageHash,
+                params.v,
                 params.r,
                 params.s,
                 publicKeyX,
@@ -684,6 +693,7 @@ describe("Account Security", function () {
             const [isValid] = await account.validateOperation(
                 SOURCE_ADDRESS,
                 params.messageHash,
+                params.v,
                 params.r,
                 params.s,
                 publicKeyX,
@@ -720,6 +730,7 @@ describe("Account Security", function () {
 
             return {
                 messageHash,
+                v: [sigResult.v],
                 r: [sigResult.r],
                 s: [sigResult.s],
                 proof,
@@ -733,6 +744,7 @@ describe("Account Security", function () {
             const [isValid, reason] = await account.validateOperation(
                 SOURCE_ADDRESS,
                 params.messageHash,
+                params.v,
                 params.r,
                 params.s,
                 publicKeyX,
@@ -752,6 +764,7 @@ describe("Account Security", function () {
             const [isValid, reason] = await account.validateOperation(
                 SOURCE_ADDRESS,
                 params.messageHash,
+                params.v,
                 params.r,
                 params.s,
                 publicKeyX,
@@ -774,10 +787,11 @@ describe("Account Security", function () {
             const txPayloadHex = txPayload.slice(2);
 
             const sigResult = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayloadHex);
+            const v = [sigResult.v];
             const r = [sigResult.r];
             const s = [sigResult.s];
 
-            await account.recoverTransaction(r, s, publicKeyX, publicKeyY, txPayload);
+            await account.recoverTransaction(v, r, s, publicKeyX, publicKeyY, txPayload);
 
             expect(await account.accountSequence()).to.equal(1);
 
@@ -787,7 +801,14 @@ describe("Account Security", function () {
 
             const sigResult2 = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayloadHex2);
 
-            await account.recoverTransaction([sigResult2.r], [sigResult2.s], publicKeyX, publicKeyY, txPayload2);
+            await account.recoverTransaction(
+                [sigResult2.v],
+                [sigResult2.r],
+                [sigResult2.s],
+                publicKeyX,
+                publicKeyY,
+                txPayload2
+            );
 
             expect(await account.accountSequence()).to.equal(2);
         });
@@ -799,13 +820,14 @@ describe("Account Security", function () {
             const txPayloadHex = txPayload.slice(2);
 
             const sigResult = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayloadHex);
+            const v = [sigResult.v];
             const r = [sigResult.r];
             const s = [sigResult.s];
 
-            await account.recoverTransaction(r, s, publicKeyX, publicKeyY, txPayload);
+            await account.recoverTransaction(v, r, s, publicKeyX, publicKeyY, txPayload);
 
             await expect(
-                account.recoverTransaction(r, s, publicKeyX, publicKeyY, txPayload)
+                account.recoverTransaction(v, r, s, publicKeyX, publicKeyY, txPayload)
             ).to.be.revertedWithCustomError(account, "InvalidSequence");
         });
     });
@@ -825,7 +847,6 @@ describe("Account Security", function () {
 
             const AccountContract = await hre.ethers.getContractFactory("Account");
             multiSigAccount = await AccountContract.deploy(
-                verifier.target,
                 ENTRYPOINT_ADDRESS,
                 pubKeyX2,
                 pubKeyY2,
@@ -850,6 +871,7 @@ describe("Account Security", function () {
 
             await expect(
                 multiSigAccount.recoverTransaction(
+                    [sigResult.v],
                     [sigResult.r],
                     [sigResult.s],
                     [publicKeyX[0]],
@@ -871,6 +893,7 @@ describe("Account Security", function () {
             const initialBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
 
             await multiSigAccount.recoverTransaction(
+                [sigResult1.v, sigResult2.v],
                 [sigResult1.r, sigResult2.r],
                 [sigResult1.s, sigResult2.s],
                 [sigResult1.x, sigResult2.x],
@@ -899,6 +922,7 @@ describe("Account Security", function () {
             const [isValid, reason] = await multiSigAccount.validateOperation(
                 SOURCE_ADDRESS,
                 messageHash,
+                [sigResult.v],
                 [sigResult.r],
                 [sigResult.s],
                 [pubKeyX2[0]],
@@ -923,6 +947,7 @@ describe("Account Security", function () {
 
             await expect(
                 multiSigAccount.recoverTransaction(
+                    [sigResult.v, sigResult.v],
                     [sigResult.r, sigResult.r],
                     [sigResult.s, sigResult.s],
                     [sigResult.x, sigResult.x],
@@ -957,6 +982,7 @@ describe("Account Security", function () {
             const [isValid, reason] = await account.validateOperation(
                 SOURCE_ADDRESS,
                 messageHash,
+                [sigResult.v, sigResult.v],
                 [sigResult.r, sigResult.r],
                 [sigResult.s, sigResult.s],
                 publicKeyX,
@@ -990,6 +1016,7 @@ describe("Account Security", function () {
             const [isValid, reason] = await account.validateOperation(
                 SOURCE_ADDRESS,
                 messageHash,
+                [sigResult.v],
                 [sigResult.r],
                 [sigResult.s],
                 [unregisteredPubKey.x],
@@ -1022,7 +1049,6 @@ describe("Account Reentrancy", function () {
     const SOURCE_ADDRESS_HASH = keccak256(toUtf8Bytes(SOURCE_ADDRESS));
 
     let account: Account;
-    let verifier: Secp256k1Verifier;
     let owner: HardhatEthersSigner;
     let attacker: HardhatEthersSigner;
     let publicKeyX: string[];
@@ -1035,13 +1061,8 @@ describe("Account Reentrancy", function () {
         publicKeyX = [pubKey.x];
         publicKeyY = [pubKey.y];
 
-        const Secp256k1VerifierContract = await hre.ethers.getContractFactory("Secp256k1Verifier");
-        verifier = await Secp256k1VerifierContract.deploy();
-        await verifier.waitForDeployment();
-
         const AccountContract = await hre.ethers.getContractFactory("Account");
         account = await AccountContract.deploy(
-            verifier.target,
             ENTRYPOINT_ADDRESS,
             publicKeyX,
             publicKeyY,
@@ -1084,13 +1105,27 @@ describe("Account Reentrancy", function () {
 
             await attackerContract.setTarget(accountAddress);
             await attackerContract.setAttackParams(5);
-            await attackerContract.setRecoverParams([sigResult.r], [sigResult.s], publicKeyX, publicKeyY, txPayload);
+            await attackerContract.setRecoverParams(
+                [sigResult.v],
+                [sigResult.r],
+                [sigResult.s],
+                publicKeyX,
+                publicKeyY,
+                txPayload
+            );
             await attackerContract.startAttack();
 
             const initialAccountBalance = await hre.ethers.provider.getBalance(accountAddress);
             const initialAttackerBalance = await hre.ethers.provider.getBalance(attackerAddress);
 
-            await account.recoverTransaction([sigResult.r], [sigResult.s], publicKeyX, publicKeyY, txPayload);
+            await account.recoverTransaction(
+                [sigResult.v],
+                [sigResult.r],
+                [sigResult.s],
+                publicKeyX,
+                publicKeyY,
+                txPayload
+            );
 
             const finalAccountBalance = await hre.ethers.provider.getBalance(accountAddress);
             const finalAttackerBalance = await hre.ethers.provider.getBalance(attackerAddress);
@@ -1117,12 +1152,26 @@ describe("Account Reentrancy", function () {
             const txPayloadHex = txPayload.slice(2);
             const sigResult = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayloadHex);
 
-            await account.recoverTransaction([sigResult.r], [sigResult.s], publicKeyX, publicKeyY, txPayload);
+            await account.recoverTransaction(
+                [sigResult.v],
+                [sigResult.r],
+                [sigResult.s],
+                publicKeyX,
+                publicKeyY,
+                txPayload
+            );
 
             expect(await account.accountSequence()).to.equal(1);
 
             await expect(
-                account.recoverTransaction([sigResult.r], [sigResult.s], publicKeyX, publicKeyY, txPayload)
+                account.recoverTransaction(
+                    [sigResult.v],
+                    [sigResult.r],
+                    [sigResult.s],
+                    publicKeyX,
+                    publicKeyY,
+                    txPayload
+                )
             ).to.be.revertedWithCustomError(account, "InvalidSequence");
         });
 
@@ -1160,7 +1209,6 @@ describe("Account Sequence Overflow", function () {
     const SOURCE_ADDRESS = "neutron1chcktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
     const SOURCE_ADDRESS_HASH = keccak256(toUtf8Bytes(SOURCE_ADDRESS));
 
-    let verifier: Secp256k1Verifier;
     let owner: HardhatEthersSigner;
     let publicKeyX: string[];
     let publicKeyY: string[];
@@ -1171,10 +1219,6 @@ describe("Account Sequence Overflow", function () {
         const pubKey = await getPublicKeyFromMnemonic(TEST_MNEMONIC);
         publicKeyX = [pubKey.x];
         publicKeyY = [pubKey.y];
-
-        const Secp256k1VerifierContract = await hre.ethers.getContractFactory("Secp256k1Verifier");
-        verifier = await Secp256k1VerifierContract.deploy();
-        await verifier.waitForDeployment();
     });
 
     describe("uint64 Boundary", function () {
@@ -1198,7 +1242,6 @@ describe("Account Sequence Overflow", function () {
 
             const AccountContract = await hre.ethers.getContractFactory("Account");
             const account = await AccountContract.deploy(
-                verifier.target,
                 ENTRYPOINT_ADDRESS,
                 publicKeyX,
                 publicKeyY,
@@ -1216,7 +1259,6 @@ describe("Account Sequence Overflow", function () {
         it("Should handle large sequence numbers correctly", async function () {
             const AccountContract = await hre.ethers.getContractFactory("Account");
             const account = await AccountContract.deploy(
-                verifier.target,
                 ENTRYPOINT_ADDRESS,
                 publicKeyX,
                 publicKeyY,
@@ -1236,7 +1278,14 @@ describe("Account Sequence Overflow", function () {
 
             const sigResult = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayloadHex);
 
-            await account.recoverTransaction([sigResult.r], [sigResult.s], publicKeyX, publicKeyY, txPayload);
+            await account.recoverTransaction(
+                [sigResult.v],
+                [sigResult.r],
+                [sigResult.s],
+                publicKeyX,
+                publicKeyY,
+                txPayload
+            );
 
             expect(await account.accountSequence()).to.equal(1);
             console.log("Sequence correctly incremented to 1");

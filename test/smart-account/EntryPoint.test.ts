@@ -3,16 +3,17 @@ import { expect } from "chai";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { AbiCoder, keccak256, parseEther, sha256, toUtf8Bytes } from "ethers";
 
-import { Account, AccountFactory, EntryPoint, MyToken, Secp256k1Verifier } from "../../typechain-types";
-import { combineHexStrings, encodeMultiPayload } from "../utils/lib";
+import { Account, AccountFactory, EntryPoint, MyToken } from "../../typechain-types";
+import { combineHexStrings, encodeMultiPayload, encodeSignerBlock } from "../utils/lib";
 import { generateSignatureWithMnemonic, getPublicKeyFromMnemonic } from "../../scripts/generateSignature";
 
 describe("EntryPoint", function () {
     const RECIPIENT_ADDRESS = "0xaa25Aa7a19f9c426E07dee59b12f944f4d9f1DD3";
 
+    const TEST_MNEMONIC =
+        "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+
     const totalSigners = 1;
-    const PUBLIC_KEY_X = ["0x90be7fe886c748be80e98b340d1418d0bfe7865675ee597d9d850526520085f0"];
-    const PUBLIC_KEY_Y = ["0x87b9efdb5c81e067890e9439bdf717cf1c22adfe29d802050a11414d66b6e338"];
     const THRESHOLD = 1;
 
     const SOURCE_ADDRESS = "neutron1chcktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
@@ -22,16 +23,18 @@ describe("EntryPoint", function () {
     let executor: HardhatEthersSigner;
     let account: Account;
     let accountFactory: AccountFactory;
+    let publicKeyX: string[];
+    let publicKeyY: string[];
 
     beforeEach(async function () {
         [recover, executor] = await hre.ethers.getSigners();
 
-        const Secp256k1VerifierContract = await hre.ethers.getContractFactory("Secp256k1Verifier");
-        const verifier = await Secp256k1VerifierContract.deploy();
-        await verifier.waitForDeployment();
+        const pubKey = await getPublicKeyFromMnemonic(TEST_MNEMONIC);
+        publicKeyX = [pubKey.x];
+        publicKeyY = [pubKey.y];
 
         const AccountFactoryContract = await hre.ethers.getContractFactory("AccountFactory");
-        accountFactory = await AccountFactoryContract.deploy(verifier.target);
+        accountFactory = await AccountFactoryContract.deploy();
         await accountFactory.waitForDeployment();
 
         const EntryPointContract = await hre.ethers.getContractFactory("EntryPoint");
@@ -44,7 +47,7 @@ describe("EntryPoint", function () {
 
         const payload = new AbiCoder().encode(
             ["uint8", "uint64", "uint64", "bytes32", "bytes32"],
-            [1, totalSigners, THRESHOLD, PUBLIC_KEY_X[0], PUBLIC_KEY_Y[0]]
+            [1, totalSigners, THRESHOLD, publicKeyX[0], publicKeyY[0]]
         );
 
         await entryPoint.executePayload(sourceChain, SOURCE_ADDRESS, payload);
@@ -66,38 +69,38 @@ describe("EntryPoint", function () {
     });
 
     it("should execute transactions from Account contract", async function () {
-        const messageHash = "0x87a9afdf384bb934b0b7b383cab20a2f472d0e64bd0603f2072066be6796faf0";
-        const r = ["0x1d59ffe13a4c317e0346d6791f29ada0ff012451649e1c5670348d04a65c8afd"];
-        const s = ["0x7e6c637f57928d095dcc052a22da0c09b4c87614e91e21ff428840e93b90b13c"];
         const numberSigners = 1;
 
         const initialRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
         const amountToSend = parseEther("1.0");
         const accountAddress = await account.getAddress();
+        const accountSequence = await account.accountSequence();
 
         const sourceChain = "sourceChain";
 
         const txPayload = encodeMultiPayload([{ dest: RECIPIENT_ADDRESS, value: amountToSend, data: "0x" }]);
 
-        const proof = sha256(combineHexStrings(messageHash, txPayload));
-        const accountSequence = await account.accountSequence();
-
-        const p = new AbiCoder().encode(
-            ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
-            [
-                2,
-                accountAddress,
-                messageHash,
-                proof,
-                accountSequence + 1n,
-                numberSigners,
-                r[0],
-                s[0],
-                PUBLIC_KEY_X[0],
-                PUBLIC_KEY_Y[0],
-            ]
+        // Generate signature
+        const messageHashPreimage = new AbiCoder().encode(
+            ["string", "uint64", "address", "uint256"],
+            [SOURCE_ADDRESS, accountSequence + 1n, RECIPIENT_ADDRESS, amountToSend]
         );
-        const payload = combineHexStrings(p, txPayload);
+        const messageHash = sha256(messageHashPreimage);
+        const proof = sha256(combineHexStrings(messageHash, txPayload));
+
+        const sigResult = await generateSignatureWithMnemonic(TEST_MNEMONIC, messageHashPreimage.slice(2));
+
+        // Header part (ABI-encoded)
+        const header = new AbiCoder().encode(
+            ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64"],
+            [2, accountAddress, messageHash, proof, accountSequence + 1n, numberSigners]
+        );
+
+        // Signer block (129 bytes: v + r + s + x + y, tight-packed)
+        const signerBlock = encodeSignerBlock(sigResult.v, sigResult.r, sigResult.s, publicKeyX[0], publicKeyY[0]);
+
+        // Combine: header + signerBlock + txPayload
+        const payload = combineHexStrings(combineHexStrings(header, signerBlock), txPayload);
 
         await entryPoint.executePayload(sourceChain, SOURCE_ADDRESS, payload);
 
@@ -106,38 +109,38 @@ describe("EntryPoint", function () {
     });
 
     it("should execute payload directly when called by owner", async function () {
-        const messageHash = "0x87a9afdf384bb934b0b7b383cab20a2f472d0e64bd0603f2072066be6796faf0";
-        const r = ["0x1d59ffe13a4c317e0346d6791f29ada0ff012451649e1c5670348d04a65c8afd"];
-        const s = ["0x7e6c637f57928d095dcc052a22da0c09b4c87614e91e21ff428840e93b90b13c"];
         const numberSigners = 1;
 
         const initialRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
         const amountToSend = parseEther("1.0");
         const accountAddress = await account.getAddress();
+        const accountSequence = await account.accountSequence();
 
         const sourceChain = "sourceChain";
 
         const txPayload = encodeMultiPayload([{ dest: RECIPIENT_ADDRESS, value: amountToSend, data: "0x" }]);
 
-        const proof = sha256(combineHexStrings(messageHash, txPayload));
-        const accountSequence = await account.accountSequence();
-
-        const p = new AbiCoder().encode(
-            ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
-            [
-                2,
-                accountAddress,
-                messageHash,
-                proof,
-                accountSequence + 1n,
-                numberSigners,
-                r[0],
-                s[0],
-                PUBLIC_KEY_X[0],
-                PUBLIC_KEY_Y[0],
-            ]
+        // Generate signature
+        const messageHashPreimage = new AbiCoder().encode(
+            ["string", "uint64", "address", "uint256"],
+            [SOURCE_ADDRESS, accountSequence + 1n, RECIPIENT_ADDRESS, amountToSend]
         );
-        const payload = combineHexStrings(p, txPayload);
+        const messageHash = sha256(messageHashPreimage);
+        const proof = sha256(combineHexStrings(messageHash, txPayload));
+
+        const sigResult = await generateSignatureWithMnemonic(TEST_MNEMONIC, messageHashPreimage.slice(2));
+
+        // Header part (ABI-encoded)
+        const header = new AbiCoder().encode(
+            ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64"],
+            [2, accountAddress, messageHash, proof, accountSequence + 1n, numberSigners]
+        );
+
+        // Signer block (129 bytes: v + r + s + x + y, tight-packed)
+        const signerBlock = encodeSignerBlock(sigResult.v, sigResult.r, sigResult.s, publicKeyX[0], publicKeyY[0]);
+
+        // Combine: header + signerBlock + txPayload
+        const payload = combineHexStrings(combineHexStrings(header, signerBlock), txPayload);
 
         await entryPoint.executePayload(sourceChain, SOURCE_ADDRESS, payload);
 
@@ -149,38 +152,38 @@ describe("EntryPoint", function () {
         await entryPoint.setExecutor(executor.address, true);
         expect(await entryPoint.isExecutor(executor.address)).to.equal(true);
 
-        const messageHash = "0x87a9afdf384bb934b0b7b383cab20a2f472d0e64bd0603f2072066be6796faf0";
-        const r = ["0x1d59ffe13a4c317e0346d6791f29ada0ff012451649e1c5670348d04a65c8afd"];
-        const s = ["0x7e6c637f57928d095dcc052a22da0c09b4c87614e91e21ff428840e93b90b13c"];
         const numberSigners = 1;
 
         const initialRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
         const amountToSend = parseEther("1.0");
         const accountAddress = await account.getAddress();
+        const accountSequence = await account.accountSequence();
 
         const sourceChain = "sourceChain";
 
         const txPayload = encodeMultiPayload([{ dest: RECIPIENT_ADDRESS, value: amountToSend, data: "0x" }]);
 
-        const proof = sha256(combineHexStrings(messageHash, txPayload));
-        const accountSequence = await account.accountSequence();
-
-        const p = new AbiCoder().encode(
-            ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
-            [
-                2,
-                accountAddress,
-                messageHash,
-                proof,
-                accountSequence + 1n,
-                numberSigners,
-                r[0],
-                s[0],
-                PUBLIC_KEY_X[0],
-                PUBLIC_KEY_Y[0],
-            ]
+        // Generate signature
+        const messageHashPreimage = new AbiCoder().encode(
+            ["string", "uint64", "address", "uint256"],
+            [SOURCE_ADDRESS, accountSequence + 1n, RECIPIENT_ADDRESS, amountToSend]
         );
-        const payload = combineHexStrings(p, txPayload);
+        const messageHash = sha256(messageHashPreimage);
+        const proof = sha256(combineHexStrings(messageHash, txPayload));
+
+        const sigResult = await generateSignatureWithMnemonic(TEST_MNEMONIC, messageHashPreimage.slice(2));
+
+        // Header part (ABI-encoded)
+        const header = new AbiCoder().encode(
+            ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64"],
+            [2, accountAddress, messageHash, proof, accountSequence + 1n, numberSigners]
+        );
+
+        // Signer block (129 bytes: v + r + s + x + y, tight-packed)
+        const signerBlock = encodeSignerBlock(sigResult.v, sigResult.r, sigResult.s, publicKeyX[0], publicKeyY[0]);
+
+        // Combine: header + signerBlock + txPayload
+        const payload = combineHexStrings(combineHexStrings(header, signerBlock), txPayload);
 
         await entryPoint.connect(executor).executePayload(sourceChain, SOURCE_ADDRESS, payload);
 
@@ -189,37 +192,37 @@ describe("EntryPoint", function () {
     });
 
     it("should revert when executePayload is called by unauthorized address", async function () {
-        const messageHash = "0x87a9afdf384bb934b0b7b383cab20a2f472d0e64bd0603f2072066be6796faf0";
-        const r = ["0x1d59ffe13a4c317e0346d6791f29ada0ff012451649e1c5670348d04a65c8afd"];
-        const s = ["0x7e6c637f57928d095dcc052a22da0c09b4c87614e91e21ff428840e93b90b13c"];
         const numberSigners = 1;
 
         const amountToSend = parseEther("1.0");
         const accountAddress = await account.getAddress();
+        const accountSequence = await account.accountSequence();
 
         const sourceChain = "sourceChain";
 
         const txPayload = encodeMultiPayload([{ dest: RECIPIENT_ADDRESS, value: amountToSend, data: "0x" }]);
 
-        const proof = sha256(combineHexStrings(messageHash, txPayload));
-        const accountSequence = await account.accountSequence();
-
-        const p = new AbiCoder().encode(
-            ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
-            [
-                2,
-                accountAddress,
-                messageHash,
-                proof,
-                accountSequence + 1n,
-                numberSigners,
-                r[0],
-                s[0],
-                PUBLIC_KEY_X[0],
-                PUBLIC_KEY_Y[0],
-            ]
+        // Generate signature
+        const messageHashPreimage = new AbiCoder().encode(
+            ["string", "uint64", "address", "uint256"],
+            [SOURCE_ADDRESS, accountSequence + 1n, RECIPIENT_ADDRESS, amountToSend]
         );
-        const payload = combineHexStrings(p, txPayload);
+        const messageHash = sha256(messageHashPreimage);
+        const proof = sha256(combineHexStrings(messageHash, txPayload));
+
+        const sigResult = await generateSignatureWithMnemonic(TEST_MNEMONIC, messageHashPreimage.slice(2));
+
+        // Header part (ABI-encoded)
+        const header = new AbiCoder().encode(
+            ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64"],
+            [2, accountAddress, messageHash, proof, accountSequence + 1n, numberSigners]
+        );
+
+        // Signer block (129 bytes: v + r + s + x + y, tight-packed)
+        const signerBlock = encodeSignerBlock(sigResult.v, sigResult.r, sigResult.s, publicKeyX[0], publicKeyY[0]);
+
+        // Combine: header + signerBlock + txPayload
+        const payload = combineHexStrings(combineHexStrings(header, signerBlock), txPayload);
 
         expect(await entryPoint.isExecutor(executor.address)).to.equal(false);
 
@@ -249,8 +252,8 @@ describe("EntryPoint", function () {
 describe("EntryPoint Multi-Payload", function () {
     const RECIPIENT_ADDRESS = "0xaa25Aa7a19f9c426E07dee59b12f944f4d9f1DD3";
 
-    const PUBLIC_KEY_X = ["0x90be7fe886c748be80e98b340d1418d0bfe7865675ee597d9d850526520085f0"];
-    const PUBLIC_KEY_Y = ["0x87b9efdb5c81e067890e9439bdf717cf1c22adfe29d802050a11414d66b6e338"];
+    const TEST_MNEMONIC =
+        "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
     const THRESHOLD = 1;
     const totalSigners = 1;
 
@@ -260,16 +263,18 @@ describe("EntryPoint Multi-Payload", function () {
     let recover: HardhatEthersSigner;
     let account: Account;
     let myToken: MyToken;
+    let publicKeyX: string[];
+    let publicKeyY: string[];
 
     this.beforeAll(async function () {
         [recover] = await hre.ethers.getSigners();
 
-        const Secp256k1VerifierContract = await hre.ethers.getContractFactory("Secp256k1Verifier");
-        const verifier = await Secp256k1VerifierContract.deploy();
-        await verifier.waitForDeployment();
+        const pubKey = await getPublicKeyFromMnemonic(TEST_MNEMONIC);
+        publicKeyX = [pubKey.x];
+        publicKeyY = [pubKey.y];
 
         const AccountFactoryContract = await hre.ethers.getContractFactory("AccountFactory");
-        const accountFactory = await AccountFactoryContract.deploy(verifier.target);
+        const accountFactory = await AccountFactoryContract.deploy();
         await accountFactory.waitForDeployment();
 
         const EntryPointContract = await hre.ethers.getContractFactory("EntryPoint");
@@ -282,7 +287,7 @@ describe("EntryPoint Multi-Payload", function () {
 
         const payload = new AbiCoder().encode(
             ["uint8", "uint64", "uint64", "bytes32", "bytes32"],
-            [1, totalSigners, THRESHOLD, PUBLIC_KEY_X[0], PUBLIC_KEY_Y[0]]
+            [1, totalSigners, THRESHOLD, publicKeyX[0], publicKeyY[0]]
         );
 
         await entryPoint.executePayload(sourceChain, SOURCE_ADDRESS, payload);
@@ -300,12 +305,35 @@ describe("EntryPoint Multi-Payload", function () {
         await myToken.transfer(accountAddr, parseEther("3.0"));
     });
 
-    it("batch: approve and transferFrom in one call", async function () {
-        const messageHash = "0x87a9afdf384bb934b0b7b383cab20a2f472d0e64bd0603f2072066be6796faf0";
-        const r = ["0x1d59ffe13a4c317e0346d6791f29ada0ff012451649e1c5670348d04a65c8afd"];
-        const s = ["0x7e6c637f57928d095dcc052a22da0c09b4c87614e91e21ff428840e93b90b13c"];
-        const numberSigners = 1;
+    // Helper function to create signed payload with 129-byte format
+    async function createSignedPayload(
+        txPayload: string,
+        destForPreimage: string,
+        valueForPreimage: bigint
+    ): Promise<string> {
+        const accountAddress = await account.getAddress();
+        const accountSequence = await account.accountSequence();
 
+        const messageHashPreimage = new AbiCoder().encode(
+            ["string", "uint64", "address", "uint256"],
+            [SOURCE_ADDRESS, accountSequence + 1n, destForPreimage, valueForPreimage]
+        );
+        const messageHash = sha256(messageHashPreimage);
+        const proof = sha256(combineHexStrings(messageHash, txPayload));
+
+        const sigResult = await generateSignatureWithMnemonic(TEST_MNEMONIC, messageHashPreimage.slice(2));
+
+        const header = new AbiCoder().encode(
+            ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64"],
+            [2, accountAddress, messageHash, proof, accountSequence + 1n, 1]
+        );
+
+        const signerBlock = encodeSignerBlock(sigResult.v, sigResult.r, sigResult.s, publicKeyX[0], publicKeyY[0]);
+
+        return combineHexStrings(combineHexStrings(header, signerBlock), txPayload);
+    }
+
+    it("batch: approve and transferFrom in one call", async function () {
         const accountAddress = await account.getAddress();
         const amount = parseEther("0.001");
 
@@ -321,25 +349,7 @@ describe("EntryPoint Multi-Payload", function () {
             { dest: myToken.target as string, value: 0n, data: transferFromData },
         ]);
 
-        const proof = sha256(combineHexStrings(messageHash, txPayload));
-        const accountSequence = await account.accountSequence();
-
-        const p = new AbiCoder().encode(
-            ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
-            [
-                2,
-                accountAddress,
-                messageHash,
-                proof,
-                accountSequence + 1n,
-                numberSigners,
-                r[0],
-                s[0],
-                PUBLIC_KEY_X[0],
-                PUBLIC_KEY_Y[0],
-            ]
-        );
-        const payload = combineHexStrings(p, txPayload);
+        const payload = await createSignedPayload(txPayload, myToken.target as string, 0n);
 
         const startAllowance = await myToken.allowance(accountAddress, accountAddress);
         expect(startAllowance).to.equal(0);
@@ -357,35 +367,12 @@ describe("EntryPoint Multi-Payload", function () {
     });
 
     it("single: ether transfer count=1", async function () {
-        const messageHash = "0x87a9afdf384bb934b0b7b383cab20a2f472d0e64bd0603f2072066be6796faf0";
-        const r = ["0x1d59ffe13a4c317e0346d6791f29ada0ff012451649e1c5670348d04a65c8afd"];
-        const s = ["0x7e6c637f57928d095dcc052a22da0c09b4c87614e91e21ff428840e93b90b13c"];
-        const numberSigners = 1;
-
         const accountAddress = await account.getAddress();
         const ethAmount = parseEther("0.001");
 
         const txPayload = encodeMultiPayload([{ dest: RECIPIENT_ADDRESS, value: ethAmount, data: "0x" }]);
 
-        const accountSequence = await account.accountSequence();
-
-        const proof = sha256(combineHexStrings(messageHash, txPayload));
-        const p = new AbiCoder().encode(
-            ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
-            [
-                2,
-                accountAddress,
-                messageHash,
-                proof,
-                accountSequence + 1n,
-                numberSigners,
-                r[0],
-                s[0],
-                PUBLIC_KEY_X[0],
-                PUBLIC_KEY_Y[0],
-            ]
-        );
-        const payload = combineHexStrings(p, txPayload);
+        const payload = await createSignedPayload(txPayload, RECIPIENT_ADDRESS, ethAmount);
 
         const ethStart = await hre.ethers.provider.getBalance(accountAddress);
         const tx = await entryPoint.executePayload("sourceChain", SOURCE_ADDRESS, payload);
@@ -395,12 +382,6 @@ describe("EntryPoint Multi-Payload", function () {
     });
 
     it("batch: ether transfer + erc20 transfer", async function () {
-        const messageHash = "0x87a9afdf384bb934b0b7b383cab20a2f472d0e64bd0603f2072066be6796faf0";
-        const r = ["0x1d59ffe13a4c317e0346d6791f29ada0ff012451649e1c5670348d04a65c8afd"];
-        const s = ["0x7e6c637f57928d095dcc052a22da0c09b4c87614e91e21ff428840e93b90b13c"];
-        const numberSigners = 1;
-
-        const accountAddress = await account.getAddress();
         const ethAmount = parseEther("0.001");
         const tokenAmount = parseEther("0.001");
 
@@ -411,25 +392,7 @@ describe("EntryPoint Multi-Payload", function () {
             { dest: myToken.target as string, value: 0n, data: transferData },
         ]);
 
-        const accountSequence = await account.accountSequence();
-
-        const proof = sha256(combineHexStrings(messageHash, txPayload));
-        const p = new AbiCoder().encode(
-            ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
-            [
-                2,
-                accountAddress,
-                messageHash,
-                proof,
-                accountSequence + 1n,
-                numberSigners,
-                r[0],
-                s[0],
-                PUBLIC_KEY_X[0],
-                PUBLIC_KEY_Y[0],
-            ]
-        );
-        const payload = combineHexStrings(p, txPayload);
+        const payload = await createSignedPayload(txPayload, RECIPIENT_ADDRESS, ethAmount);
 
         const ethStart = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
         const tokenStart = await myToken.balanceOf(RECIPIENT_ADDRESS);
@@ -446,31 +409,28 @@ describe("EntryPoint Multi-Payload", function () {
 
     it("edge: empty payload array reverts", async function () {
         const accountAddress = await account.getAddress();
-        const messageHash = "0x87a9afdf384bb934b0b7b383cab20a2f472d0e64bd0603f2072066be6796faf0";
-        const r = ["0x1d59ffe13a4c317e0346d6791f29ada0ff012451649e1c5670348d04a65c8afd"];
-        const s = ["0x7e6c637f57928d095dcc052a22da0c09b4c87614e91e21ff428840e93b90b13c"];
-        const numberSigners = 1;
+        const accountSequence = await account.accountSequence();
 
         const coder = new AbiCoder();
         const txPayload = coder.encode(["uint64"], [0]);
-        const accountSequence = await account.accountSequence();
-        const proof = sha256(combineHexStrings(messageHash, txPayload));
-        const p = new AbiCoder().encode(
-            ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
-            [
-                2,
-                accountAddress,
-                messageHash,
-                proof,
-                accountSequence + 1n,
-                numberSigners,
-                r[0],
-                s[0],
-                PUBLIC_KEY_X[0],
-                PUBLIC_KEY_Y[0],
-            ]
+
+        const messageHashPreimage = new AbiCoder().encode(
+            ["string", "uint64", "address", "uint256"],
+            [SOURCE_ADDRESS, accountSequence + 1n, RECIPIENT_ADDRESS, 0n]
         );
-        const payload = combineHexStrings(p, txPayload);
+        const messageHash = sha256(messageHashPreimage);
+        const proof = sha256(combineHexStrings(messageHash, txPayload));
+
+        const sigResult = await generateSignatureWithMnemonic(TEST_MNEMONIC, messageHashPreimage.slice(2));
+
+        const header = new AbiCoder().encode(
+            ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64"],
+            [2, accountAddress, messageHash, proof, accountSequence + 1n, 1]
+        );
+
+        const signerBlock = encodeSignerBlock(sigResult.v, sigResult.r, sigResult.s, publicKeyX[0], publicKeyY[0]);
+
+        const payload = combineHexStrings(combineHexStrings(header, signerBlock), txPayload);
 
         await expect(entryPoint.executePayload("sourceChain", SOURCE_ADDRESS, payload)).to.be.revertedWithCustomError(
             entryPoint,
@@ -480,10 +440,7 @@ describe("EntryPoint Multi-Payload", function () {
 
     it("edge: malformed item reverts", async function () {
         const accountAddress = await account.getAddress();
-        const messageHash = "0x87a9afdf384bb934b0b7b383cab20a2f472d0e64bd0603f2072066be6796faf0";
-        const r = ["0x1d59ffe13a4c317e0346d6791f29ada0ff012451649e1c5670348d04a65c8afd"];
-        const s = ["0x7e6c637f57928d095dcc052a22da0c09b4c87614e91e21ff428840e93b90b13c"];
-        const numberSigners = 1;
+        const accountSequence = await account.accountSequence();
 
         const coder = new AbiCoder();
         const magic = coder.encode(["uint64"], [1]);
@@ -492,24 +449,23 @@ describe("EntryPoint Multi-Payload", function () {
         const txPayload = combineHexStrings(magic, fixed);
         const txPayloadMalformed = combineHexStrings(txPayload, truncatedData);
 
-        const proof = sha256(combineHexStrings(messageHash, txPayloadMalformed));
-        const accountSequence = await account.accountSequence();
-        const p = new AbiCoder().encode(
-            ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
-            [
-                2,
-                accountAddress,
-                messageHash,
-                proof,
-                accountSequence + 1n,
-                numberSigners,
-                r[0],
-                s[0],
-                PUBLIC_KEY_X[0],
-                PUBLIC_KEY_Y[0],
-            ]
+        const messageHashPreimage = new AbiCoder().encode(
+            ["string", "uint64", "address", "uint256"],
+            [SOURCE_ADDRESS, accountSequence + 1n, RECIPIENT_ADDRESS, parseEther("0.001")]
         );
-        const payload = combineHexStrings(p, txPayloadMalformed);
+        const messageHash = sha256(messageHashPreimage);
+        const proof = sha256(combineHexStrings(messageHash, txPayloadMalformed));
+
+        const sigResult = await generateSignatureWithMnemonic(TEST_MNEMONIC, messageHashPreimage.slice(2));
+
+        const header = new AbiCoder().encode(
+            ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64"],
+            [2, accountAddress, messageHash, proof, accountSequence + 1n, 1]
+        );
+
+        const signerBlock = encodeSignerBlock(sigResult.v, sigResult.r, sigResult.s, publicKeyX[0], publicKeyY[0]);
+
+        const payload = combineHexStrings(combineHexStrings(header, signerBlock), txPayloadMalformed);
 
         await expect(entryPoint.executePayload("sourceChain", SOURCE_ADDRESS, payload)).to.be.revertedWithCustomError(
             entryPoint,
@@ -518,11 +474,6 @@ describe("EntryPoint Multi-Payload", function () {
     });
 
     it("gas: batch vs two singles", async function () {
-        const messageHash = "0x87a9afdf384bb934b0b7b383cab20a2f472d0e64bd0603f2072066be6796faf0";
-        const r = ["0x1d59ffe13a4c317e0346d6791f29ada0ff012451649e1c5670348d04a65c8afd"];
-        const s = ["0x7e6c637f57928d095dcc052a22da0c09b4c87614e91e21ff428840e93b90b13c"];
-        const numberSigners = 1;
-
         const accountAddress = await account.getAddress();
         const amount = parseEther("0.001");
 
@@ -533,82 +484,28 @@ describe("EntryPoint Multi-Payload", function () {
             amount,
         ]);
 
-        const coder = new AbiCoder();
-        const approveLen = BigInt((approveData.length - 2) / 2);
-        const approveHeader = coder.encode(
-            ["address", "uint256", "uint256"],
-            [myToken.target as string, 0n, approveLen]
-        );
-        const approveItem = combineHexStrings(approveHeader, approveData);
-        const singleCount = coder.encode(["uint64"], [1n]);
-        const txPayloadApprove = combineHexStrings(singleCount, approveItem);
-        const proofApprove = sha256(combineHexStrings(messageHash, txPayloadApprove));
-        const pApprove = new AbiCoder().encode(
-            ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
-            [
-                2,
-                accountAddress,
-                messageHash,
-                proofApprove,
-                (await account.accountSequence()) + 1n,
-                numberSigners,
-                r[0],
-                s[0],
-                PUBLIC_KEY_X[0],
-                PUBLIC_KEY_Y[0],
-            ]
-        );
-        const payloadApprove = combineHexStrings(pApprove, txPayloadApprove);
+        // First single: approve
+        const txPayloadApprove = encodeMultiPayload([{ dest: myToken.target as string, value: 0n, data: approveData }]);
+        const payloadApprove = await createSignedPayload(txPayloadApprove, myToken.target as string, 0n);
         const tx1 = await entryPoint.executePayload("sourceChain", SOURCE_ADDRESS, payloadApprove);
         const receipt1 = await tx1.wait();
 
-        const tfLen = BigInt((transferFromData.length - 2) / 2);
-        const tfHeader = coder.encode(["address", "uint256", "uint256"], [myToken.target as string, 0n, tfLen]);
-        const tfItem = combineHexStrings(tfHeader, transferFromData);
-        const txPayloadTransferFrom = combineHexStrings(singleCount, tfItem);
-        const proofTransferFrom = sha256(combineHexStrings(messageHash, txPayloadTransferFrom));
-        const pTransferFrom = new AbiCoder().encode(
-            ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
-            [
-                2,
-                accountAddress,
-                messageHash,
-                proofTransferFrom,
-                (await account.accountSequence()) + 1n,
-                numberSigners,
-                r[0],
-                s[0],
-                PUBLIC_KEY_X[0],
-                PUBLIC_KEY_Y[0],
-            ]
-        );
-        const payloadTransferFrom = combineHexStrings(pTransferFrom, txPayloadTransferFrom);
+        // Second single: transferFrom
+        const txPayloadTransferFrom = encodeMultiPayload([
+            { dest: myToken.target as string, value: 0n, data: transferFromData },
+        ]);
+        const payloadTransferFrom = await createSignedPayload(txPayloadTransferFrom, myToken.target as string, 0n);
         const tx2 = await entryPoint.executePayload("sourceChain", SOURCE_ADDRESS, payloadTransferFrom);
         const receipt2 = await tx2.wait();
 
         const gasSingles = receipt1!.gasUsed + receipt2!.gasUsed;
 
+        // Batch: approve + transferFrom
         const batchTxPayload = encodeMultiPayload([
             { dest: myToken.target as string, value: 0n, data: approveData },
             { dest: myToken.target as string, value: 0n, data: transferFromData },
         ]);
-        const batchProof = sha256(combineHexStrings(messageHash, batchTxPayload));
-        const pBatch = new AbiCoder().encode(
-            ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
-            [
-                2,
-                accountAddress,
-                messageHash,
-                batchProof,
-                (await account.accountSequence()) + 1n,
-                numberSigners,
-                r[0],
-                s[0],
-                PUBLIC_KEY_X[0],
-                PUBLIC_KEY_Y[0],
-            ]
-        );
-        const payloadBatch = combineHexStrings(pBatch, batchTxPayload);
+        const payloadBatch = await createSignedPayload(batchTxPayload, myToken.target as string, 0n);
         const txBatch = await entryPoint.executePayload("sourceChain", SOURCE_ADDRESS, payloadBatch);
         const receiptBatch = await txBatch.wait();
 
@@ -620,31 +517,30 @@ describe("EntryPoint Multisig 2 of 2", function () {
     const RECIPIENT_ADDRESS = "0xaa25Aa7a19f9c426E07dee59b12f944f4d9f1DD3";
 
     const totalSigners = 2;
-    const PUBLIC_KEY_X = [
-        "0x136ea3f63279bc540c8fed8f11f08427d55736aaf2ce2859fd2348282035c17f",
-        "0x90be7fe886c748be80e98b340d1418d0bfe7865675ee597d9d850526520085f0",
-    ];
-    const PUBLIC_KEY_Y = [
-        "0x6578e8e0a5f7bd39687d1d46205bb25afeef52bc261249e7637cb65f55e817c4",
-        "0x87b9efdb5c81e067890e9439bdf717cf1c22adfe29d802050a11414d66b6e338",
-    ];
     const THRESHOLD = 2;
+
+    // Two different mnemonics for two signers
+    const MNEMONIC_1 = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+    const MNEMONIC_2 = "test test test test test test test test test test test junk";
 
     const SOURCE_ADDRESS = "neutron1chcktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
 
     let entryPoint: EntryPoint;
     let recover: HardhatEthersSigner;
     let account: Account;
+    let publicKeyX: string[];
+    let publicKeyY: string[];
 
     beforeEach(async function () {
         [recover] = await hre.ethers.getSigners();
 
-        const Secp256k1VerifierContract = await hre.ethers.getContractFactory("Secp256k1Verifier");
-        const verifier = await Secp256k1VerifierContract.deploy();
-        await verifier.waitForDeployment();
+        const pubKey1 = await getPublicKeyFromMnemonic(MNEMONIC_1);
+        const pubKey2 = await getPublicKeyFromMnemonic(MNEMONIC_2);
+        publicKeyX = [pubKey1.x, pubKey2.x];
+        publicKeyY = [pubKey1.y, pubKey2.y];
 
         const AccountFactoryContract = await hre.ethers.getContractFactory("AccountFactory");
-        const accountFactory = await AccountFactoryContract.deploy(verifier.target);
+        const accountFactory = await AccountFactoryContract.deploy();
         await accountFactory.waitForDeployment();
 
         const EntryPointContract = await hre.ethers.getContractFactory("EntryPoint");
@@ -657,7 +553,7 @@ describe("EntryPoint Multisig 2 of 2", function () {
 
         const payload = new AbiCoder().encode(
             ["uint8", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
-            [1, totalSigners, THRESHOLD, PUBLIC_KEY_X[0], PUBLIC_KEY_Y[0], PUBLIC_KEY_X[1], PUBLIC_KEY_Y[1]]
+            [1, totalSigners, THRESHOLD, publicKeyX[0], publicKeyY[0], publicKeyX[1], publicKeyY[1]]
         );
 
         await entryPoint.executePayload(sourceChain, SOURCE_ADDRESS, payload);
@@ -679,63 +575,43 @@ describe("EntryPoint Multisig 2 of 2", function () {
     });
 
     it("should execute transactions from Account contract", async function () {
-        const messageHash = "0xc5d5353eb37e8606d9ee377aa5fe19efcb9a11ff6551e0a4c642f9e4a2a2b94b";
-        const r = [
-            "0xf71104d22f55094dbf973f65c6cff43d18d2aadc87a8de2234635ff0128a75aa",
-            "0x543c159b6a4179f7b6b486554ba3bfcd11a9268f76fe7a052c5c31888c630399",
-        ];
-        const s = [
-            "0x2775621757741923cb8921e42b09c393f486439e54860c0852a02fa036c5efeb",
-            "0x4094056e2994f0e5b52f2776b01ab91bcc7b2827791a29eb39a1aa93e5e723c7",
-        ];
         const numberSigners = 2;
 
         const initialRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
         const amountToSend = parseEther("1.0");
         const accountAddress = await account.getAddress();
+        const accountSequence = await account.accountSequence();
 
         const sourceChain = "sourceChain";
 
         const txPayload = encodeMultiPayload([{ dest: RECIPIENT_ADDRESS, value: amountToSend, data: "0x" }]);
 
-        const proof = sha256(combineHexStrings(messageHash, txPayload));
-        const accountSequence = await account.accountSequence();
-
-        const p = new AbiCoder().encode(
-            [
-                "uint8",
-                "address",
-                "bytes32",
-                "bytes32",
-                "uint64",
-                "uint64",
-                "bytes32",
-                "bytes32",
-                "bytes32",
-                "bytes32",
-                "bytes32",
-                "bytes32",
-                "bytes32",
-                "bytes32",
-            ],
-            [
-                2,
-                accountAddress,
-                messageHash,
-                proof,
-                accountSequence + 1n,
-                numberSigners,
-                r[0],
-                s[0],
-                PUBLIC_KEY_X[0],
-                PUBLIC_KEY_Y[0],
-                r[1],
-                s[1],
-                PUBLIC_KEY_X[1],
-                PUBLIC_KEY_Y[1],
-            ]
+        // Generate signatures from both signers
+        const messageHashPreimage = new AbiCoder().encode(
+            ["string", "uint64", "address", "uint256"],
+            [SOURCE_ADDRESS, accountSequence + 1n, RECIPIENT_ADDRESS, amountToSend]
         );
-        const payload = combineHexStrings(p, txPayload);
+        const messageHash = sha256(messageHashPreimage);
+        const proof = sha256(combineHexStrings(messageHash, txPayload));
+
+        const sig1 = await generateSignatureWithMnemonic(MNEMONIC_1, messageHashPreimage.slice(2));
+        const sig2 = await generateSignatureWithMnemonic(MNEMONIC_2, messageHashPreimage.slice(2));
+
+        // Header part (ABI-encoded)
+        const header = new AbiCoder().encode(
+            ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64"],
+            [2, accountAddress, messageHash, proof, accountSequence + 1n, numberSigners]
+        );
+
+        // Two signer blocks (129 bytes each)
+        const signerBlock1 = encodeSignerBlock(sig1.v, sig1.r, sig1.s, publicKeyX[0], publicKeyY[0]);
+        const signerBlock2 = encodeSignerBlock(sig2.v, sig2.r, sig2.s, publicKeyX[1], publicKeyY[1]);
+
+        // Combine: header + signerBlock1 + signerBlock2 + txPayload
+        const payload = combineHexStrings(
+            combineHexStrings(combineHexStrings(header, signerBlock1), signerBlock2),
+            txPayload
+        );
 
         await entryPoint.executePayload(sourceChain, SOURCE_ADDRESS, payload);
 
@@ -748,31 +624,30 @@ describe("EntryPoint Multisig 1 of 2", function () {
     const RECIPIENT_ADDRESS = "0xaa25Aa7a19f9c426E07dee59b12f944f4d9f1DD3";
 
     const totalSigners = 2;
-    const PUBLIC_KEY_X = [
-        "0x136ea3f63279bc540c8fed8f11f08427d55736aaf2ce2859fd2348282035c17f",
-        "0x90be7fe886c748be80e98b340d1418d0bfe7865675ee597d9d850526520085f0",
-    ];
-    const PUBLIC_KEY_Y = [
-        "0x6578e8e0a5f7bd39687d1d46205bb25afeef52bc261249e7637cb65f55e817c4",
-        "0x87b9efdb5c81e067890e9439bdf717cf1c22adfe29d802050a11414d66b6e338",
-    ];
     const THRESHOLD = 1;
+
+    // Two different mnemonics for two signers
+    const MNEMONIC_1 = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+    const MNEMONIC_2 = "test test test test test test test test test test test junk";
 
     const SOURCE_ADDRESS = "neutron1chcktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
 
     let entryPoint: EntryPoint;
     let recover: HardhatEthersSigner;
     let account: Account;
+    let publicKeyX: string[];
+    let publicKeyY: string[];
 
     beforeEach(async function () {
         [recover] = await hre.ethers.getSigners();
 
-        const Secp256k1VerifierContract = await hre.ethers.getContractFactory("Secp256k1Verifier");
-        const verifier = await Secp256k1VerifierContract.deploy();
-        await verifier.waitForDeployment();
+        const pubKey1 = await getPublicKeyFromMnemonic(MNEMONIC_1);
+        const pubKey2 = await getPublicKeyFromMnemonic(MNEMONIC_2);
+        publicKeyX = [pubKey1.x, pubKey2.x];
+        publicKeyY = [pubKey1.y, pubKey2.y];
 
         const AccountFactoryContract = await hre.ethers.getContractFactory("AccountFactory");
-        const accountFactory = await AccountFactoryContract.deploy(verifier.target);
+        const accountFactory = await AccountFactoryContract.deploy();
         await accountFactory.waitForDeployment();
 
         const EntryPointContract = await hre.ethers.getContractFactory("EntryPoint");
@@ -785,7 +660,7 @@ describe("EntryPoint Multisig 1 of 2", function () {
 
         const payload = new AbiCoder().encode(
             ["uint8", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
-            [1, totalSigners, THRESHOLD, PUBLIC_KEY_X[0], PUBLIC_KEY_Y[0], PUBLIC_KEY_X[1], PUBLIC_KEY_Y[1]]
+            [1, totalSigners, THRESHOLD, publicKeyX[0], publicKeyY[0], publicKeyX[1], publicKeyY[1]]
         );
 
         await entryPoint.executePayload(sourceChain, SOURCE_ADDRESS, payload);
@@ -807,38 +682,38 @@ describe("EntryPoint Multisig 1 of 2", function () {
     });
 
     it("should execute transactions with first signer", async function () {
-        const messageHash = "0xc5d5353eb37e8606d9ee377aa5fe19efcb9a11ff6551e0a4c642f9e4a2a2b94b";
-        const r = ["0xf71104d22f55094dbf973f65c6cff43d18d2aadc87a8de2234635ff0128a75aa"];
-        const s = ["0x2775621757741923cb8921e42b09c393f486439e54860c0852a02fa036c5efeb"];
         const numberSigners = 1;
 
         const initialRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
         const amountToSend = parseEther("1.0");
         const accountAddress = await account.getAddress();
+        const accountSequence = await account.accountSequence();
 
         const sourceChain = "sourceChain";
 
         const txPayload = encodeMultiPayload([{ dest: RECIPIENT_ADDRESS, value: amountToSend, data: "0x" }]);
 
-        const proof = sha256(combineHexStrings(messageHash, txPayload));
-        const accountSequence = await account.accountSequence();
-
-        const p = new AbiCoder().encode(
-            ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
-            [
-                2,
-                accountAddress,
-                messageHash,
-                proof,
-                accountSequence + 1n,
-                numberSigners,
-                r[0],
-                s[0],
-                PUBLIC_KEY_X[0],
-                PUBLIC_KEY_Y[0],
-            ]
+        // Generate signature from first signer
+        const messageHashPreimage = new AbiCoder().encode(
+            ["string", "uint64", "address", "uint256"],
+            [SOURCE_ADDRESS, accountSequence + 1n, RECIPIENT_ADDRESS, amountToSend]
         );
-        const payload = combineHexStrings(p, txPayload);
+        const messageHash = sha256(messageHashPreimage);
+        const proof = sha256(combineHexStrings(messageHash, txPayload));
+
+        const sig1 = await generateSignatureWithMnemonic(MNEMONIC_1, messageHashPreimage.slice(2));
+
+        // Header part (ABI-encoded)
+        const header = new AbiCoder().encode(
+            ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64"],
+            [2, accountAddress, messageHash, proof, accountSequence + 1n, numberSigners]
+        );
+
+        // Signer block (129 bytes)
+        const signerBlock = encodeSignerBlock(sig1.v, sig1.r, sig1.s, publicKeyX[0], publicKeyY[0]);
+
+        // Combine: header + signerBlock + txPayload
+        const payload = combineHexStrings(combineHexStrings(header, signerBlock), txPayload);
 
         await entryPoint.executePayload(sourceChain, SOURCE_ADDRESS, payload);
 
@@ -847,38 +722,38 @@ describe("EntryPoint Multisig 1 of 2", function () {
     });
 
     it("should execute transactions with second signer", async function () {
-        const messageHash = "0xc5d5353eb37e8606d9ee377aa5fe19efcb9a11ff6551e0a4c642f9e4a2a2b94b";
-        const r = ["0x543c159b6a4179f7b6b486554ba3bfcd11a9268f76fe7a052c5c31888c630399"];
-        const s = ["0x4094056e2994f0e5b52f2776b01ab91bcc7b2827791a29eb39a1aa93e5e723c7"];
         const numberSigners = 1;
 
         const initialRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
         const amountToSend = parseEther("1.0");
         const accountAddress = await account.getAddress();
+        const accountSequence = await account.accountSequence();
 
         const sourceChain = "sourceChain";
 
         const txPayload = encodeMultiPayload([{ dest: RECIPIENT_ADDRESS, value: amountToSend, data: "0x" }]);
 
-        const proof = sha256(combineHexStrings(messageHash, txPayload));
-        const accountSequence = await account.accountSequence();
-
-        const p = new AbiCoder().encode(
-            ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
-            [
-                2,
-                accountAddress,
-                messageHash,
-                proof,
-                accountSequence + 1n,
-                numberSigners,
-                r[0],
-                s[0],
-                PUBLIC_KEY_X[1],
-                PUBLIC_KEY_Y[1],
-            ]
+        // Generate signature from second signer
+        const messageHashPreimage = new AbiCoder().encode(
+            ["string", "uint64", "address", "uint256"],
+            [SOURCE_ADDRESS, accountSequence + 1n, RECIPIENT_ADDRESS, amountToSend]
         );
-        const payload = combineHexStrings(p, txPayload);
+        const messageHash = sha256(messageHashPreimage);
+        const proof = sha256(combineHexStrings(messageHash, txPayload));
+
+        const sig2 = await generateSignatureWithMnemonic(MNEMONIC_2, messageHashPreimage.slice(2));
+
+        // Header part (ABI-encoded)
+        const header = new AbiCoder().encode(
+            ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64"],
+            [2, accountAddress, messageHash, proof, accountSequence + 1n, numberSigners]
+        );
+
+        // Signer block (129 bytes) - using second signer's key
+        const signerBlock = encodeSignerBlock(sig2.v, sig2.r, sig2.s, publicKeyX[1], publicKeyY[1]);
+
+        // Combine: header + signerBlock + txPayload
+        const payload = combineHexStrings(combineHexStrings(header, signerBlock), txPayload);
 
         await entryPoint.executePayload(sourceChain, SOURCE_ADDRESS, payload);
 
@@ -897,7 +772,6 @@ describe("EntryPoint Error Paths", function () {
 
     let entryPoint: EntryPoint;
     let accountFactory: AccountFactory;
-    let secp256k1Verifier: Secp256k1Verifier;
     let account: Account;
 
     let owner: HardhatEthersSigner;
@@ -913,12 +787,8 @@ describe("EntryPoint Error Paths", function () {
         publicKeyX = [pubKey.x];
         publicKeyY = [pubKey.y];
 
-        const Secp256k1VerifierContract = await hre.ethers.getContractFactory("Secp256k1Verifier");
-        secp256k1Verifier = await Secp256k1VerifierContract.deploy();
-        await secp256k1Verifier.waitForDeployment();
-
         const AccountFactoryContract = await hre.ethers.getContractFactory("AccountFactory");
-        accountFactory = await AccountFactoryContract.deploy(secp256k1Verifier.target);
+        accountFactory = await AccountFactoryContract.deploy();
         await accountFactory.waitForDeployment();
 
         const EntryPointContract = await hre.ethers.getContractFactory("EntryPoint");
@@ -963,23 +833,17 @@ describe("EntryPoint Error Paths", function () {
 
             const userSig = await generateSignatureWithMnemonic(TEST_MNEMONIC, messageHashPreimage.slice(2));
 
-            const entryPointPayload = new AbiCoder().encode(
-                [
-                    "uint8",
-                    "address",
-                    "bytes32",
-                    "bytes32",
-                    "uint64",
-                    "uint64",
-                    "bytes32",
-                    "bytes32",
-                    "bytes32",
-                    "bytes32",
-                ],
-                [2, accountAddress, messageHash, proof, sequence, 1, userSig.r, userSig.s, publicKeyX[0], publicKeyY[0]]
+            // Header part (ABI-encoded)
+            const header = new AbiCoder().encode(
+                ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64"],
+                [2, accountAddress, messageHash, proof, sequence, 1]
             );
 
-            return combineHexStrings(entryPointPayload, txPayload);
+            // Signer block (129 bytes: v + r + s + x + y, tight-packed)
+            const signerBlock = encodeSignerBlock(userSig.v, userSig.r, userSig.s, publicKeyX[0], publicKeyY[0]);
+
+            // Combine: header + signerBlock + txPayload
+            return combineHexStrings(combineHexStrings(header, signerBlock), txPayload);
         }
 
         it("Should revert with TransactionError when Account execution reverts with reason", async function () {
@@ -1040,23 +904,16 @@ describe("EntryPoint Error Paths", function () {
 
             const userSig = await generateSignatureWithMnemonic(TEST_MNEMONIC, messageHashPreimage.slice(2));
 
-            const entryPointPayload = new AbiCoder().encode(
-                [
-                    "uint8",
-                    "address",
-                    "bytes32",
-                    "bytes32",
-                    "uint64",
-                    "uint64",
-                    "bytes32",
-                    "bytes32",
-                    "bytes32",
-                    "bytes32",
-                ],
-                [2, accountAddress, messageHash, proof, sequence, 1, userSig.r, userSig.s, publicKeyX[0], publicKeyY[0]]
+            // Header part (ABI-encoded)
+            const header = new AbiCoder().encode(
+                ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64"],
+                [2, accountAddress, messageHash, proof, sequence, 1]
             );
 
-            const fullPayload = combineHexStrings(entryPointPayload, truncatedTxPayload);
+            // Signer block (129 bytes: v + r + s + x + y, tight-packed)
+            const signerBlock = encodeSignerBlock(userSig.v, userSig.r, userSig.s, publicKeyX[0], publicKeyY[0]);
+
+            const fullPayload = combineHexStrings(combineHexStrings(header, signerBlock), truncatedTxPayload);
 
             await expect(
                 entryPoint.connect(executor).executePayload(SOURCE_ADDRESS, SOURCE_ADDRESS, fullPayload)
@@ -1081,23 +938,16 @@ describe("EntryPoint Error Paths", function () {
 
             const wrongTarget = executor.address;
 
-            const entryPointPayload = new AbiCoder().encode(
-                [
-                    "uint8",
-                    "address",
-                    "bytes32",
-                    "bytes32",
-                    "uint64",
-                    "uint64",
-                    "bytes32",
-                    "bytes32",
-                    "bytes32",
-                    "bytes32",
-                ],
-                [2, wrongTarget, messageHash, proof, sequence, 1, userSig.r, userSig.s, publicKeyX[0], publicKeyY[0]]
+            // Header part (ABI-encoded) with wrong target
+            const header = new AbiCoder().encode(
+                ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64"],
+                [2, wrongTarget, messageHash, proof, sequence, 1]
             );
 
-            const fullPayload = combineHexStrings(entryPointPayload, txPayload);
+            // Signer block (129 bytes: v + r + s + x + y, tight-packed)
+            const signerBlock = encodeSignerBlock(userSig.v, userSig.r, userSig.s, publicKeyX[0], publicKeyY[0]);
+
+            const fullPayload = combineHexStrings(combineHexStrings(header, signerBlock), txPayload);
 
             await expect(
                 entryPoint.connect(executor).executePayload(SOURCE_ADDRESS, SOURCE_ADDRESS, fullPayload)
@@ -1121,23 +971,16 @@ describe("EntryPoint Error Paths", function () {
 
             const userSig = await generateSignatureWithMnemonic(TEST_MNEMONIC, messageHashPreimage.slice(2));
 
-            const entryPointPayload = new AbiCoder().encode(
-                [
-                    "uint8",
-                    "address",
-                    "bytes32",
-                    "bytes32",
-                    "uint64",
-                    "uint64",
-                    "bytes32",
-                    "bytes32",
-                    "bytes32",
-                    "bytes32",
-                ],
-                [2, accountAddress, messageHash, proof, sequence, 1, userSig.r, userSig.s, publicKeyX[0], publicKeyY[0]]
+            // Header part (ABI-encoded)
+            const header = new AbiCoder().encode(
+                ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64"],
+                [2, accountAddress, messageHash, proof, sequence, 1]
             );
 
-            const fullPayload = combineHexStrings(entryPointPayload, shortTxPayload);
+            // Signer block (129 bytes: v + r + s + x + y, tight-packed)
+            const signerBlock = encodeSignerBlock(userSig.v, userSig.r, userSig.s, publicKeyX[0], publicKeyY[0]);
+
+            const fullPayload = combineHexStrings(combineHexStrings(header, signerBlock), shortTxPayload);
 
             await expect(
                 entryPoint.connect(executor).executePayload(SOURCE_ADDRESS, SOURCE_ADDRESS, fullPayload)
@@ -1194,7 +1037,6 @@ describe("EntryPoint Edge Cases", function () {
 
     let entryPoint: EntryPoint;
     let accountFactory: AccountFactory;
-    let secp256k1Verifier: Secp256k1Verifier;
     let account: Account;
 
     let owner: HardhatEthersSigner;
@@ -1210,12 +1052,8 @@ describe("EntryPoint Edge Cases", function () {
         publicKeyX = [pubKey.x];
         publicKeyY = [pubKey.y];
 
-        const Secp256k1VerifierContract = await hre.ethers.getContractFactory("Secp256k1Verifier");
-        secp256k1Verifier = await Secp256k1VerifierContract.deploy();
-        await secp256k1Verifier.waitForDeployment();
-
         const AccountFactoryContract = await hre.ethers.getContractFactory("AccountFactory");
-        accountFactory = await AccountFactoryContract.deploy(secp256k1Verifier.target);
+        accountFactory = await AccountFactoryContract.deploy();
         await accountFactory.waitForDeployment();
 
         const EntryPointContract = await hre.ethers.getContractFactory("EntryPoint");
@@ -1259,6 +1097,7 @@ describe("EntryPoint Edge Cases", function () {
             const [isValid, reason] = await account.validateOperation(
                 "",
                 messageHash,
+                [sigResult.v],
                 [sigResult.r],
                 [sigResult.s],
                 publicKeyX,
@@ -1305,23 +1144,16 @@ describe("EntryPoint Edge Cases", function () {
 
             const userSig = await generateSignatureWithMnemonic(TEST_MNEMONIC, messageHashPreimage.slice(2));
 
-            const entryPointPayload = new AbiCoder().encode(
-                [
-                    "uint8",
-                    "address",
-                    "bytes32",
-                    "bytes32",
-                    "uint64",
-                    "uint64",
-                    "bytes32",
-                    "bytes32",
-                    "bytes32",
-                    "bytes32",
-                ],
-                [2, accountAddress, messageHash, proof, sequence, 1, userSig.r, userSig.s, publicKeyX[0], publicKeyY[0]]
+            // Header part (ABI-encoded)
+            const header = new AbiCoder().encode(
+                ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64"],
+                [2, accountAddress, messageHash, proof, sequence, 1]
             );
 
-            const fullPayload = combineHexStrings(entryPointPayload, txPayload);
+            // Signer block (129 bytes: v + r + s + x + y, tight-packed)
+            const signerBlock = encodeSignerBlock(userSig.v, userSig.r, userSig.s, publicKeyX[0], publicKeyY[0]);
+
+            const fullPayload = combineHexStrings(combineHexStrings(header, signerBlock), txPayload);
 
             const initialBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
 
@@ -1350,23 +1182,16 @@ describe("EntryPoint Edge Cases", function () {
 
             const userSig = await generateSignatureWithMnemonic(TEST_MNEMONIC, messageHashPreimage.slice(2));
 
-            const entryPointPayload = new AbiCoder().encode(
-                [
-                    "uint8",
-                    "address",
-                    "bytes32",
-                    "bytes32",
-                    "uint64",
-                    "uint64",
-                    "bytes32",
-                    "bytes32",
-                    "bytes32",
-                    "bytes32",
-                ],
-                [2, accountAddress, messageHash, proof, sequence, 1, userSig.r, userSig.s, publicKeyX[0], publicKeyY[0]]
+            // Header part (ABI-encoded)
+            const header = new AbiCoder().encode(
+                ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64"],
+                [2, accountAddress, messageHash, proof, sequence, 1]
             );
 
-            const fullPayload = combineHexStrings(entryPointPayload, txPayload);
+            // Signer block (129 bytes: v + r + s + x + y, tight-packed)
+            const signerBlock = encodeSignerBlock(userSig.v, userSig.r, userSig.s, publicKeyX[0], publicKeyY[0]);
+
+            const fullPayload = combineHexStrings(combineHexStrings(header, signerBlock), txPayload);
 
             const initialBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
 
@@ -1400,23 +1225,16 @@ describe("EntryPoint Edge Cases", function () {
 
             const userSig = await generateSignatureWithMnemonic(TEST_MNEMONIC, messageHashPreimage.slice(2));
 
-            const entryPointPayload = new AbiCoder().encode(
-                [
-                    "uint8",
-                    "address",
-                    "bytes32",
-                    "bytes32",
-                    "uint64",
-                    "uint64",
-                    "bytes32",
-                    "bytes32",
-                    "bytes32",
-                    "bytes32",
-                ],
-                [2, accountAddress, messageHash, proof, sequence, 1, userSig.r, userSig.s, publicKeyX[0], publicKeyY[0]]
+            // Header part (ABI-encoded)
+            const header = new AbiCoder().encode(
+                ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64"],
+                [2, accountAddress, messageHash, proof, sequence, 1]
             );
 
-            const fullPayload = combineHexStrings(entryPointPayload, txPayload);
+            // Signer block (129 bytes: v + r + s + x + y, tight-packed)
+            const signerBlock = encodeSignerBlock(userSig.v, userSig.r, userSig.s, publicKeyX[0], publicKeyY[0]);
+
+            const fullPayload = combineHexStrings(combineHexStrings(header, signerBlock), txPayload);
 
             const initialBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
 
@@ -1458,23 +1276,16 @@ describe("EntryPoint Edge Cases", function () {
 
             const userSig = await generateSignatureWithMnemonic(TEST_MNEMONIC, messageHashPreimage.slice(2));
 
-            const entryPointPayload = new AbiCoder().encode(
-                [
-                    "uint8",
-                    "address",
-                    "bytes32",
-                    "bytes32",
-                    "uint64",
-                    "uint64",
-                    "bytes32",
-                    "bytes32",
-                    "bytes32",
-                    "bytes32",
-                ],
-                [2, accountAddress, messageHash, proof, sequence, 1, userSig.r, userSig.s, publicKeyX[0], publicKeyY[0]]
+            // Header part (ABI-encoded)
+            const header = new AbiCoder().encode(
+                ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64"],
+                [2, accountAddress, messageHash, proof, sequence, 1]
             );
 
-            const fullPayload = combineHexStrings(entryPointPayload, txPayload);
+            // Signer block (129 bytes: v + r + s + x + y, tight-packed)
+            const signerBlock = encodeSignerBlock(userSig.v, userSig.r, userSig.s, publicKeyX[0], publicKeyY[0]);
+
+            const fullPayload = combineHexStrings(combineHexStrings(header, signerBlock), txPayload);
 
             await entryPoint.connect(executor).executePayload(SOURCE_ADDRESS, SOURCE_ADDRESS, fullPayload);
 
@@ -1494,7 +1305,6 @@ describe("EntryPoint Batch Transaction Limits", function () {
 
     let entryPoint: EntryPoint;
     let accountFactory: AccountFactory;
-    let secp256k1Verifier: Secp256k1Verifier;
     let account: Account;
 
     let owner: HardhatEthersSigner;
@@ -1511,12 +1321,8 @@ describe("EntryPoint Batch Transaction Limits", function () {
         publicKeyX = [pubKey.x];
         publicKeyY = [pubKey.y];
 
-        const Secp256k1VerifierContract = await hre.ethers.getContractFactory("Secp256k1Verifier");
-        secp256k1Verifier = await Secp256k1VerifierContract.deploy();
-        await secp256k1Verifier.waitForDeployment();
-
         const AccountFactoryContract = await hre.ethers.getContractFactory("AccountFactory");
-        accountFactory = await AccountFactoryContract.deploy(secp256k1Verifier.target);
+        accountFactory = await AccountFactoryContract.deploy();
         await accountFactory.waitForDeployment();
 
         const EntryPointContract = await hre.ethers.getContractFactory("EntryPoint");
@@ -1571,12 +1377,16 @@ describe("EntryPoint Batch Transaction Limits", function () {
 
         const userSig = await generateSignatureWithMnemonic(TEST_MNEMONIC, messageHashPreimage.slice(2));
 
-        const entryPointPayload = new AbiCoder().encode(
-            ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
-            [2, accountAddress, messageHash, proof, sequence, 1, userSig.r, userSig.s, publicKeyX[0], publicKeyY[0]]
+        // Header part (ABI-encoded)
+        const header = new AbiCoder().encode(
+            ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64"],
+            [2, accountAddress, messageHash, proof, sequence, 1]
         );
 
-        return combineHexStrings(entryPointPayload, txPayload);
+        // Signer block (129 bytes: v + r + s + x + y, tight-packed)
+        const signerBlock = encodeSignerBlock(userSig.v, userSig.r, userSig.s, publicKeyX[0], publicKeyY[0]);
+
+        return combineHexStrings(combineHexStrings(header, signerBlock), txPayload);
     }
 
     describe("MAX_BATCH_SIZE Enforcement", function () {
@@ -1649,8 +1459,8 @@ describe("EntryPoint Batch Transaction Limits", function () {
 describe("EntryPoint ERC20 Operations", function () {
     const RECIPIENT_ADDRESS = "0x390dc2368bfde7e7a370af46c0b834b718d570c1";
 
-    const PUBLIC_KEY_X = ["0x90be7fe886c748be80e98b340d1418d0bfe7865675ee597d9d850526520085f0"];
-    const PUBLIC_KEY_Y = ["0x87b9efdb5c81e067890e9439bdf717cf1c22adfe29d802050a11414d66b6e338"];
+    const TEST_MNEMONIC =
+        "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
 
     const THRESHOLD = 1;
     const totalSigners = 1;
@@ -1661,16 +1471,18 @@ describe("EntryPoint ERC20 Operations", function () {
     let recover: HardhatEthersSigner;
     let account: Account;
     let myToken: MyToken;
+    let publicKeyX: string[];
+    let publicKeyY: string[];
 
     this.beforeAll(async function () {
         [recover] = await hre.ethers.getSigners();
 
-        const Secp256k1VerifierContract = await hre.ethers.getContractFactory("Secp256k1Verifier");
-        const verifier = await Secp256k1VerifierContract.deploy();
-        await verifier.waitForDeployment();
+        const pubKey = await getPublicKeyFromMnemonic(TEST_MNEMONIC);
+        publicKeyX = [pubKey.x];
+        publicKeyY = [pubKey.y];
 
         const AccountFactoryContract = await hre.ethers.getContractFactory("AccountFactory");
-        const accountFactory = await AccountFactoryContract.deploy(verifier.target);
+        const accountFactory = await AccountFactoryContract.deploy();
         await accountFactory.waitForDeployment();
 
         const EntryPointContract = await hre.ethers.getContractFactory("EntryPoint");
@@ -1683,7 +1495,7 @@ describe("EntryPoint ERC20 Operations", function () {
 
         const payload = new AbiCoder().encode(
             ["uint8", "uint64", "uint64", "bytes32", "bytes32"],
-            [1, totalSigners, THRESHOLD, PUBLIC_KEY_X[0], PUBLIC_KEY_Y[0]]
+            [1, totalSigners, THRESHOLD, publicKeyX[0], publicKeyY[0]]
         );
 
         await entryPoint.executePayload(sourceChain, SOURCE_ADDRESS, payload);
@@ -1714,39 +1526,39 @@ describe("EntryPoint ERC20 Operations", function () {
     });
 
     it("should execute erc20 transfer from Account contract", async function () {
-        const messageHash = "0xcc61a33a7a9ace63fa4c5e74f9db3080c7ef68dd53e75dfb311bc28381830c2f";
-        const r = ["0x87df5d0e314c3fe01b3dc136b3afe1659e02316f8d189f0b68983b7f90cd9b61"];
-        const s = ["0x7d2212755fb0db4f8e9a3343d264942d14c5e75471245b0419f29ce10355b08b"];
         const numberSigners = 1;
 
         const initialRecipientBalance = await myToken.balanceOf(RECIPIENT_ADDRESS);
         const amountToSend = parseEther("0.001");
         const accountAddress = await account.getAddress();
+        const accountSequence = await account.accountSequence();
 
         const sourceChain = "sourceChain";
 
         const transferData = myToken.interface.encodeFunctionData("transfer", [RECIPIENT_ADDRESS, amountToSend]);
         const txPayload = encodeMultiPayload([{ dest: myToken.target as string, value: 0n, data: transferData }]);
 
-        const proof = sha256(combineHexStrings(messageHash, txPayload));
-        const accountSequence = await account.accountSequence();
-
-        const p = new AbiCoder().encode(
-            ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
-            [
-                2,
-                accountAddress,
-                messageHash,
-                proof,
-                accountSequence + 1n,
-                numberSigners,
-                r[0],
-                s[0],
-                PUBLIC_KEY_X[0],
-                PUBLIC_KEY_Y[0],
-            ]
+        // Generate signature
+        const messageHashPreimage = new AbiCoder().encode(
+            ["string", "uint64", "address", "uint256"],
+            [SOURCE_ADDRESS, accountSequence + 1n, myToken.target, 0n]
         );
-        const payload = combineHexStrings(p, txPayload);
+        const messageHash = sha256(messageHashPreimage);
+        const proof = sha256(combineHexStrings(messageHash, txPayload));
+
+        const sigResult = await generateSignatureWithMnemonic(TEST_MNEMONIC, messageHashPreimage.slice(2));
+
+        // Header part (ABI-encoded)
+        const header = new AbiCoder().encode(
+            ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64"],
+            [2, accountAddress, messageHash, proof, accountSequence + 1n, numberSigners]
+        );
+
+        // Signer block (129 bytes: v + r + s + x + y, tight-packed)
+        const signerBlock = encodeSignerBlock(sigResult.v, sigResult.r, sigResult.s, publicKeyX[0], publicKeyY[0]);
+
+        // Combine: header + signerBlock + txPayload
+        const payload = combineHexStrings(combineHexStrings(header, signerBlock), txPayload);
 
         await entryPoint.executePayload(sourceChain, SOURCE_ADDRESS, payload);
 
@@ -1755,13 +1567,11 @@ describe("EntryPoint ERC20 Operations", function () {
     });
 
     it("should execute erc20 approve from Account contract", async function () {
-        const messageHash = "0xcc61a33a7a9ace63fa4c5e74f9db3080c7ef68dd53e75dfb311bc28381830c2f";
-        const r = ["0x87df5d0e314c3fe01b3dc136b3afe1659e02316f8d189f0b68983b7f90cd9b61"];
-        const s = ["0x7d2212755fb0db4f8e9a3343d264942d14c5e75471245b0419f29ce10355b08b"];
         const numberSigners = 1;
 
         const amountToSend = parseEther("0.001");
         const accountAddress = await account.getAddress();
+        const accountSequence = await account.accountSequence();
 
         const sourceChain = "sourceChain";
 
@@ -1771,25 +1581,27 @@ describe("EntryPoint ERC20 Operations", function () {
         const approveData = myToken.interface.encodeFunctionData("approve", [RECIPIENT_ADDRESS, amountToSend]);
         const txPayload = encodeMultiPayload([{ dest: myToken.target as string, value: 0n, data: approveData }]);
 
-        const proof = sha256(combineHexStrings(messageHash, txPayload));
-        const accountSequence = await account.accountSequence();
-
-        const p = new AbiCoder().encode(
-            ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
-            [
-                2,
-                accountAddress,
-                messageHash,
-                proof,
-                accountSequence + 1n,
-                numberSigners,
-                r[0],
-                s[0],
-                PUBLIC_KEY_X[0],
-                PUBLIC_KEY_Y[0],
-            ]
+        // Generate signature
+        const messageHashPreimage = new AbiCoder().encode(
+            ["string", "uint64", "address", "uint256"],
+            [SOURCE_ADDRESS, accountSequence + 1n, myToken.target, 0n]
         );
-        const payload = combineHexStrings(p, txPayload);
+        const messageHash = sha256(messageHashPreimage);
+        const proof = sha256(combineHexStrings(messageHash, txPayload));
+
+        const sigResult = await generateSignatureWithMnemonic(TEST_MNEMONIC, messageHashPreimage.slice(2));
+
+        // Header part (ABI-encoded)
+        const header = new AbiCoder().encode(
+            ["uint8", "address", "bytes32", "bytes32", "uint64", "uint64"],
+            [2, accountAddress, messageHash, proof, accountSequence + 1n, numberSigners]
+        );
+
+        // Signer block (129 bytes: v + r + s + x + y, tight-packed)
+        const signerBlock = encodeSignerBlock(sigResult.v, sigResult.r, sigResult.s, publicKeyX[0], publicKeyY[0]);
+
+        // Combine: header + signerBlock + txPayload
+        const payload = combineHexStrings(combineHexStrings(header, signerBlock), txPayload);
 
         await entryPoint.executePayload(sourceChain, SOURCE_ADDRESS, payload);
 
