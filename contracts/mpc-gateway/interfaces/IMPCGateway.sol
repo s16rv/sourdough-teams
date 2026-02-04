@@ -62,6 +62,7 @@ interface IMPCGateway {
      * @param destinationAddress Address of the contract to call on the destination chain
      */
     event ContractCallExecuting(
+        uint8 mpcSignatureV,
         bytes32 mpcSignatureR,
         bytes32 mpcSignatureS,
         string sourceChain,
@@ -95,6 +96,7 @@ interface IMPCGateway {
      * @param payload Encoded call data to be executed
      */
     function executeContractCall(
+        uint8 mpcSignatureV, // Recovery ID from the MPC service
         bytes32 mpcSignatureR, // Signature from the MPC service (Hex bytes)
         bytes32 mpcSignatureS, // Signature from the MPC service (Hex bytes)
         string calldata sourceChain,
