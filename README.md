@@ -22,12 +22,12 @@ Source Chain --> MPC Relayer --> MPCGateway --> EntryPoint --> Account
 
 ### Smart Account System
 
-| Contract            | Description                                     |
-| ------------------- | ----------------------------------------------- |
-| `EntryPoint`        | Routes cross-chain payloads to user accounts    |
-| `Account`           | User's smart account with multisig verification |
-| `AccountFactory`    | Creates Account instances via CREATE2           |
-| `Secp256k1Verifier` | EIP-7212 compatible signature verification      |
+| Contract            | Description                                              |
+| ------------------- | -------------------------------------------------------- |
+| `EntryPoint`        | Dumb router - parses payloads and forwards to Account    |
+| `Account`           | Trust anchor - validates everything, executes atomically |
+| `AccountFactory`    | Creates Account instances via CREATE2                    |
+| `Secp256k1Verifier` | EIP-7212 compatible signature verification               |
 
 ### MPC Gateway
 
@@ -106,10 +106,13 @@ Both paths require valid owner signatures. The recovery path provides censorship
 
 ### Key Security Properties
 
+- **Account is trust anchor** - validates everything atomically (no TOCTOU vulnerability)
 - Funds require threshold valid signatures to move
+- Cross-chain replay prevented via `evmChainId == block.chainid` validation
 - Replay attacks prevented via sequence numbers and txHash tracking
 - Account signers and threshold are immutable after creation
 - Recovery path always available to original owners
+- CEI pattern prevents reentrancy attacks
 
 ## Documentation
 

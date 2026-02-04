@@ -613,7 +613,7 @@ describe("EntryPoint Error Paths", function () {
     });
 
     describe("Transaction Error Handling", function () {
-        it("Should revert with TransactionError when Account execution reverts with reason", async function () {
+        it("Should revert with TransactionFailed when Account execution reverts", async function () {
             const RejectETHFactory = await hre.ethers.getContractFactory("RejectETH");
             const rejectETH = await RejectETHFactory.deploy();
             await rejectETH.waitForDeployment();
@@ -628,10 +628,10 @@ describe("EntryPoint Error Paths", function () {
 
             await expect(
                 entryPoint.connect(executor).executePayload(SOURCE_ADDRESS, SOURCE_ADDRESS, payload)
-            ).to.be.revertedWithCustomError(entryPoint, "TransactionError");
+            ).to.be.revertedWithCustomError(entryPoint, "TransactionFailed");
         });
 
-        it("Should handle validation failure gracefully (emits DebugReason)", async function () {
+        it("Should revert with TransactionFailed when validation fails (wrong sequence)", async function () {
             const accountAddress = await account.getAddress();
             const wrongSequence = 999n;
 
@@ -651,18 +651,18 @@ describe("EntryPoint Error Paths", function () {
 
             const balanceBefore = await hre.ethers.provider.getBalance(owner.address);
 
-            // Should not revert, but emit DebugReason with the failure reason
-            await expect(entryPoint.connect(executor).executePayload(SOURCE_ADDRESS, SOURCE_ADDRESS, payload))
-                .to.emit(entryPoint, "DebugReason")
-                .withArgs("InvalidSequence");
+            // Should revert with TransactionFailed (Account validation fails with InvalidSequence)
+            await expect(
+                entryPoint.connect(executor).executePayload(SOURCE_ADDRESS, SOURCE_ADDRESS, payload)
+            ).to.be.revertedWithCustomError(entryPoint, "TransactionFailed");
 
             // Verify no funds were transferred (validation failed)
             const balanceAfter = await hre.ethers.provider.getBalance(owner.address);
             expect(balanceAfter).to.equal(balanceBefore);
         });
 
-        it("Should revert with InvalidTargetAccount when target doesn't match factory", async function () {
-            const wrongTarget = executor.address;
+        it("Should revert when target is not a valid account contract", async function () {
+            const wrongTarget = executor.address; // An EOA, not a contract
             const sequence = (await account.accountSequence()) + 1n;
 
             // Create txPayload with wrong target address
@@ -679,12 +679,13 @@ describe("EntryPoint Error Paths", function () {
             const signatures = [{ v: sig.v, r: sig.r, s: sig.s, x: publicKeyX[0], y: publicKeyY[0] }];
             const payload = encodeNewPayload(signBytes, hashOffset, signatures, txPayload);
 
-            await expect(
-                entryPoint.connect(executor).executePayload(SOURCE_ADDRESS, SOURCE_ADDRESS, payload)
-            ).to.be.revertedWithCustomError(entryPoint, "InvalidTargetAccount");
+            // Calling validateAndExecute on an EOA fails (no code at address)
+            // The call reverts without a specific reason when target has no code
+            await expect(entryPoint.connect(executor).executePayload(SOURCE_ADDRESS, SOURCE_ADDRESS, payload)).to.be
+                .reverted;
         });
 
-        it("Should revert with InvalidChainId when chainId doesn't match", async function () {
+        it("Should revert with TransactionFailed when chainId doesn't match", async function () {
             const accountAddress = await account.getAddress();
             const sequence = (await account.accountSequence()) + 1n;
 
@@ -702,12 +703,13 @@ describe("EntryPoint Error Paths", function () {
             const signatures = [{ v: sig.v, r: sig.r, s: sig.s, x: publicKeyX[0], y: publicKeyY[0] }];
             const payload = encodeNewPayload(signBytes, hashOffset, signatures, txPayload);
 
+            // Account validates chainId and reverts with InvalidChainId, wrapped as TransactionFailed
             await expect(
                 entryPoint.connect(executor).executePayload(SOURCE_ADDRESS, SOURCE_ADDRESS, payload)
-            ).to.be.revertedWithCustomError(entryPoint, "InvalidChainId");
+            ).to.be.revertedWithCustomError(entryPoint, "TransactionFailed");
         });
 
-        it("Should emit DebugReason with InvalidHashCommitment when txPayload is tampered", async function () {
+        it("Should revert with TransactionFailed when txPayload is tampered", async function () {
             const accountAddress = await account.getAddress();
             const sequence = (await account.accountSequence()) + 1n;
 
@@ -732,9 +734,10 @@ describe("EntryPoint Error Paths", function () {
             // Use original signBytes but tampered txPayload
             const payload = encodeNewPayload(signBytes, hashOffset, signatures, tamperedTxPayload);
 
-            await expect(entryPoint.connect(executor).executePayload(SOURCE_ADDRESS, SOURCE_ADDRESS, payload))
-                .to.emit(entryPoint, "DebugReason")
-                .withArgs("InvalidHashCommitment");
+            // Account detects hash mismatch and reverts with InvalidHashCommitment, wrapped as TransactionFailed
+            await expect(
+                entryPoint.connect(executor).executePayload(SOURCE_ADDRESS, SOURCE_ADDRESS, payload)
+            ).to.be.revertedWithCustomError(entryPoint, "TransactionFailed");
         });
     });
 
@@ -905,10 +908,10 @@ describe("EntryPoint Edge Cases", function () {
             const signatures = [{ v: sig.v, r: sig.r, s: sig.s, x: publicKeyX[0], y: publicKeyY[0] }];
             const payload = encodeNewPayload(invalidSignBytes, hashOffset, signatures, txPayload);
 
-            // Should fail validation due to invalid hex prefix
-            await expect(entryPoint.connect(executor).executePayload(SOURCE_ADDRESS, SOURCE_ADDRESS, payload))
-                .to.emit(entryPoint, "DebugReason")
-                .withArgs("InvalidHashCommitment");
+            // Should fail validation due to invalid hex prefix (Account rejects with InvalidHashCommitment)
+            await expect(
+                entryPoint.connect(executor).executePayload(SOURCE_ADDRESS, SOURCE_ADDRESS, payload)
+            ).to.be.revertedWithCustomError(entryPoint, "TransactionFailed");
         });
 
         it("Should reject signBytes with offset out of bounds", async function () {
@@ -929,10 +932,10 @@ describe("EntryPoint Edge Cases", function () {
             const signatures = [{ v: sig.v, r: sig.r, s: sig.s, x: publicKeyX[0], y: publicKeyY[0] }];
             const payload = encodeNewPayload(signBytes, invalidOffset, signatures, txPayload);
 
-            // Should revert with InvalidHashOffset
+            // Should revert with TransactionFailed (Account reverts with InvalidHashOffset)
             await expect(
                 entryPoint.connect(executor).executePayload(SOURCE_ADDRESS, SOURCE_ADDRESS, payload)
-            ).to.be.revertedWithCustomError(account, "InvalidHashOffset");
+            ).to.be.revertedWithCustomError(entryPoint, "TransactionFailed");
         });
     });
 });
@@ -1020,9 +1023,10 @@ describe("EntryPoint Batch Transaction Limits", function () {
 
             const payload = await createNewFormatPayload(account, SOURCE_ADDRESS, transactions, publicKeyX, publicKeyY);
 
+            // Account validates batch size and reverts with InvalidPayloadArray, wrapped as TransactionFailed
             await expect(
                 entryPoint.connect(executor).executePayload(SOURCE_ADDRESS, SOURCE_ADDRESS, payload)
-            ).to.be.revertedWithCustomError(entryPoint, "InvalidPayloadArray");
+            ).to.be.revertedWithCustomError(entryPoint, "TransactionFailed");
         });
 
         it("Should accept batch with 1 transaction", async function () {

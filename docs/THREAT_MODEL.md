@@ -68,8 +68,14 @@ Source Chain --> MPC Relayer --> EVM Chain (this repo)
 |                                      | Account |            |
 |                                      +---------+            |
 |  - Requires valid MPC signature on txHash                   |
-|  - Account verifies owner signatures + sequence             |
-|  - Goes through operator infrastructure                     |
+|  - EntryPoint is "dumb router" - just parses and forwards   |
+|  - Account validates everything atomically:                 |
+|    * evmChainId == block.chainid                            |
+|    * accountAddress == address(this)                        |
+|    * keccak256(txPayload) == hash in signBytes              |
+|    * threshold owner signatures on sha256(signBytes)        |
+|    * sequence == accountSequence + 1                        |
+|  - Then executes calls atomically (no TOCTOU possible)      |
 |                                                             |
 |  Path 2: Recovery (direct, censorship resistant)            |
 |  +---------------------+   +---------+                      |
@@ -77,10 +83,12 @@ Source Chain --> MPC Relayer --> EVM Chain (this repo)
 |  +---------------------+   +---------+                      |
 |  - Anyone can call with valid signatures                    |
 |  - Requires threshold owner signatures                      |
+|  - Validates evmChainId == block.chainid                    |
 |  - Bypasses MPC infrastructure entirely                     |
 |  - Escape hatch for censorship/liveness issues              |
 |                                                             |
 |  Both paths verify signatures. Security is equivalent.      |
+|  Account is the "trust anchor" - self-protecting.           |
 +-------------------------------------------------------------+
 ```
 
@@ -203,17 +211,59 @@ The **operator** is expected to be a multisig that controls administrative funct
 
 ## Known Issues & Accepted Risks
 
-| Issue                            | Status           | Rationale                                     |
-| -------------------------------- | ---------------- | --------------------------------------------- |
-| No SafeERC20 usage               | **Needs fix**    | Silent failures with non-standard tokens      |
-| No reentrancy guards             | **Needs review** | External calls with value in Account.\_call() |
-| Debug events in production       | **Needs fix**    | Should be removed or gated                    |
-| O(n\*m) pubkey validation        | Accepted         | N and M are small in practice                 |
-| No grants/delegation             | **Planned**      | Simpler model for now, to be added            |
-| AccountFactory publicly callable | **Needs fix**    | Should be EntryPoint-only                     |
+| Issue                            | Status        | Rationale                                                     |
+| -------------------------------- | ------------- | ------------------------------------------------------------- |
+| SafeERC20 usage                  | ✅ Fixed      | Using SafeERC20 in RoutingRailgun.sol                         |
+| Reentrancy protection            | ✅ Fixed      | CEI pattern in Account, ReentrancyGuard in RoutingRailgun     |
+| TOCTOU vulnerability             | ✅ Fixed      | Atomic validateAndExecute(), executeTransactions() removed    |
+| Recovery path chain binding      | ✅ Fixed      | recoverTransaction validates evmChainId == block.chainid      |
+| Debug events in production       | Accepted      | Zero-cost when not triggered, valuable for debugging          |
+| O(n\*m) pubkey validation        | Accepted      | N and M are small in practice                                 |
+| No grants/delegation             | **Planned**   | Simpler model for now, to be added                            |
+| AccountFactory publicly callable | **Needs fix** | Should be EntryPoint-only (see inter-contract access control) |
+
+## Trust Anchor Architecture
+
+The **Account contract is the trust anchor** of the system. This means:
+
+1. **Account validates everything atomically** - All validation (chainId, accountAddress, signatures, sequence, hash commitment) AND execution happen in a single function call. No way to split validation from execution (prevents TOCTOU attacks).
+
+2. **Account is immutable** - Once deployed, Account code cannot change. Signers and threshold are fixed at creation.
+
+3. **EntryPoint is a dumb router** - EntryPoint just parses payloads and forwards to Account. Even a compromised EntryPoint cannot steal funds because Account validates all cryptographic proofs.
+
+4. **Infrastructure is upgradeable** - MPCGateway, EntryPoint, AccountFactory can be upgraded (via proxy pattern). This is safe because security doesn't depend on them - Account protects itself.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    TRUST HIERARCHY                          │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  Infrastructure Layer (team-controlled, upgradeable)        │
+│  ┌─────────────┐  ┌─────────────┐  ┌────────────────┐      │
+│  │ MPCGateway  │→ │ EntryPoint  │→ │ AccountFactory │      │
+│  │   (proxy)   │  │   (proxy)   │  │    (proxy)     │      │
+│  └─────────────┘  └─────────────┘  └────────────────┘      │
+│        │                │                   │               │
+│        ▼                ▼                   ▼               │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │               TRUST ANCHOR (immutable)              │   │
+│  │  ┌─────────────────────────────────────────────┐   │   │
+│  │  │                 Account                      │   │   │
+│  │  │  - Validates chainId, accountAddress         │   │   │
+│  │  │  - Validates signatures against stored keys  │   │   │
+│  │  │  - Validates sequence (replay protection)    │   │   │
+│  │  │  - Validates hash commitment                 │   │   │
+│  │  │  - Executes calls atomically                 │   │   │
+│  │  └─────────────────────────────────────────────┘   │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
 
 ## Revision History
 
-| Date       | Author  | Changes              |
-| ---------- | ------- | -------------------- |
-| 2026-01-30 | Initial | Created threat model |
+| Date       | Author  | Changes                                                 |
+| ---------- | ------- | ------------------------------------------------------- |
+| 2026-01-30 | Initial | Created threat model                                    |
+| 2026-02-04 | Update  | Added trust anchor architecture, updated for TOCTOU fix |

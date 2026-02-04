@@ -338,13 +338,11 @@ describe("Integration: Full Flow", function () {
             const accountSequence = await account.accountSequence();
 
             // Encode recovery payload
-            const selector = hre.ethers.id("recoverProposal(uint64,address,uint256,bytes)").slice(0, 10);
             const abiCoder = new AbiCoder();
-            const encodedParams = abiCoder.encode(
-                ["uint64", "address", "uint256", "bytes"],
-                [accountSequence + 1n, RECIPIENT_ADDRESS, amountToSend, "0x"]
+            const txPayload = abiCoder.encode(
+                ["uint256", "uint64", "address", "uint256", "bytes"],
+                [CHAIN_ID, accountSequence + 1n, RECIPIENT_ADDRESS, amountToSend, "0x"]
             );
-            const txPayload = selector + encodedParams.slice(2);
 
             // Sign with user key directly (no MPC involved)
             const userSig = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayload.slice(2));

@@ -111,6 +111,30 @@ export function createSignBytes(
 }
 
 /**
+ * Encode the recovery transaction payload.
+ * Format: (uint256 evmChainId, uint64 sequence, address dest, uint256 value, bytes data)
+ * @param evmChainId The EVM chain ID
+ * @param sequence The sequence number
+ * @param dest The destination address
+ * @param value The ETH value to send
+ * @param data The call data
+ * @returns The ABI-encoded recovery payload
+ */
+export function encodeRecoverPayload(
+    evmChainId: bigint,
+    sequence: bigint,
+    dest: string,
+    value: bigint,
+    data: string
+): string {
+    const coder = new AbiCoder();
+    return coder.encode(
+        ["uint256", "uint64", "address", "uint256", "bytes"],
+        [evmChainId, sequence, dest, value, data]
+    );
+}
+
+/**
  * Encode the new payload format for Category 2 transactions.
  * @param signBytes The signed message bytes (hex encoded)
  * @param txPayloadHashOffset Offset to the hash in signBytes

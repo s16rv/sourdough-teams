@@ -20,6 +20,7 @@ import { generateSignatureWithMnemonic, getPublicKeyFromMnemonic } from "../../s
 describe("Invariants", function () {
     const ENTRYPOINT_ADDRESS = "0x3bd70e10d71c6e882e3c1809d26a310d793646eb";
     const RECIPIENT_ADDRESS = "0xaa25Aa7a19f9c426E07dee59b12f944f4d9f1DD3";
+    const EXPECTED_CHAIN_ID = 31337n; // Hardhat default chain ID
 
     const TEST_MNEMONIC =
         "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
@@ -353,9 +354,10 @@ describe("Invariants", function () {
     }
 
     function encodeTxPayload(sequence: bigint, dest: string, value: bigint, data: string): string {
-        const selector = keccak256(toUtf8Bytes("recoverProposal(uint64,address,uint256,bytes)")).slice(0, 10);
         const abiCoder = hre.ethers.AbiCoder.defaultAbiCoder();
-        const encodedParams = abiCoder.encode(["uint64", "address", "uint256", "bytes"], [sequence, dest, value, data]);
-        return selector + encodedParams.slice(2);
+        return abiCoder.encode(
+            ["uint256", "uint64", "address", "uint256", "bytes"],
+            [EXPECTED_CHAIN_ID, sequence, dest, value, data]
+        );
     }
 });

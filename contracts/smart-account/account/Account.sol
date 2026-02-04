@@ -4,6 +4,19 @@ pragma solidity ^0.8.21;
 import "../interfaces/IAccount.sol";
 import "../EntryPoint.sol";
 
+/**
+ * @title Account
+ * @notice Smart account with threshold multi-signature verification.
+ * @dev SECURITY: This contract is the trust anchor. All validation and execution MUST be atomic
+ * in a single function call to prevent TOCTOU (time-of-check-time-of-use) attacks.
+ *
+ * DO NOT split validation and execution into separate external functions.
+ * A malicious or compromised EntryPoint could call validate() with legitimate params,
+ * then call execute() with different params, bypassing signature verification.
+ *
+ * Safe pattern: validateAndExecute() does both in one atomic operation.
+ * The recoverTransaction() function also validates and executes atomically.
+ */
 contract Account is IAccount {
     EntryPoint private immutable entryPoint;
     bytes32[] private xPubKeys;
@@ -203,6 +216,158 @@ contract Account is IAccount {
     }
 
     /**
+     * @dev Validates and executes a transaction atomically. This is the main entry point for the normal path.
+     * Account validates everything (signatures, chainId, accountAddress, sequence) and executes calls.
+     * @param signBytes The AMINO_JSON message that was signed.
+     * @param txPayloadHashOffset The offset to the hash in signBytes (points to "0x" prefix).
+     * @param sigs Signature data (v, r, s, x, y arrays).
+     * @param txPayload The transaction payload containing evmChainId, accountAddress, sequence, count, and calls.
+     * @return bool indicating whether the transaction was successful.
+     */
+    function validateAndExecute(
+        bytes calldata signBytes,
+        uint256 txPayloadHashOffset,
+        SignatureData calldata sigs,
+        bytes calldata txPayload
+    ) external onlyEntryPoint returns (bool) {
+        // 1. Validate txPayload header (chainId, accountAddress, sequence)
+        uint64 count = _validateTxPayloadHeader(txPayload, txPayloadHashOffset, signBytes);
+
+        // 2. Validate signatures
+        _validateSignatures(signBytes, sigs);
+
+        // 3. Increment sequence BEFORE external calls (CEI pattern)
+        incrementSequence();
+
+        // 4. Decode and execute calls from txPayload
+        _executeCallsFromPayload(txPayload, count);
+
+        return true;
+    }
+
+    /**
+     * @dev Validates txPayload header and hash commitment.
+     * @return count The number of calls to execute.
+     */
+    function _validateTxPayloadHeader(
+        bytes calldata txPayload,
+        uint256 txPayloadHashOffset,
+        bytes calldata signBytes
+    ) internal view returns (uint64) {
+        if (txPayload.length < 128) revert InvalidPayload();
+
+        (uint256 evmChainId, address accountAddress, uint64 sequence, uint64 count) = abi.decode(
+            txPayload[:128],
+            (uint256, address, uint64, uint64)
+        );
+
+        // Validate chain ID
+        if (evmChainId != block.chainid) {
+            revert InvalidChainId();
+        }
+
+        // Validate account address
+        if (accountAddress != address(this)) {
+            revert InvalidAccountAddress();
+        }
+
+        // Validate sequence
+        if (sequence != accountSequence + 1) {
+            revert InvalidSequence();
+        }
+
+        // Validate hash commitment
+        bytes32 expectedHash = _extractHashFromSignBytes(signBytes, txPayloadHashOffset);
+        bytes32 actualHash = keccak256(txPayload);
+        if (expectedHash != actualHash) {
+            revert InvalidHashCommitment();
+        }
+
+        // Validate count
+        if (count == 0 || count > 20) {
+            revert InvalidInputLength();
+        }
+
+        return count;
+    }
+
+    /**
+     * @dev Validates signature arrays and verifies signatures.
+     */
+    function _validateSignatures(
+        bytes calldata signBytes,
+        SignatureData calldata sigs
+    ) internal view {
+        // Validate array lengths
+        if (sigs.x.length != sigs.y.length) {
+            revert InvalidPubKeyLength();
+        }
+        if (sigs.x.length != sigs.r.length || sigs.x.length != sigs.s.length || sigs.x.length != sigs.v.length) {
+            revert InvalidSignatureLength();
+        }
+        if (sigs.x.length < threshold) {
+            revert InvalidThreshold();
+        }
+
+        // Check for duplicate public keys
+        for (uint64 i = 0; i < sigs.x.length; i++) {
+            for (uint64 j = i + 1; j < sigs.x.length; j++) {
+                if (sigs.x[i] == sigs.x[j] && sigs.y[i] == sigs.y[j]) {
+                    revert DuplicatePubKey();
+                }
+            }
+        }
+
+        // Validate public keys are authorized and verify signatures
+        bytes32 signBytesHash = sha256(signBytes);
+        for (uint64 i = 0; i < sigs.x.length; i++) {
+            // Check pubkey is authorized
+            bool found = false;
+            for (uint64 j = 0; j < xPubKeys.length; j++) {
+                if (sigs.x[i] == xPubKeys[j] && sigs.y[i] == yPubKeys[j]) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                revert InvalidPubKey();
+            }
+
+            // Verify signature
+            address expectedAddr = _pubKeyToAddress(sigs.x[i], sigs.y[i]);
+            address recovered = _recoverSigner(signBytesHash, sigs.v[i] + 27, sigs.r[i], sigs.s[i]);
+            if (recovered != expectedAddr) {
+                revert InvalidSignature();
+            }
+        }
+    }
+
+    /**
+     * @dev Decodes and executes calls from txPayload.
+     */
+    function _executeCallsFromPayload(bytes calldata txPayload, uint64 count) internal {
+        uint256 offset = 128; // Start after header
+        for (uint64 i = 0; i < count; i++) {
+            if (txPayload.length < offset + 96) revert InvalidPayload();
+
+            (address dest, uint256 value, uint256 dataLen) = abi.decode(
+                txPayload[offset:offset + 96],
+                (address, uint256, uint256)
+            );
+
+            offset += 96;
+
+            if (txPayload.length < offset + dataLen) revert InvalidPayload();
+
+            bytes calldata data = txPayload[offset:offset + dataLen];
+            offset += dataLen;
+
+            _call(dest, value, data);
+            emit TransactionExecuted(dest, value, data);
+        }
+    }
+
+    /**
      * @dev Extract bytes32 hash from hex string in signBytes at given offset.
      * @param signBytes The signed message bytes.
      * @param offset Offset to "0x" prefix of 66-char hex string.
@@ -241,35 +406,6 @@ contract Account is IAccount {
         if (char >= "a" && char <= "f") return (uint8(char) - 87, true);
         if (char >= "A" && char <= "F") return (uint8(char) - 55, true);
         return (0, false);
-    }
-
-    /**
-     * @dev Allows the contract to execute arbitrary transactions, restricted to the EntryPoint.
-     * Emits a `TransactionExecuted` event.
-     * @param destList The list of destination addresses of the transactions.
-     * @param valueList The list of amounts of Ether to send with the transactions.
-     * @param dataList The list of data to pass to the destination contracts.
-     * @return success A boolean indicating whether the transactions were successful.
-     */
-    function executeTransactions(
-        address[] calldata destList,
-        uint256[] calldata valueList,
-        bytes[] calldata dataList
-    ) external onlyEntryPoint returns (bool) {
-        if (destList.length != valueList.length || destList.length != dataList.length) {
-            revert InvalidInputLength();
-        }
-        // Increment sequence BEFORE external calls to prevent reentrancy
-        incrementSequence();
-        bool success = true;
-        for (uint256 i = 0; i < destList.length; i++) {
-            success = _call(destList[i], valueList[i], dataList[i]);
-            if (!success) {
-                break;
-            }
-            emit TransactionExecuted(destList[i], valueList[i], dataList[i]);
-        }
-        return success;
     }
 
     /**
@@ -325,18 +461,18 @@ contract Account is IAccount {
             }
         }
 
-        // Validate the function selector matches recoverProposal(uint64,address,uint256,bytes)
-        bytes4 expectedSelector = bytes4(keccak256("recoverProposal(uint64,address,uint256,bytes)"));
-        bytes4 actualSelector = bytes4(txPayload[:4]);
-        if (actualSelector != expectedSelector) {
-            revert InvalidPayload();
+        // Decode parameters from txPayload
+        // Format: (uint256 evmChainId, uint64 sequence, address dest, uint256 value, bytes data)
+        (uint256 evmChainId, uint64 sequence, address dest, uint256 value, bytes memory data) = abi.decode(
+            txPayload,
+            (uint256, uint64, address, uint256, bytes)
+        );
+
+        // Validate chain ID
+        if (evmChainId != block.chainid) {
+            revert InvalidChainId();
         }
 
-        // Decode parameters after the 4-byte selector
-        (uint64 sequence, address dest, uint256 value, bytes memory data) = abi.decode(
-            txPayload[4:],
-            (uint64, address, uint256, bytes)
-        );
         if (sequence != accountSequence + 1) {
             revert InvalidSequence();
         }

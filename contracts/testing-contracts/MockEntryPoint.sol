@@ -34,13 +34,19 @@ contract MockEntryPoint is IEntryPoint {
         executors[_executor] = _isExecutor;
     }
 
-    // Helper for testing: call executeTransactions on an Account
-    function callExecuteTransactions(
+    // Helper for testing: call validateAndExecute on an Account
+    function callValidateAndExecute(
         address account,
-        address[] calldata destList,
-        uint256[] calldata valueList,
-        bytes[] calldata dataList
+        bytes calldata signBytes,
+        uint256 txPayloadHashOffset,
+        IAccount.SignatureData calldata sigs,
+        bytes calldata txPayload
     ) external returns (bool) {
-        return IAccount(payable(account)).executeTransactions(destList, valueList, dataList);
+        return IAccount(payable(account)).validateAndExecute(
+            signBytes,
+            txPayloadHashOffset,
+            sigs,
+            txPayload
+        );
     }
 }

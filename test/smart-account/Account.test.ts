@@ -11,14 +11,21 @@ const TEST_MNEMONIC = "abandon abandon abandon abandon abandon abandon abandon a
 const EXPECTED_CHAIN_ID = 31337n; // Hardhat default chain ID
 
 /**
- * Helper to encode the txPayload as a recoverProposal function call.
- * Format: selector (4 bytes) + abi.encode(sequence, dest, value, data)
+ * Helper to encode the txPayload for recoverTransaction.
+ * Format: abi.encode(evmChainId, sequence, dest, value, data)
  */
-function encodeTxPayload(sequence: bigint, dest: string, value: bigint, data: string): string {
-    const selector = keccak256(toUtf8Bytes("recoverProposal(uint64,address,uint256,bytes)")).slice(0, 10);
+function encodeRecoverTxPayload(
+    evmChainId: bigint,
+    sequence: bigint,
+    dest: string,
+    value: bigint,
+    data: string
+): string {
     const abiCoder = hre.ethers.AbiCoder.defaultAbiCoder();
-    const encodedParams = abiCoder.encode(["uint64", "address", "uint256", "bytes"], [sequence, dest, value, data]);
-    return selector + encodedParams.slice(2);
+    return abiCoder.encode(
+        ["uint256", "uint64", "address", "uint256", "bytes"],
+        [evmChainId, sequence, dest, value, data]
+    );
 }
 
 /**
@@ -192,12 +199,28 @@ describe("Account", function () {
         expect(msg).to.equal("InvalidSignature");
     });
 
-    it("Should not execute transaction using stranger account", async function () {
-        const amountToSend = parseEther("0.001");
+    it("Should not execute transaction using stranger account (validateAndExecute requires EntryPoint)", async function () {
+        // validateAndExecute requires being called by EntryPoint
+        // We test this by trying to call directly from a stranger
+        const sequence = 1n;
+        const txPayload = encodeNewTxPayload(EXPECTED_CHAIN_ID, await account.getAddress(), sequence, [
+            { to: RECIPIENT_ADDRESS, value: parseEther("0.001"), data: "0x" },
+        ]);
+        const txPayloadHash = computeTxPayloadHash(txPayload);
+        const { signBytes, hashOffset } = createSignBytes(txPayloadHash);
+        const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, signBytes.slice(2));
+
         const initialRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
 
         await expect(
-            account.connect(stranger).executeTransactions([RECIPIENT_ADDRESS], [amountToSend], ["0x"])
+            account
+                .connect(stranger)
+                .validateAndExecute(
+                    signBytes,
+                    hashOffset,
+                    { v: [sig.v], r: [sig.r], s: [sig.s], x: PUBLIC_KEY_X, y: PUBLIC_KEY_Y },
+                    txPayload
+                )
         ).to.be.revertedWithCustomError(account, "NotEntryPoint");
 
         const finalRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
@@ -472,7 +495,7 @@ describe("Account Recover", function () {
         const value = parseEther("1.0");
         const data = "0x";
 
-        const txPayload = encodeTxPayload(sequence, RECIPIENT_ADDRESS, value, data);
+        const txPayload = encodeRecoverTxPayload(EXPECTED_CHAIN_ID, sequence, RECIPIENT_ADDRESS, value, data);
         const messageHash = sha256(txPayload);
 
         const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayload.slice(2));
@@ -488,7 +511,13 @@ describe("Account Recover", function () {
     it("Should revert with InvalidPubKey when public key not in account", async function () {
         const wrongPubKey = await getPublicKeyFromMnemonic("zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo wrong");
         const sequence = 1n;
-        const txPayload = encodeTxPayload(sequence, RECIPIENT_ADDRESS, parseEther("1.0"), "0x");
+        const txPayload = encodeRecoverTxPayload(
+            EXPECTED_CHAIN_ID,
+            sequence,
+            RECIPIENT_ADDRESS,
+            parseEther("1.0"),
+            "0x"
+        );
 
         const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayload.slice(2));
 
@@ -499,7 +528,13 @@ describe("Account Recover", function () {
 
     it("Should revert with InvalidSignature when signature is invalid", async function () {
         const sequence = 1n;
-        const txPayload = encodeTxPayload(sequence, RECIPIENT_ADDRESS, parseEther("1.0"), "0x");
+        const txPayload = encodeRecoverTxPayload(
+            EXPECTED_CHAIN_ID,
+            sequence,
+            RECIPIENT_ADDRESS,
+            parseEther("1.0"),
+            "0x"
+        );
 
         const invalidR = "0x1111111111111111111111111111111111111111111111111111111111111111";
         const invalidS = "0x2222222222222222222222222222222222222222222222222222222222222222";
@@ -511,7 +546,13 @@ describe("Account Recover", function () {
 
     it("Should revert with InvalidSequence when sequence is wrong", async function () {
         const wrongSequence = 99n;
-        const txPayload = encodeTxPayload(wrongSequence, RECIPIENT_ADDRESS, parseEther("1.0"), "0x");
+        const txPayload = encodeRecoverTxPayload(
+            EXPECTED_CHAIN_ID,
+            wrongSequence,
+            RECIPIENT_ADDRESS,
+            parseEther("1.0"),
+            "0x"
+        );
 
         const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayload.slice(2));
 
@@ -520,27 +561,27 @@ describe("Account Recover", function () {
         ).to.be.revertedWithCustomError(account, "InvalidSequence");
     });
 
-    it("Should revert with InvalidPayload when function selector is wrong", async function () {
+    it("Should revert with InvalidChainId when chain ID is wrong", async function () {
         const sequence = 1n;
-        // Wrong selector
-        const wrongSelector = "0x12345678";
-        const abiCoder = hre.ethers.AbiCoder.defaultAbiCoder();
-        const encodedParams = abiCoder.encode(
-            ["uint64", "address", "uint256", "bytes"],
-            [sequence, RECIPIENT_ADDRESS, parseEther("1.0"), "0x"]
-        );
-        const txPayload = wrongSelector + encodedParams.slice(2);
+        const wrongChainId = 999n; // Wrong chain ID
+        const txPayload = encodeRecoverTxPayload(wrongChainId, sequence, RECIPIENT_ADDRESS, parseEther("1.0"), "0x");
 
         const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayload.slice(2));
 
         await expect(
             account.recoverTransaction([sig.v], [sig.r], [sig.s], publicKeyX, publicKeyY, txPayload)
-        ).to.be.revertedWithCustomError(account, "InvalidPayload");
+        ).to.be.revertedWithCustomError(account, "InvalidChainId");
     });
 
     it("Should revert with InvalidInputLength when x and y lengths mismatch", async function () {
         const sequence = 1n;
-        const txPayload = encodeTxPayload(sequence, RECIPIENT_ADDRESS, parseEther("1.0"), "0x");
+        const txPayload = encodeRecoverTxPayload(
+            EXPECTED_CHAIN_ID,
+            sequence,
+            RECIPIENT_ADDRESS,
+            parseEther("1.0"),
+            "0x"
+        );
 
         const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayload.slice(2));
 
@@ -551,7 +592,13 @@ describe("Account Recover", function () {
 
     it("Should revert with InvalidInputLength when r/s lengths mismatch x/y", async function () {
         const sequence = 1n;
-        const txPayload = encodeTxPayload(sequence, RECIPIENT_ADDRESS, parseEther("1.0"), "0x");
+        const txPayload = encodeRecoverTxPayload(
+            EXPECTED_CHAIN_ID,
+            sequence,
+            RECIPIENT_ADDRESS,
+            parseEther("1.0"),
+            "0x"
+        );
 
         const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayload.slice(2));
 
@@ -579,7 +626,13 @@ describe("Account Recover", function () {
         });
 
         const sequence = 1n;
-        const txPayload = encodeTxPayload(sequence, RECIPIENT_ADDRESS, parseEther("1.0"), "0x");
+        const txPayload = encodeRecoverTxPayload(
+            EXPECTED_CHAIN_ID,
+            sequence,
+            RECIPIENT_ADDRESS,
+            parseEther("1.0"),
+            "0x"
+        );
         const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayload.slice(2));
 
         // Only provide 1 signature when threshold is 2
@@ -747,7 +800,13 @@ describe("Account Security", function () {
         it("Should verify sequence increments after recovery transaction", async function () {
             expect(await account.accountSequence()).to.equal(0);
 
-            const txPayload = encodeTxPayload(1n, RECIPIENT_ADDRESS, parseEther("0.01"), "0x");
+            const txPayload = encodeRecoverTxPayload(
+                EXPECTED_CHAIN_ID,
+                1n,
+                RECIPIENT_ADDRESS,
+                parseEther("0.01"),
+                "0x"
+            );
             const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayload.slice(2));
 
             await account.recoverTransaction([sig.v], [sig.r], [sig.s], publicKeyX, publicKeyY, txPayload);
@@ -756,7 +815,13 @@ describe("Account Security", function () {
         });
 
         it("Should prevent replay with same sequence", async function () {
-            const txPayload = encodeTxPayload(1n, RECIPIENT_ADDRESS, parseEther("0.01"), "0x");
+            const txPayload = encodeRecoverTxPayload(
+                EXPECTED_CHAIN_ID,
+                1n,
+                RECIPIENT_ADDRESS,
+                parseEther("0.01"),
+                "0x"
+            );
             const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayload.slice(2));
 
             await account.recoverTransaction([sig.v], [sig.r], [sig.s], publicKeyX, publicKeyY, txPayload);
@@ -786,7 +851,13 @@ describe("Account Security", function () {
                 value: parseEther("10.0"),
             });
 
-            const txPayload = encodeTxPayload(1n, RECIPIENT_ADDRESS, parseEther("0.01"), "0x");
+            const txPayload = encodeRecoverTxPayload(
+                EXPECTED_CHAIN_ID,
+                1n,
+                RECIPIENT_ADDRESS,
+                parseEther("0.01"),
+                "0x"
+            );
             const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayload.slice(2));
 
             await expect(
@@ -802,7 +873,13 @@ describe("Account Security", function () {
         });
 
         it("Should accept recoverTransaction with exactly threshold signatures", async function () {
-            const txPayload = encodeTxPayload(1n, RECIPIENT_ADDRESS, parseEther("0.01"), "0x");
+            const txPayload = encodeRecoverTxPayload(
+                EXPECTED_CHAIN_ID,
+                1n,
+                RECIPIENT_ADDRESS,
+                parseEther("0.01"),
+                "0x"
+            );
             const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayload.slice(2));
 
             const initialBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
@@ -953,6 +1030,7 @@ describe("Account Security", function () {
  * Reentrancy tests for Account contract
  */
 describe("Account Reentrancy", function () {
+    const RECIPIENT_ADDRESS = "0xaa25Aa7a19f9c426E07dee59b12f944f4d9f1DD3";
     const SOURCE_ADDRESS = "neutron1chcktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
     const SOURCE_ADDRESS_HASH = keccak256(toUtf8Bytes(SOURCE_ADDRESS));
 
@@ -994,7 +1072,13 @@ describe("Account Reentrancy", function () {
 
             const sequence = 1n;
             const value = parseEther("1.0");
-            const txPayload = encodeTxPayload(sequence, await attacker.getAddress(), value, "0x");
+            const txPayload = encodeRecoverTxPayload(
+                EXPECTED_CHAIN_ID,
+                sequence,
+                await attacker.getAddress(),
+                value,
+                "0x"
+            );
             const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayload.slice(2));
 
             await attacker.setAttackPayload([sig.v], [sig.r], [sig.s], publicKeyX, publicKeyY, txPayload);
@@ -1032,7 +1116,13 @@ describe("Account Reentrancy", function () {
 
             await checker.setAccountToCheck(await account.getAddress());
 
-            const txPayload = encodeTxPayload(1n, await checker.getAddress(), parseEther("0.01"), "0x");
+            const txPayload = encodeRecoverTxPayload(
+                EXPECTED_CHAIN_ID,
+                1n,
+                await checker.getAddress(),
+                parseEther("0.01"),
+                "0x"
+            );
             const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayload.slice(2));
 
             await account.recoverTransaction([sig.v], [sig.r], [sig.s], publicKeyX, publicKeyY, txPayload);
@@ -1056,34 +1146,43 @@ describe("Account Reentrancy", function () {
     });
 
     describe("Batch Transaction Reentrancy", function () {
-        it("Should handle reentrancy attempt during batch execution", async function () {
-            const MockEntryPointFactory = await hre.ethers.getContractFactory("MockEntryPoint");
-            const mockEntryPoint = await MockEntryPointFactory.deploy();
-            await mockEntryPoint.waitForDeployment();
-
+        it("Should handle reentrancy attempt during batch execution (via recoverTransaction)", async function () {
+            // Set up account for this test
+            const ENTRYPOINT_ADDRESS = "0x3bd70e10d71c6e882e3c1809d26a310d793646eb";
             const AccountContract = await hre.ethers.getContractFactory("Account");
-            account = await AccountContract.deploy(
-                mockEntryPoint.target,
-                publicKeyX,
-                publicKeyY,
-                SOURCE_ADDRESS_HASH,
-                1
-            );
+            account = await AccountContract.deploy(ENTRYPOINT_ADDRESS, publicKeyX, publicKeyY, SOURCE_ADDRESS_HASH, 1);
+            await account.waitForDeployment();
 
             await owner.sendTransaction({
                 to: await account.getAddress(),
                 value: parseEther("10.0"),
             });
 
-            // Execute batch through mock entry point
-            await mockEntryPoint.callExecuteTransactions(
-                await account.getAddress(),
-                [owner.address],
-                [parseEther("0.01")],
-                ["0x"]
+            // Use recoverTransaction to test batch-like behavior
+            // Execute two sequential recoveries to ensure sequence increments correctly
+            const txPayload1 = encodeRecoverTxPayload(
+                EXPECTED_CHAIN_ID,
+                1n,
+                RECIPIENT_ADDRESS,
+                parseEther("0.01"),
+                "0x"
             );
+            const sig1 = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayload1.slice(2));
 
+            await account.recoverTransaction([sig1.v], [sig1.r], [sig1.s], publicKeyX, publicKeyY, txPayload1);
             expect(await account.accountSequence()).to.equal(1);
+
+            const txPayload2 = encodeRecoverTxPayload(
+                EXPECTED_CHAIN_ID,
+                2n,
+                RECIPIENT_ADDRESS,
+                parseEther("0.01"),
+                "0x"
+            );
+            const sig2 = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayload2.slice(2));
+
+            await account.recoverTransaction([sig2.v], [sig2.r], [sig2.s], publicKeyX, publicKeyY, txPayload2);
+            expect(await account.accountSequence()).to.equal(2);
         });
     });
 });
@@ -1113,21 +1212,18 @@ describe("Account Sequence Overflow", function () {
             const SOURCE_ADDRESS_HASH = keccak256(toUtf8Bytes(SOURCE_ADDRESS));
 
             const AccountContract = await hre.ethers.getContractFactory("Account");
-            const account = await AccountContract.deploy(
-                owner.address, // Use owner as entrypoint for this test
-                [pubKey.x],
-                [pubKey.y],
-                SOURCE_ADDRESS_HASH,
-                1
-            );
+            const account = await AccountContract.deploy(owner.address, [pubKey.x], [pubKey.y], SOURCE_ADDRESS_HASH, 1);
 
             await owner.sendTransaction({
                 to: await account.getAddress(),
                 value: parseEther("1.0"),
             });
 
-            // Execute a transaction to increment sequence
-            await account.executeTransactions([owner.address], [parseEther("0.001")], ["0x"]);
+            // Execute a transaction via recoverTransaction to increment sequence
+            const txPayload = encodeRecoverTxPayload(EXPECTED_CHAIN_ID, 1n, owner.address, parseEther("0.001"), "0x");
+            const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayload.slice(2));
+
+            await account.recoverTransaction([sig.v], [sig.r], [sig.s], [pubKey.x], [pubKey.y], txPayload);
 
             console.log(`Sequence correctly incremented to ${await account.accountSequence()}`);
             expect(await account.accountSequence()).to.equal(1);
