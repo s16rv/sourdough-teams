@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.21;
+pragma solidity ^0.8.24;
 
 interface IEntryPoint {
     /**
@@ -44,9 +44,9 @@ interface IEntryPoint {
     error InvalidAuthorization();
 
     /**
-     * @dev Error thrown when the caller is not an executor.
+     * @dev Error thrown when the caller is not the MPCGateway.
      */
-    error NotExecutor();
+    error NotMPCGateway();
 
     /**
      * @dev Error thrown when a multi-payload array is malformed or inconsistent.
@@ -98,9 +98,16 @@ interface IEntryPoint {
     event DebugReason(string reason);
 
     /**
+     * @dev Event emitted when the MPCGateway address is updated.
+     * @param oldMPCGateway The previous MPCGateway address.
+     * @param newMPCGateway The new MPCGateway address.
+     */
+    event MPCGatewayUpdated(address oldMPCGateway, address newMPCGateway);
+
+    /**
      * @notice Executes a payload on the destination chain.
-     * @dev This function is called by the relayer on the destination chain to execute a payload.
-     * It verifies the executor and then calls the internal `_execute` function.
+     * @dev This function is called by the MPCGateway on the destination chain to execute a payload.
+     * It verifies the caller is the MPCGateway and then calls the internal `_execute` function.
      * @param _sourceChain The blockchain where the transaction originated.
      * @param _sourceAddress The address on the source chain where the transaction originated.
      * @param _payload The encoded GMP (General Message Passing) message sent from the source chain.
@@ -112,10 +119,9 @@ interface IEntryPoint {
     ) external returns (bool);
 
     /**
-     * @notice Sets the executor status for a given address.
-     * @dev Only the owner can set the executor status.
-     * @param _executor The address to be set as an executor.
-     * @param _isExecutor The boolean value indicating whether the address should be an executor.
+     * @notice Sets the MPCGateway address.
+     * @dev Only the owner can set the MPCGateway address.
+     * @param _mpcGateway The address of the MPCGateway contract.
      */
-    function setExecutor(address _executor, bool _isExecutor) external;
+    function setMPCGateway(address _mpcGateway) external;
 }

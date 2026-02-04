@@ -2,19 +2,22 @@ import hre from "hardhat";
 import { expect } from "chai";
 import { MPCVerifier } from "../../typechain-types";
 import { ethers } from "hardhat";
+import { generateSignatureWithMnemonic, getPublicKeyFromMnemonic } from "../../scripts/generateSignature";
 
 describe("MPCVerifier", function () {
     let mpcVerifier: MPCVerifier;
     let owner: any;
     let nonOwner: any;
 
-    // Test values for MPC public key
-    const publicKeyX = "0xf8beefb970589c6e2a7105c161b51661463ea39bf5360222d42e5a3eb5033e19";
-    const publicKeyY = "0x9e90e07eb23e01251a5493be008c70758e5275c56a6d79ed2223d8aeb38a431f";
+    // Test mnemonic for generating signatures
+    const TEST_MNEMONIC = "test test test test test test test test test test test junk";
 
-    // Test values for updated MPC public key
-    const newPublicKeyX = "0xef6c6462995f147e3909e50ecc1ad9b202a787737aabc660e0252851406afa8b";
-    const newPublicKeyY = "0x87195b498efd817adc092da3d171f81d8f9f97293d52701f3b87fdd6e8056066";
+    // Helper to derive Ethereum address from public key
+    function publicKeyToAddress(pubKeyX: string, pubKeyY: string): string {
+        const pubKeyBytes = hre.ethers.concat([pubKeyX, pubKeyY]);
+        const hash = hre.ethers.keccak256(pubKeyBytes);
+        return "0x" + hash.slice(-40);
+    }
 
     // Test values for signature validation
     const payloadHash = "0xc27f816427f4f248c53e3662439f4e80d62775bff2f219747e0cd696e4ede1d1";
@@ -32,18 +35,19 @@ describe("MPCVerifier", function () {
     });
 
     describe("Initialization", function () {
-        it("Should initialize with correct owner and verifier address", async function () {
-            // We can't directly check private variables, but we can test the behavior
-            // that depends on them being set correctly
+        it("Should initialize with correct owner and signer address", async function () {
+            // Verify mpcSignerAddress is set correctly (case-insensitive comparison)
+            expect((await mpcVerifier.mpcSignerAddress()).toLowerCase()).to.equal(mpcSignerAddress.toLowerCase());
 
-            // Test that owner can update public key (which requires owner to be set correctly)
-            await expect(mpcVerifier.connect(owner).updateMPCPublicKey(newPublicKeyX, newPublicKeyY)).to.not.be
-                .reverted;
+            // Test that owner can update signer (which requires owner to be set correctly)
+            const newAddress = "0x1234567890123456789012345678901234567890";
+            await expect(mpcVerifier.connect(owner).updateMPCSigner(newAddress)).to.not.be.reverted;
 
-            // Test that non-owner cannot update public key
-            await expect(
-                mpcVerifier.connect(nonOwner).updateMPCPublicKey(newPublicKeyX, newPublicKeyY)
-            ).to.be.revertedWithCustomError(mpcVerifier, "OnlyOwner");
+            // Test that non-owner cannot update signer
+            await expect(mpcVerifier.connect(nonOwner).updateMPCSigner(newAddress)).to.be.revertedWithCustomError(
+                mpcVerifier,
+                "OnlyOwner"
+            );
         });
     });
 
@@ -62,38 +66,48 @@ describe("MPCVerifier", function () {
             expect(isValid).to.equal(false);
         });
 
-        it("Should validate with updated public key", async function () {
-            // Update the public key
-            await mpcVerifier.connect(owner).updateMPCPublicKey(newPublicKeyX, newPublicKeyY);
+        it("Should reject signature from wrong signer", async function () {
+            // Use a different mnemonic to sign
+            const WRONG_MNEMONIC = "legal winner thank year wave sausage worth useful legal winner thank yellow";
+            const rawMessage = "1234";
+            const sig = await generateSignatureWithMnemonic(WRONG_MNEMONIC, rawMessage);
+            const payloadHash = "0x" + sig.digestHex;
+            const v = sig.v + 27;
 
-            // Create a new test case with the updated public key
-            const newPayloadHash = "0xaaa79707bf4ee8e0b83f454d5e972a9139e660d6c2e1281d0cf67707bd65cabb";
-            const newSignatureR = "0xcd94692db3f28c630763a188efa64c28bb22d21f6923b570cd283b87e6359fb0";
-            const newSignatureS = "0x51be668ef81f594bef69556f7bc14784368a45dd057b60d26c88ebb5f2b796e3";
+            // Signature should fail because it's from a different key
+            const isValid = await mpcVerifier.validateMPCSignature(payloadHash, v, sig.r, sig.s);
+            expect(isValid).to.equal(false);
+        });
 
             const isValid = await mpcVerifier.validateMPCSignature(newPayloadHash, 1, newSignatureR, newSignatureS);
             expect(isValid).to.equal(true);
         });
     });
 
-    describe("Public Key Update", function () {
-        it("Should allow owner to update public key", async function () {
-            await expect(mpcVerifier.connect(owner).updateMPCPublicKey(newPublicKeyX, newPublicKeyY)).to.not.be
-                .reverted;
+    describe("Signer Update", function () {
+        it("Should allow owner to update signer address", async function () {
+            const newSignerAddress = "0x1234567890123456789012345678901234567890";
+            const oldSignerAddress = await mpcVerifier.mpcSignerAddress();
 
-            // Create a new test case with the updated public key
-            const newPayloadHash = "0xaaa79707bf4ee8e0b83f454d5e972a9139e660d6c2e1281d0cf67707bd65cabb";
-            const newSignatureR = "0xcd94692db3f28c630763a188efa64c28bb22d21f6923b570cd283b87e6359fb0";
-            const newSignatureS = "0x51be668ef81f594bef69556f7bc14784368a45dd057b60d26c88ebb5f2b796e3";
+            await expect(mpcVerifier.connect(owner).updateMPCSigner(newSignerAddress))
+                .to.emit(mpcVerifier, "MPCSignerUpdated")
+                .withArgs(oldSignerAddress, newSignerAddress);
 
             const isValid = await mpcVerifier.validateMPCSignature(newPayloadHash, 1, newSignatureR, newSignatureS);
             expect(isValid).to.equal(true);
         });
 
-        it("Should prevent non-owner from updating public key", async function () {
-            await expect(
-                mpcVerifier.connect(nonOwner).updateMPCPublicKey(newPublicKeyX, newPublicKeyY)
-            ).to.be.revertedWithCustomError(mpcVerifier, "OnlyOwner");
+        it("Should return false for ecrecover returning zero address", async function () {
+            // Invalid signature that would cause ecrecover to return address(0)
+            const rawMessage = "1234";
+            const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, rawMessage);
+            const payloadHash = "0x" + sig.digestHex;
+            const invalidV = 30; // Invalid v value
+            const arbitraryS = "0x4deaa3be2edb551dbb07102b0a88b510170154df6a1f5ed58101abe99440dda5";
+
+            // ecrecover with invalid v returns address(0), which won't match mpcSignerAddress
+            const isValid = await mpcVerifier.validateMPCSignature(payloadHash, invalidV, sig.r, arbitraryS);
+            expect(isValid).to.equal(false);
         });
     });
 });

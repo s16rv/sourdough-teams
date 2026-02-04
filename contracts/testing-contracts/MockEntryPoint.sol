@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.21;
+pragma solidity ^0.8.24;
 
 import "../smart-account/interfaces/IEntryPoint.sol";
 import "../smart-account/interfaces/IAccount.sol";
 
 contract MockEntryPoint is IEntryPoint {
     bool private shouldSucceed = true;
-    mapping(address => bool) private executors;
     address private owner;
+    address private _mpcGateway;
 
     constructor() {
         owner = msg.sender;
@@ -29,9 +29,13 @@ contract MockEntryPoint is IEntryPoint {
         return shouldSucceed;
     }
 
-    function setExecutor(address _executor, bool _isExecutor) external override {
-        require(msg.sender == owner, "Only owner can set executor");
-        executors[_executor] = _isExecutor;
+    function setMPCGateway(address mpcGateway_) external override {
+        require(msg.sender == owner, "Only owner can set MPCGateway");
+        _mpcGateway = mpcGateway_;
+    }
+
+    function mpcGateway() external view returns (address) {
+        return _mpcGateway;
     }
 
     // Helper for testing: call validateAndExecute on an Account
@@ -42,11 +46,7 @@ contract MockEntryPoint is IEntryPoint {
         IAccount.SignatureData calldata sigs,
         bytes calldata txPayload
     ) external returns (bool) {
-        return IAccount(payable(account)).validateAndExecute(
-            signBytes,
-            txPayloadHashOffset,
-            sigs,
-            txPayload
-        );
+        return
+            IAccount(payable(account)).validateAndExecute(signBytes, txPayloadHashOffset, sigs, txPayload);
     }
 }

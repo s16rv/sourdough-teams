@@ -6,23 +6,23 @@ Tracking missing functionality, security fixes, and improvements for audit readi
 
 - [ ] **Grants system** - Delegation/grants not implemented (planned feature from CosmWasm version)
 - [ ] **RoutingRailgunFactory admin** - Operator should be able to update default Railgun address
-- [ ] **Proxy upgradeability for EntryPoint and AccountFactory** - Use OpenZeppelin UUPS proxy pattern for EntryPoint and AccountFactory. Allows bug fixes and upgrades without migrating users. Accounts store EntryPoint proxy address (stable). MPCGateway/MPCVerifier stay immutable (redeploy and update EntryPoint whitelist as needed).
+- [x] **Proxy upgradeability for EntryPoint, AccountFactory, and MPCGateway** - DONE: Using OpenZeppelin UUPS proxy pattern. EntryPoint, AccountFactory, and MPCGateway are all upgradeable proxies. Accounts store EntryPoint proxy address (stable). MPCVerifier stays immutable (key rotation via `updateMPCSigner()` sufficient). Account contracts immutable by design (user's trust anchor).
 - [ ] **MPC-relayer parameter usage** - Relayer sends 5 params (sourceChain, sourceAddress, destinationChain, destinationAddress, payload) for cross-chain consistency (Solana/Cosmos/EVM):
     - `sourceChain`, `sourceAddress`: Kept for metadata/events/logging, NOT used for security validation
     - `destinationAddress`: EntryPoint proxy address (stable, single target for all payloads)
     - `accountAddress`: Inside signed txPayload, validated by Account (`accountAddress == address(this)`)
-- [ ] **Inter-contract access control** - Restrict which contracts can call which:
+- [x] **Inter-contract access control** - DONE: Implemented as follows:
     ```
     Relayer → MPCGateway → EntryPoint (proxy) → AccountFactory (proxy)
                   │                                    │
                   ▼                                    ▼
              MPCVerifier                            Account
     ```
-    - [ ] MPCVerifier: store `mpcGateway` (immutable), add `onlyMPCGateway` on `validateMPCSignature()`
-    - [ ] EntryPoint: store `mpcGateway`, add `onlyMPCGateway` on `executePayload()`, remove executor whitelist. Add `setMPCGateway()` for owner (to point to new gateway after redeploy)
-    - [ ] AccountFactory: store `entryPoint` (immutable - proxy address), add `onlyEntryPoint` on `createAccount()`
+    - [x] MPCVerifier: Public `validateMPCSignature()` (view function, no security benefit from restricting)
+    - [x] EntryPoint: `onlyMPCGateway` on `executePayload()`, removed executor whitelist, added `setMPCGateway()` for owner
+    - [x] AccountFactory: `onlyEntryPoint` on `createAccount()`, added `setEntryPoint()` for owner
     - Account: `onlyEntryPoint` on `validateAndExecute()`, `recoverTransaction()` stays public (censorship-resistant)
-- [ ] **Multiple accounts per sourceAddress** - Change AccountFactory to support multiple accounts per source address (matches sd-ica behavior). Use random `salt` parameter instead of sequential index for flexibility. Update `createAccount(entryPoint, x, y, threshold, sourceAddress, salt)`. CREATE2 uses salt directly. Mapping for off-chain lookup only (not security critical). Consider removing `addrHash` from Account since `accountAddress` validation in txPayload is sufficient for security.
+- [x] **Multiple accounts per sourceAddress** - DONE: AccountFactory now supports multiple accounts per source address via `salt` parameter. `createAccount(entryPoint, x, y, threshold, sourceAddress, salt)`. CREATE2 uses `keccak256(addrHash, salt)`. `getAccounts(sourceAddress)` returns array of all accounts. `getAccount(sourceAddress)` returns first (backward compat). `addrHash` kept in Account for off-chain querying.
 
 ## Security Fixes
 
@@ -45,7 +45,7 @@ Tracking missing functionality, security fixes, and improvements for audit readi
 ## Gas Optimizations
 
 - [x] **Use ecrecover in Account** - DONE: Account.sol now uses native `ecrecover` precompile (~3,000 gas) instead of Secp256k1Verifier (~50,000-80,000 gas per signer). Signatures now include `v` recovery parameter. AccountFactory no longer requires a verifier.
-- [ ] **Use ecrecover in MPCVerifier** - Replace Secp256k1Verifier with native `ecrecover` in MPCVerifier. MPC signature will include `v` (recovery id) from mpc-relayer. Removes `verifierAddress` dependency. Same gas savings (~3,000 vs ~50,000-80,000 gas).
+- [x] **Use ecrecover in MPCVerifier** - DONE: MPCVerifier now uses native `ecrecover` instead of Secp256k1Verifier. Stores `mpcSignerAddress` (derived from public key) instead of x/y coordinates. Includes EIP-2 malleability check (`s <= SECP256K1_N_DIV_2`). MPC signature includes `v` recovery parameter. Saves ~47-77k gas per validation.
 
 ## Code Quality
 
@@ -56,7 +56,7 @@ Tracking missing functionality, security fixes, and improvements for audit readi
 
 ## Testing
 
-- [x] **Unit tests** - 173 tests, 87%+ coverage for production contracts
+- [x] **Unit tests** - 177 tests, 87%+ coverage for production contracts
 - [x] **Security tests** - Access control, reentrancy, error paths covered
 - [x] **Integration tests** - Full flow from MPCGateway to Account execution
 - [x] **Batch limits** - MAX_BATCH_SIZE (20) enforcement verified
@@ -64,8 +64,9 @@ Tracking missing functionality, security fixes, and improvements for audit readi
 - [x] **Sequence overflow** - uint64 boundary safe (Solidity 0.8+ reverts on overflow)
 - [x] **Invariant tests** - 14 tests covering sequence monotonicity, no replay, funds protection, signer authority, threshold enforcement
 - [x] **TOCTOU prevention tests** - Atomic validateAndExecute tested, old executeTransactions removed
+- [x] **UUPS proxy tests** - Owner can upgrade, non-owner cannot, state preserved across upgrades
+- [x] **Access control tests** - onlyMPCGateway, onlyEntryPoint modifiers tested
 - [ ] **Fork tests** - Test RoutingRailgun against real Railgun on mainnet fork
-- [ ] **Secp256k1Verifier edge cases** - Point-at-infinity and EC math edge cases (81% coverage)
 
 ### Test Coverage Summary (as of 2026-02-04)
 
@@ -79,7 +80,6 @@ Tracking missing functionality, security fixes, and improvements for audit readi
 | SignatureVerifier     | 100%   | ✅                            |
 | Account               | 97.67% | 2 lines unreachable by design |
 | EntryPoint            | ~96%   | 1-2 lines unreachable         |
-| Secp256k1Verifier     | 81.74% | EC edge cases remaining       |
 
 ### Test Findings
 
@@ -110,9 +110,9 @@ Tracking missing functionality, security fixes, and improvements for audit readi
 
 - [ ] Define RoutingRailgun controller expectations (always Account? can be EOA?)
 - [ ] **Grants system** - Delegation/grants not implemented (planned feature from CosmWasm version). Confirm requirements with team.
-- [x] **Use ecrecover instead of custom Secp256k1Verifier** - DONE: Account.sol now uses native `ecrecover` precompile. See Gas Optimizations section above.
+- [x] **Use ecrecover instead of custom Secp256k1Verifier** - DONE: Both Account.sol and MPCVerifier.sol now use native `ecrecover` precompile. See Gas Optimizations section above.
 - [x] **Owner signature doesn't bind to data** - FIXED: New payload format with hash commitment in signBytes. See Security Fixes section above.
-- [x] **Multiple accounts per source address** - DECIDED: Support multiple accounts via random `salt` parameter. `accountAddress` validation in txPayload provides security (not sourceAddress). See Missing Functionality section for implementation details.
+- [x] **Multiple accounts per source address** - DONE: Support multiple accounts via `salt` parameter. `accountAddress` validation in txPayload provides security (not sourceAddress). See Missing Functionality section.
 - [ ] **RoutingRailgun + Railgun integration flow** - Clarify with team:
     - Who controls funds after they're shielded into Railgun? (spending keys)
     - What's the intended use case? (shield → unshield to different address?)

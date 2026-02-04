@@ -1,4 +1,4 @@
-import { ethers } from "hardhat";
+import { ethers, upgrades } from "hardhat";
 import dotenv from "dotenv";
 import { MPCVerifier, AccountFactory, EntryPoint, MPCGateway } from "../typechain-types";
 
@@ -11,6 +11,7 @@ async function main() {
     var MpcVerifierContract = await ethers.getContractFactory("MPCVerifier");
     var mpcVerifier: MPCVerifier;
     const mpcVerifierAddress = process.env.MPC_VERIFIER_ADDRESS as string;
+    let mpcVerifier;
     if (!mpcVerifierAddress) {
         const mpcPublicKeyX = process.env.MPC_PUBLIC_KEY_X as string;
         const mpcPublicKeyY = process.env.MPC_PUBLIC_KEY_Y as string;
@@ -18,48 +19,79 @@ async function main() {
         await mpcVerifier.waitForDeployment();
         console.log("MPCVerifier deployed to:", mpcVerifier.target);
     } else {
-        mpcVerifier = MpcVerifierContract.attach(mpcVerifierAddress) as MPCVerifier;
+        mpcVerifier = MpcVerifierContract.attach(mpcVerifierAddress);
         console.log("MPCVerifier Address:", await mpcVerifier.getAddress());
     }
 
-    var AccountFactoryContract = await ethers.getContractFactory("AccountFactory");
-    var accountFactory: AccountFactory;
+    // 2. Deploy AccountFactory proxy (with address(0) for entryPoint initially)
+    const AccountFactoryContract = await ethers.getContractFactory("AccountFactory");
     const accountFactoryAddress = process.env.ACCOUNT_FACTORY_ADDRESS as string;
+    let accountFactory;
     if (!accountFactoryAddress) {
-        accountFactory = await AccountFactoryContract.deploy();
+        accountFactory = await upgrades.deployProxy(
+            AccountFactoryContract,
+            [ethers.ZeroAddress, deployer.address], // entryPoint will be set after EntryPoint deployment
+            { kind: "uups" }
+        );
         await accountFactory.waitForDeployment();
-        console.log("AccountFactory deployed to:", accountFactory.target);
+        console.log("AccountFactory proxy deployed to:", accountFactory.target);
     } else {
         accountFactory = AccountFactoryContract.attach(accountFactoryAddress) as AccountFactory;
         console.log("AccountFactory Address:", await accountFactory.getAddress());
     }
 
-    var EntryPointContract = await ethers.getContractFactory("EntryPoint");
-    var entryPoint: EntryPoint;
+    // 3. Deploy EntryPoint proxy (with address(0) for mpcGateway initially)
+    const EntryPointContract = await ethers.getContractFactory("EntryPoint");
     const entryPointAddress = process.env.ENTRY_POINT_ADDRESS as string;
+    let entryPoint;
     if (!entryPointAddress) {
-        entryPoint = await EntryPointContract.deploy(accountFactory.target, deployer.address);
+        entryPoint = await upgrades.deployProxy(
+            EntryPointContract,
+            [accountFactory.target, deployer.address, ethers.ZeroAddress], // mpcGateway will be set after MPCGateway deployment
+            { kind: "uups" }
+        );
         await entryPoint.waitForDeployment();
-        console.log("EntryPoint deployed to:", entryPoint.target);
+        console.log("EntryPoint proxy deployed to:", entryPoint.target);
     } else {
         entryPoint = EntryPointContract.attach(entryPointAddress) as EntryPoint;
         console.log("EntryPoint Address:", await entryPoint.getAddress());
     }
 
-    var MpcGatewayContract = await ethers.getContractFactory("MPCGateway");
-    var mpcGateway: MPCGateway;
+    // 4. Deploy MPCGateway proxy
+    const MpcGatewayContract = await ethers.getContractFactory("MPCGateway");
     const mpcGatewayAddress = process.env.MPC_GATEWAY_ADDRESS as string;
+    let mpcGateway;
     if (!mpcGatewayAddress) {
-        mpcGateway = await MpcGatewayContract.deploy(mpcVerifier.target);
+        mpcGateway = await upgrades.deployProxy(MpcGatewayContract, [mpcVerifier.target, deployer.address], {
+            kind: "uups",
+        });
         await mpcGateway.waitForDeployment();
-        console.log("MPCGateway deployed to:", mpcGateway.target);
+        console.log("MPCGateway proxy deployed to:", mpcGateway.target);
     } else {
         mpcGateway = MpcGatewayContract.attach(mpcGatewayAddress) as MPCGateway;
         console.log("MPCGateway Address:", await mpcGateway.getAddress());
     }
 
-    await entryPoint.setExecutor(mpcGateway.target, true);
-    console.log("EntryPointExecutor set to:", mpcGateway.target);
+    // 5. Wire up the contracts
+    // Set EntryPoint in AccountFactory
+    if (!accountFactoryAddress) {
+        const accountFactoryContract = await ethers.getContractAt("AccountFactory", accountFactory.target);
+        await accountFactoryContract.setEntryPoint(entryPoint.target);
+        console.log("AccountFactory.entryPoint set to:", entryPoint.target);
+    }
+
+    // Set MPCGateway in EntryPoint
+    if (!entryPointAddress) {
+        const entryPointContract = await ethers.getContractAt("EntryPoint", entryPoint.target);
+        await entryPointContract.setMPCGateway(mpcGateway.target);
+        console.log("EntryPoint.mpcGateway set to:", mpcGateway.target);
+    }
+
+    console.log("\n=== Deployment Summary ===");
+    console.log("MPCVerifier:", mpcVerifier.target);
+    console.log("AccountFactory (proxy):", accountFactory.target);
+    console.log("EntryPoint (proxy):", entryPoint.target);
+    console.log("MPCGateway (proxy):", mpcGateway.target);
 }
 
 main().catch((error) => {

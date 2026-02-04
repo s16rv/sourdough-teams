@@ -1,4 +1,4 @@
-import { AbiCoder, keccak256 } from "ethers";
+import { AbiCoder, keccak256, ethers } from "ethers";
 
 export function combineHexStrings(hexString1: string, hexString2: string): string {
     const buffer1 = Buffer.from(hexString1.slice(2), "hex");
@@ -174,3 +174,33 @@ export function encodeNewPayload(
 
     return payload;
 }
+
+/**
+ * Encode a Category 1 (createAccount) payload with salt parameter
+ * New format: category(8) + totalSigners(64) + threshold(64) + salt(256) + pubkeys...
+ */
+export function encodeCreateAccountPayload(
+    totalSigners: number,
+    threshold: number,
+    salt: string,
+    publicKeysX: string[],
+    publicKeysY: string[]
+): string {
+    const coder = new AbiCoder();
+
+    // Header: category(uint8) + totalSigners(uint64) + threshold(uint64) + salt(bytes32)
+    let payload = coder.encode(["uint8", "uint64", "uint64", "bytes32"], [1, totalSigners, threshold, salt]);
+
+    // Add public keys
+    for (let i = 0; i < totalSigners; i++) {
+        const pubKey = coder.encode(["bytes32", "bytes32"], [publicKeysX[i], publicKeysY[i]]);
+        payload = combineHexStrings(payload, pubKey);
+    }
+
+    return payload;
+}
+
+/**
+ * Default salt value for backward compatibility in tests
+ */
+export const DEFAULT_SALT = ethers.ZeroHash;

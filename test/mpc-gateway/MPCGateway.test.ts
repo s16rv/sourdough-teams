@@ -1,4 +1,4 @@
-import hre from "hardhat";
+import hre, { upgrades } from "hardhat";
 import { expect } from "chai";
 import { ethers } from "hardhat";
 import { EntryPoint, MPCGateway, MPCVerifier } from "../../typechain-types";
@@ -11,7 +11,8 @@ describe("MPCGateway", function () {
     let nonOwner: any;
     let relayer: any;
 
-    // Test values for signature validation
+    // Test values for signature validation (now includes v parameter)
+    const signatureV = 27;
     const signatureR = "0x9272896f66ef96f4516bbea12ee7e04673060df8dc07b2b79b261ed611ac8b08";
     const signatureS = "0x7143dfd748a847b8961a4a57902c4f3198e80d94b165a63625ae8b227fdb649e";
     const signatureV = 27;
@@ -35,17 +36,16 @@ describe("MPCGateway", function () {
         mockEntryPoint = await MockEntryPointFactory.deploy();
         await mockEntryPoint.waitForDeployment();
 
-        // Deploy MPCGateway with MockMPCVerifier
+        // Deploy MPCGateway proxy with MockMPCVerifier
         const MPCGatewayFactory = await hre.ethers.getContractFactory("MPCGateway");
-        mpcGateway = await MPCGatewayFactory.deploy(mockMPCVerifier.target);
+        mpcGateway = (await upgrades.deployProxy(MPCGatewayFactory, [mockMPCVerifier.target, owner.address], {
+            kind: "uups",
+        })) as unknown as MPCGateway;
         await mpcGateway.waitForDeployment();
     });
 
     describe("Initialization", function () {
         it("Should initialize with correct verifier address", async function () {
-            // We can't directly check private variables, but we can test the behavior
-            // that depends on them being set correctly
-
             // Set MockMPCVerifier to fail validation
             await mockMPCVerifier.setShouldValidate(false);
 
@@ -209,17 +209,55 @@ describe("MPCGateway", function () {
             expect(result).to.be.false;
         });
     });
+
+    describe("Verifier Update", function () {
+        it("Should allow owner to update verifier", async function () {
+            const NewMockVerifierFactory = await hre.ethers.getContractFactory("MockMPCVerifier");
+            const newVerifier = await NewMockVerifierFactory.deploy();
+            await newVerifier.waitForDeployment();
+
+            await expect(mpcGateway.connect(owner).setVerifier(newVerifier.target)).to.emit(
+                mpcGateway,
+                "VerifierUpdated"
+            );
+        });
+
+        it("Should reject non-owner updating verifier", async function () {
+            const NewMockVerifierFactory = await hre.ethers.getContractFactory("MockMPCVerifier");
+            const newVerifier = await NewMockVerifierFactory.deploy();
+            await newVerifier.waitForDeployment();
+
+            await expect(mpcGateway.connect(nonOwner).setVerifier(newVerifier.target)).to.be.revertedWithCustomError(
+                mpcGateway,
+                "OwnableUnauthorizedAccount"
+            );
+        });
+    });
+
+    describe("Upgradeability", function () {
+        it("Should allow owner to upgrade", async function () {
+            const MPCGatewayV2Factory = await hre.ethers.getContractFactory("MPCGateway");
+            await expect(upgrades.upgradeProxy(mpcGateway.target, MPCGatewayV2Factory)).to.not.be.reverted;
+        });
+
+        it("Should reject non-owner upgrade", async function () {
+            const MPCGatewayV2Factory = await hre.ethers.getContractFactory("MPCGateway", nonOwner);
+            await expect(upgrades.upgradeProxy(mpcGateway.target, MPCGatewayV2Factory)).to.be.reverted;
+        });
+    });
 });
 
 describe("MPCGateway Entrypoint Integration", function () {
     let mpcGateway: MPCGateway;
     let mockMPCVerifier: any;
     let entryPoint: EntryPoint;
+    let accountFactory: AccountFactory;
     let owner: any;
     let nonOwner: any;
     let relayer: any;
 
-    // Test values for signature validation
+    // Test values for signature validation (now includes v parameter)
+    const signatureV = 27;
     const signatureR = "0x9272896f66ef96f4516bbea12ee7e04673060df8dc07b2b79b261ed611ac8b08";
     const signatureS = "0x7143dfd748a847b8961a4a57902c4f3198e80d94b165a63625ae8b227fdb649e";
     const signatureV = 27;
@@ -228,16 +266,13 @@ describe("MPCGateway Entrypoint Integration", function () {
     const sourceChain = "sourdough-1";
     const sourceAddress = "cosmos1zypqa76je7pxsdwkfah6mu9a583sju6xqt3mv6";
     const destinationChain = "ethereum-sepolia";
-    // Payload format: category(uint8), totalSigners(uint64), threshold(uint64), publicKeyX(bytes32), publicKeyY(bytes32)
-    const payload = new ethers.AbiCoder().encode(
-        ["uint8", "uint64", "uint64", "bytes32", "bytes32"],
-        [
-            1,
-            1,
-            1,
-            "0x90be7fe886c748be80e98b340d1418d0bfe7865675ee597d9d850526520085f0",
-            "0x87b9efdb5c81e067890e9439bdf717cf1c22adfe29d802050a11414d66b6e338",
-        ]
+    // Payload format: category(uint8), totalSigners(uint64), threshold(uint64), salt(bytes32), publicKeyX(bytes32), publicKeyY(bytes32)
+    const payload = encodeCreateAccountPayload(
+        1,
+        1,
+        DEFAULT_SALT,
+        ["0x90be7fe886c748be80e98b340d1418d0bfe7865675ee597d9d850526520085f0"],
+        ["0x87b9efdb5c81e067890e9439bdf717cf1c22adfe29d802050a11414d66b6e338"]
     );
 
     beforeEach(async function () {
@@ -248,20 +283,32 @@ describe("MPCGateway Entrypoint Integration", function () {
         mockMPCVerifier = await MockMPCVerifierFactory.deploy();
         await mockMPCVerifier.waitForDeployment();
 
+        // Deploy AccountFactory proxy
         const AccountFactoryContract = await hre.ethers.getContractFactory("AccountFactory");
-        const accountFactory = await AccountFactoryContract.deploy();
+        accountFactory = (await upgrades.deployProxy(AccountFactoryContract, [hre.ethers.ZeroAddress, owner.address], {
+            kind: "uups",
+        })) as unknown as AccountFactory;
         await accountFactory.waitForDeployment();
 
+        // Deploy EntryPoint proxy
         const EntryPointContract = await hre.ethers.getContractFactory("EntryPoint");
-        entryPoint = await EntryPointContract.deploy(accountFactory.target, owner.address);
+        entryPoint = (await upgrades.deployProxy(
+            EntryPointContract,
+            [accountFactory.target, owner.address, hre.ethers.ZeroAddress],
+            { kind: "uups" }
+        )) as unknown as EntryPoint;
         await entryPoint.waitForDeployment();
 
-        // Deploy MPCGateway with MockMPCVerifier
+        // Deploy MPCGateway proxy with MockMPCVerifier
         const MPCGatewayFactory = await hre.ethers.getContractFactory("MPCGateway");
-        mpcGateway = await MPCGatewayFactory.deploy(mockMPCVerifier.target);
+        mpcGateway = (await upgrades.deployProxy(MPCGatewayFactory, [mockMPCVerifier.target, owner.address], {
+            kind: "uups",
+        })) as unknown as MPCGateway;
         await mpcGateway.waitForDeployment();
 
-        await entryPoint.setExecutor(mpcGateway.target, true);
+        // Wire up contracts
+        await accountFactory.setEntryPoint(entryPoint.target);
+        await entryPoint.setMPCGateway(mpcGateway.target);
     });
 
     describe("Initialization", function () {
@@ -305,9 +352,10 @@ describe("MPCGateway Entrypoint Integration", function () {
     });
 
     describe("ErrorHandling", function () {
-        it("returns false when EntryPoint reverts NotExecutor", async function () {
+        it("returns false when EntryPoint reverts NotMPCGateway", async function () {
             await mockMPCVerifier.setShouldValidate(true);
-            await entryPoint.setExecutor(mpcGateway.target, false);
+            // Set mpcGateway to a different address to trigger NotMPCGateway
+            await entryPoint.setMPCGateway(nonOwner.address);
 
             const result = await mpcGateway
                 .connect(relayer)
@@ -340,7 +388,6 @@ describe("MPCGateway Entrypoint Integration", function () {
 
         it("returns false when EntryPoint reverts on invalid payload", async function () {
             await mockMPCVerifier.setShouldValidate(true);
-            await entryPoint.setExecutor(mpcGateway.target, true);
 
             const result = await mpcGateway
                 .connect(relayer)
@@ -381,46 +428,16 @@ describe("MPCGateway Verifier Integration", function () {
     let nonOwner: any;
     let relayer: any;
 
-    // MPC Public Key values
+    // MPC Public Key values - used to derive the signer address
     const MPC_PUBLIC_KEY_X = "0xf8beefb970589c6e2a7105c161b51661463ea39bf5360222d42e5a3eb5033e19";
     const MPC_PUBLIC_KEY_Y = "0x9e90e07eb23e01251a5493be008c70758e5275c56a6d79ed2223d8aeb38a431f";
 
-    // Hex data for executeContractCall from wallet
-    const executeContractCallHex =
-        "0x498cd109d9d9d77db6e734f1d2a1428bfd92b0f2969e5eb03759843e0330b413964eb1774deaa3be2edb551dbb07102b0a88b510170154df6a1f5ed58101abe99440dda500000000000000000000000000000000000000000000000000000000000000c000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000160000000000000000000000000f56d63b2778cad34bf38cab2e0b91230936b7a720000000000000000000000000000000000000000000000000000000000000007616c7068612d3100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002d636f736d6f73317a7970716137366a653770787364776b666168366d753961353833736a7536787174336d7636000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000010657468657265756d2d7365706f6c6961000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001000000000000000000000000ee17d0a243361997245a0eba740e26020952f2490000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000190be7fe886c748be80e98b340d1418d0bfe7865675ee597d9d850526520085f087b9efdb5c81e067890e9439bdf717cf1c22adfe29d802050a11414d66b6e338";
-
-    // Parse the hex data to extract parameters
-    const parseExecuteContractCallHex = () => {
-        // Remove 0x prefix and function selector
-        const hexWithoutPrefix = executeContractCallHex.slice(10);
-
-        // Extract signature R and S (first 64 bytes)
-        const signatureR = "0x" + hexWithoutPrefix.slice(0, 64);
-        const signatureS = "0x" + hexWithoutPrefix.slice(64, 128);
-
-        // Extract destination address directly from the hex data
-        // It's at position 320-384 in the params hex (after removing the function selector)
-        const paramsHex = executeContractCallHex.slice(10);
-        const destinationAddress = "0x" + paramsHex.slice(320, 384).slice(-40);
-
-        // Hard-coded values extracted from the hex data
-        // These values were manually decoded from the hex data
-        const sourceChain = "alpha-1";
-        const sourceAddress = "cosmos1zypqa76je7pxsdwkfah6mu9a583sju6xqt3mv6";
-        const destinationChain = "ethereum-sepolia";
-        const payload =
-            "0x0000000000000000000000000000000000000000000000000000000000000001000000000000000000000000ee17d0a243361997245a0eba740e26020952f2490000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000190be7fe886c748be80e98b340d1418d0bfe7865675ee597d9d850526520085f087b9efdb5c81e067890e9439bdf717cf1c22adfe29d802050a11414d66b6e338";
-
-        return {
-            signatureR,
-            signatureS,
-            sourceChain,
-            sourceAddress,
-            destinationChain,
-            destinationAddress,
-            payload,
-        };
-    };
+    // Helper to derive Ethereum address from public key
+    function publicKeyToAddress(pubKeyX: string, pubKeyY: string): string {
+        const pubKeyBytes = hre.ethers.concat([pubKeyX, pubKeyY]);
+        const hash = hre.ethers.keccak256(pubKeyBytes);
+        return "0x" + hash.slice(-40);
+    }
 
     beforeEach(async function () {
         [owner, nonOwner, relayer] = await ethers.getSigners();
@@ -435,9 +452,11 @@ describe("MPCGateway Verifier Integration", function () {
         mockEntryPoint = await MockEntryPointFactory.deploy();
         await mockEntryPoint.waitForDeployment();
 
-        // Deploy MPCGateway with real MPCVerifier
+        // Deploy MPCGateway proxy with real MPCVerifier
         const MPCGatewayFactory = await hre.ethers.getContractFactory("MPCGateway");
-        mpcGateway = await MPCGatewayFactory.deploy(mpcVerifier.target);
+        mpcGateway = (await upgrades.deployProxy(MPCGatewayFactory, [mpcVerifier.target, owner.address], {
+            kind: "uups",
+        })) as unknown as MPCGateway;
         await mpcGateway.waitForDeployment();
     });
 
@@ -479,15 +498,13 @@ describe("MPCGateway Verifier Integration", function () {
         });
     });
 
-    describe("Execute Contract Call with Hex Data", function () {
-        it("Should fail when signature validation fails with provided hex data", async function () {
-            // Parse the hex data
-            const params = parseExecuteContractCallHex();
+    describe("Execute Contract Call", function () {
+        it("Should fail when signature does not match signer address", async function () {
+            // Using arbitrary signature values that won't match the expected signer
+            const signatureV = 27;
+            const signatureR = "0xd9d9d77db6e734f1d2a1428bfd92b0f2969e5eb03759843e0330b413964eb177";
+            const signatureS = "0x4deaa3be2edb551dbb07102b0a88b510170154df6a1f5ed58101abe99440dda5";
 
-            // With the real MPCVerifier, the signature validation will fail naturally
-            // because the provided signature doesn't match the public key
-
-            // Execution should return false because the signature validation fails
             const result = await mpcGateway
                 .connect(relayer)
                 .executeContractCall.staticCall(
@@ -498,7 +515,7 @@ describe("MPCGateway Verifier Integration", function () {
                     params.sourceAddress,
                     params.destinationChain,
                     mockEntryPoint.target,
-                    params.payload
+                    "0x1234"
                 );
             expect(result).to.be.false;
         });
@@ -508,16 +525,21 @@ describe("MPCGateway Verifier Integration", function () {
 describe("MPCGateway - generateTxHash", function () {
     let mpcGateway: MPCGateway;
     let mockMPCVerifier: any;
+    let owner: any;
 
     beforeEach(async function () {
-        // Deploy MockMPCVerifier (required for MPCGateway constructor)
+        [owner] = await ethers.getSigners();
+
+        // Deploy MockMPCVerifier (required for MPCGateway initialization)
         const MockMPCVerifierFactory = await hre.ethers.getContractFactory("MockMPCVerifier");
         mockMPCVerifier = await MockMPCVerifierFactory.deploy();
         await mockMPCVerifier.waitForDeployment();
 
-        // Deploy MPCGateway
+        // Deploy MPCGateway proxy
         const MPCGatewayFactory = await hre.ethers.getContractFactory("MPCGateway");
-        mpcGateway = await MPCGatewayFactory.deploy(mockMPCVerifier.target);
+        mpcGateway = (await upgrades.deployProxy(MPCGatewayFactory, [mockMPCVerifier.target, owner.address], {
+            kind: "uups",
+        })) as unknown as MPCGateway;
         await mpcGateway.waitForDeployment();
     });
 

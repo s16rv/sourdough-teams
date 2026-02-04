@@ -22,16 +22,15 @@ Account --> RoutingRailgun --> Railgun Protocol
 
 ### Key Contracts
 
-| Contract                | Purpose                                                           |
-| ----------------------- | ----------------------------------------------------------------- |
-| `MPCGateway`            | Validates MPC signatures, prevents replay, forwards to EntryPoint |
-| `MPCVerifier`           | Stores MPC public key, validates signatures                       |
-| `EntryPoint`            | Dumb router - parses payloads and forwards to Account             |
-| `AccountFactory`        | Creates Account instances via CREATE2                             |
-| `Account`               | **Trust anchor** - validates everything, executes atomically      |
-| `Secp256k1Verifier`     | EIP-7212 compatible signature verification (used by MPCVerifier)  |
-| `RoutingRailgun`        | Intermediary for Railgun privacy transactions                     |
-| `RoutingRailgunFactory` | Deploys RoutingRailgun instances                                  |
+| Contract                | Type       | Purpose                                                           |
+| ----------------------- | ---------- | ----------------------------------------------------------------- |
+| `MPCGateway`            | UUPS Proxy | Validates MPC signatures, prevents replay, forwards to EntryPoint |
+| `MPCVerifier`           | Immutable  | Stores MPC signer address, validates via ecrecover                |
+| `EntryPoint`            | UUPS Proxy | Dumb router - parses payloads and forwards to Account             |
+| `AccountFactory`        | UUPS Proxy | Creates Account instances via CREATE2                             |
+| `Account`               | Immutable  | **Trust anchor** - validates everything, executes atomically      |
+| `RoutingRailgun`        | Immutable  | Intermediary for Railgun privacy transactions                     |
+| `RoutingRailgunFactory` | Immutable  | Deploys RoutingRailgun instances                                  |
 
 ### Trust Anchor Architecture
 
@@ -64,7 +63,7 @@ contracts/
 ├── smart-account/
 │   ├── account/          # Account.sol
 │   ├── interfaces/       # IAccount, IEntryPoint, IAccountFactory
-│   ├── util/             # SignatureVerifier, Secp256k1Verifier
+│   ├── util/             # SignatureVerifier
 │   ├── EntryPoint.sol
 │   └── AccountFactory.sol
 ├── mpc-gateway/
@@ -84,8 +83,10 @@ scripts/                  # Deployment scripts
 
 ## Code Conventions
 
-- **Solidity version**: 0.8.21
+- **Solidity version**: 0.8.24
 - **Framework**: Hardhat with TypeScript
+- **Proxy pattern**: UUPS (OpenZeppelin contracts-upgradeable) for infrastructure contracts
+- **Storage pattern**: ERC-7201 namespaced storage for upgrade safety
 - **Error handling**: Prefer custom errors over require strings
 - **Interfaces**: Every contract has a corresponding interface
 - **NatSpec**: Document all public/external functions
@@ -103,14 +104,15 @@ Key points:
 - Accounts are immutable after creation
 - Recovery path provides censorship resistance
 - CEI pattern prevents reentrancy (sequence incremented before external calls)
+- Inter-contract access control: `onlyMPCGateway` on EntryPoint, `onlyEntryPoint` on AccountFactory
+- Infrastructure contracts (proxies) can be upgraded, but Account validates all signatures
 
 ## Known Issues
 
 See `docs/TODO.md` for tracked issues including:
 
-- Missing admin functionality on some contracts (upgradeability TBD)
 - Grants system not yet implemented
-- Inter-contract access control (AccountFactory should be EntryPoint-only)
+- RoutingRailgunFactory admin functionality (update default Railgun address)
 
 ## Debugging
 

@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.21;
+pragma solidity ^0.8.24;
 
 import "./interfaces/IMPCVerifier.sol";
 
 contract MPCVerifier is IMPCVerifier {
+    // secp256k1 curve order divided by 2, for malleability check (EIP-2)
+    bytes32 private constant SECP256K1_N_DIV_2 =
+        0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0;
+
     address private immutable ownerAddress;
     bytes32 public publicKeyX;
     bytes32 public publicKeyY;
@@ -30,9 +34,9 @@ contract MPCVerifier is IMPCVerifier {
     }
 
     /**
-     * @notice Validates the MPC signature
+     * @notice Validates the MPC signature using native ecrecover
      * @param payloadHash Hash of the payload to be signed
-     * @param v Recovery id
+     * @param v Recovery parameter of the signature
      * @param r X coordinate of the signature
      * @param s Y coordinate of the signature
      * @return bool True if the signature is valid, false otherwise
@@ -51,19 +55,15 @@ contract MPCVerifier is IMPCVerifier {
     }
 
     /**
-     * @notice Updates the MPC public key
-     * @param newPublicKeyX X coordinate of the new MPC public key
-     * @param newPublicKeyY Y coordinate of the new MPC public key
-     * @dev Only the contract owner can update the public key
+     * @notice Updates the MPC signer address
+     * @param newSignerAddress The new MPC signer address
+     * @dev Only the contract owner can update the signer address
      */
-    function updateMPCPublicKey(
-        bytes32 newPublicKeyX,
-        bytes32 newPublicKeyY
-    ) public {
+    function updateMPCSigner(address newSignerAddress) public {
         if (msg.sender != ownerAddress) revert OnlyOwner();
-        emit MPCPublicKeyUpdated(publicKeyX, publicKeyY, newPublicKeyX, newPublicKeyY);
-        publicKeyX = newPublicKeyX;
-        publicKeyY = newPublicKeyY;
+        if (newSignerAddress == address(0)) revert ZeroAddress();
+        emit MPCSignerUpdated(mpcSignerAddress, newSignerAddress);
+        mpcSignerAddress = newSignerAddress;
     }
 
     /**

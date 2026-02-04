@@ -1,4 +1,4 @@
-import hre from "hardhat";
+import hre, { upgrades } from "hardhat";
 import { expect } from "chai";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { AbiCoder, keccak256, parseEther, sha256, toUtf8Bytes } from "ethers";
@@ -11,11 +11,39 @@ import {
     computeTxPayloadHash,
     createSignBytes,
     encodeNewPayload,
+    encodeCreateAccountPayload,
+    DEFAULT_SALT,
 } from "../utils/lib";
 import { generateSignatureWithMnemonic, getPublicKeyFromMnemonic } from "../../scripts/generateSignature";
 
 const TEST_MNEMONIC = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
 const EXPECTED_CHAIN_ID = 31337n; // Hardhat default chain ID
+
+/**
+ * Helper to deploy AccountFactory and EntryPoint proxies
+ */
+async function deployProxies(
+    owner: string,
+    mpcGatewayAddress: string
+): Promise<{ accountFactory: AccountFactory; entryPoint: EntryPoint }> {
+    const AccountFactoryContract = await hre.ethers.getContractFactory("AccountFactory");
+    const accountFactory = (await upgrades.deployProxy(AccountFactoryContract, [hre.ethers.ZeroAddress, owner], {
+        kind: "uups",
+    })) as unknown as AccountFactory;
+    await accountFactory.waitForDeployment();
+
+    const EntryPointContract = await hre.ethers.getContractFactory("EntryPoint");
+    const entryPoint = (await upgrades.deployProxy(
+        EntryPointContract,
+        [await accountFactory.getAddress(), owner, mpcGatewayAddress],
+        { kind: "uups" }
+    )) as unknown as EntryPoint;
+    await entryPoint.waitForDeployment();
+
+    await accountFactory.setEntryPoint(await entryPoint.getAddress());
+
+    return { accountFactory, entryPoint };
+}
 
 /**
  * Helper to create a signed payload for the new format
@@ -59,43 +87,34 @@ describe("EntryPoint", function () {
     const SOURCE_ADDRESS = "neutron1chcktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
 
     let entryPoint: EntryPoint;
-    let recover: HardhatEthersSigner;
-    let executor: HardhatEthersSigner;
+    let owner: HardhatEthersSigner;
+    let mpcGateway: HardhatEthersSigner;
     let account: Account;
     let accountFactory: AccountFactory;
 
     beforeEach(async function () {
-        [recover, executor] = await hre.ethers.getSigners();
+        [owner, mpcGateway] = await hre.ethers.getSigners();
 
         // Get public key from mnemonic
         const pubKey = await getPublicKeyFromMnemonic(TEST_MNEMONIC);
         PUBLIC_KEY_X = [pubKey.x];
         PUBLIC_KEY_Y = [pubKey.y];
 
-        const AccountFactoryContract = await hre.ethers.getContractFactory("AccountFactory");
-        accountFactory = await AccountFactoryContract.deploy();
-        await accountFactory.waitForDeployment();
-
-        const EntryPointContract = await hre.ethers.getContractFactory("EntryPoint");
-        entryPoint = await EntryPointContract.deploy(accountFactory.target, recover.address);
-        await entryPoint.waitForDeployment();
-
-        await entryPoint.setExecutor(recover.address, true);
+        const deployed = await deployProxies(owner.address, mpcGateway.address);
+        accountFactory = deployed.accountFactory;
+        entryPoint = deployed.entryPoint;
 
         const sourceChain = "sourceChain";
 
-        const payload = new AbiCoder().encode(
-            ["uint8", "uint64", "uint64", "bytes32", "bytes32"],
-            [1, totalSigners, THRESHOLD, PUBLIC_KEY_X[0], PUBLIC_KEY_Y[0]]
-        );
+        const payload = encodeCreateAccountPayload(totalSigners, THRESHOLD, DEFAULT_SALT, PUBLIC_KEY_X, PUBLIC_KEY_Y);
 
-        await entryPoint.executePayload(sourceChain, SOURCE_ADDRESS, payload);
+        await entryPoint.connect(mpcGateway).executePayload(sourceChain, SOURCE_ADDRESS, payload);
         const accountAddr = await accountFactory.getAccount(SOURCE_ADDRESS);
 
         const AccountContract = await hre.ethers.getContractFactory("Account");
         account = AccountContract.attach(accountAddr) as Account;
 
-        await recover.sendTransaction({
+        await owner.sendTransaction({
             to: accountAddr,
             value: parseEther("2.0"),
         });
@@ -121,14 +140,13 @@ describe("EntryPoint", function () {
             PUBLIC_KEY_Y
         );
 
-        await entryPoint.executePayload(sourceChain, SOURCE_ADDRESS, payload);
+        await entryPoint.connect(mpcGateway).executePayload(sourceChain, SOURCE_ADDRESS, payload);
 
         const finalRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
         expect(finalRecipientBalance).to.equal(initialRecipientBalance + amountToSend);
     });
 
-    it("should execute payload directly when called by owner", async function () {
-        const initialRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
+    it("should revert when executePayload is called by non-MPCGateway", async function () {
         const amountToSend = parseEther("1.0");
 
         const sourceChain = "sourceChain";
@@ -141,69 +159,26 @@ describe("EntryPoint", function () {
             PUBLIC_KEY_Y
         );
 
-        await entryPoint.executePayload(sourceChain, SOURCE_ADDRESS, payload);
-
-        const finalRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
-        expect(finalRecipientBalance).to.equal(initialRecipientBalance + amountToSend);
-    });
-
-    it("should execute payload when called by authorized executor", async function () {
-        await entryPoint.setExecutor(executor.address, true);
-        expect(await entryPoint.isExecutor(executor.address)).to.equal(true);
-
-        const initialRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
-        const amountToSend = parseEther("1.0");
-
-        const sourceChain = "sourceChain";
-
-        const payload = await createNewFormatPayload(
-            account,
-            SOURCE_ADDRESS,
-            [{ to: RECIPIENT_ADDRESS, value: amountToSend, data: "0x" }],
-            PUBLIC_KEY_X,
-            PUBLIC_KEY_Y
-        );
-
-        await entryPoint.connect(executor).executePayload(sourceChain, SOURCE_ADDRESS, payload);
-
-        const finalRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
-        expect(finalRecipientBalance).to.equal(initialRecipientBalance + amountToSend);
-    });
-
-    it("should revert when executePayload is called by unauthorized address", async function () {
-        const amountToSend = parseEther("1.0");
-
-        const sourceChain = "sourceChain";
-
-        const payload = await createNewFormatPayload(
-            account,
-            SOURCE_ADDRESS,
-            [{ to: RECIPIENT_ADDRESS, value: amountToSend, data: "0x" }],
-            PUBLIC_KEY_X,
-            PUBLIC_KEY_Y
-        );
-
-        expect(await entryPoint.isExecutor(executor.address)).to.equal(false);
+        const [, , unauthorized] = await hre.ethers.getSigners();
 
         await expect(
-            entryPoint.connect(executor).executePayload(sourceChain, SOURCE_ADDRESS, payload)
-        ).to.be.revertedWithCustomError(entryPoint, "NotExecutor");
+            entryPoint.connect(unauthorized).executePayload(sourceChain, SOURCE_ADDRESS, payload)
+        ).to.be.revertedWithCustomError(entryPoint, "NotMPCGateway");
     });
 
-    it("should allow setting and removing executors by owner", async function () {
-        expect(await entryPoint.isExecutor(executor.address)).to.equal(false);
+    it("should allow owner to set MPCGateway", async function () {
+        const [, , newMPCGateway] = await hre.ethers.getSigners();
 
-        await entryPoint.setExecutor(executor.address, true);
-        expect(await entryPoint.isExecutor(executor.address)).to.equal(true);
-
-        await entryPoint.setExecutor(executor.address, false);
-        expect(await entryPoint.isExecutor(executor.address)).to.equal(false);
+        await entryPoint.connect(owner).setMPCGateway(newMPCGateway.address);
+        expect(await entryPoint.mpcGateway()).to.equal(newMPCGateway.address);
     });
 
-    it("should revert when non-owner tries to set executor", async function () {
-        await expect(entryPoint.connect(executor).setExecutor(executor.address, true)).to.be.revertedWithCustomError(
+    it("should revert when non-owner tries to set MPCGateway", async function () {
+        const [, , nonOwner] = await hre.ethers.getSigners();
+
+        await expect(entryPoint.connect(nonOwner).setMPCGateway(nonOwner.address)).to.be.revertedWithCustomError(
             entryPoint,
-            "OnlyOwner"
+            "OwnableUnauthorizedAccount"
         );
     });
 });
@@ -219,42 +194,34 @@ describe("EntryPoint Multi-Payload", function () {
     const SOURCE_ADDRESS = "neutron1chcktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
 
     let entryPoint: EntryPoint;
-    let recover: HardhatEthersSigner;
+    let owner: HardhatEthersSigner;
+    let mpcGateway: HardhatEthersSigner;
     let account: Account;
     let myToken: MyToken;
 
     this.beforeAll(async function () {
-        [recover] = await hre.ethers.getSigners();
+        [owner, mpcGateway] = await hre.ethers.getSigners();
 
         // Get public key from mnemonic
         const pubKey = await getPublicKeyFromMnemonic(TEST_MNEMONIC);
         PUBLIC_KEY_X = [pubKey.x];
         PUBLIC_KEY_Y = [pubKey.y];
 
-        const AccountFactoryContract = await hre.ethers.getContractFactory("AccountFactory");
-        const accountFactory = await AccountFactoryContract.deploy();
-        await accountFactory.waitForDeployment();
-
-        const EntryPointContract = await hre.ethers.getContractFactory("EntryPoint");
-        entryPoint = await EntryPointContract.deploy(accountFactory.target, recover.address);
-        await entryPoint.waitForDeployment();
-
-        await entryPoint.setExecutor(recover.address, true);
+        const deployed = await deployProxies(owner.address, mpcGateway.address);
+        const accountFactory = deployed.accountFactory;
+        entryPoint = deployed.entryPoint;
 
         const sourceChain = "sourceChain";
 
-        const payload = new AbiCoder().encode(
-            ["uint8", "uint64", "uint64", "bytes32", "bytes32"],
-            [1, totalSigners, THRESHOLD, PUBLIC_KEY_X[0], PUBLIC_KEY_Y[0]]
-        );
+        const payload = encodeCreateAccountPayload(totalSigners, THRESHOLD, DEFAULT_SALT, PUBLIC_KEY_X, PUBLIC_KEY_Y);
 
-        await entryPoint.executePayload(sourceChain, SOURCE_ADDRESS, payload);
+        await entryPoint.connect(mpcGateway).executePayload(sourceChain, SOURCE_ADDRESS, payload);
         const accountAddr = await accountFactory.getAccount(SOURCE_ADDRESS);
 
         const AccountContract = await hre.ethers.getContractFactory("Account");
         account = AccountContract.attach(accountAddr) as Account;
 
-        await recover.sendTransaction({ to: accountAddr, value: parseEther("2.0") });
+        await owner.sendTransaction({ to: accountAddr, value: parseEther("2.0") });
 
         const MyTokenContract = await hre.ethers.getContractFactory("MyToken");
         myToken = await MyTokenContract.deploy("MyToken", "MTK", 18);
@@ -290,7 +257,7 @@ describe("EntryPoint Multi-Payload", function () {
 
         const startRecipient = await myToken.balanceOf(RECIPIENT_ADDRESS);
 
-        const tx = await entryPoint.executePayload("sourceChain", SOURCE_ADDRESS, payload);
+        const tx = await entryPoint.connect(mpcGateway).executePayload("sourceChain", SOURCE_ADDRESS, payload);
         await tx.wait();
 
         const endAllowance = await myToken.allowance(accountAddress, accountAddress);
@@ -313,7 +280,7 @@ describe("EntryPoint Multi-Payload", function () {
         );
 
         const ethStart = await hre.ethers.provider.getBalance(accountAddress);
-        const tx = await entryPoint.executePayload("sourceChain", SOURCE_ADDRESS, payload);
+        const tx = await entryPoint.connect(mpcGateway).executePayload("sourceChain", SOURCE_ADDRESS, payload);
         await tx.wait();
         const ethEnd = await hre.ethers.provider.getBalance(accountAddress);
         expect(ethEnd).to.equal(ethStart - ethAmount);
@@ -340,7 +307,7 @@ describe("EntryPoint Multi-Payload", function () {
         const ethStart = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
         const tokenStart = await myToken.balanceOf(RECIPIENT_ADDRESS);
 
-        const tx = await entryPoint.executePayload("sourceChain", SOURCE_ADDRESS, payload);
+        const tx = await entryPoint.connect(mpcGateway).executePayload("sourceChain", SOURCE_ADDRESS, payload);
         await tx.wait();
 
         const ethEnd = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
@@ -366,11 +333,12 @@ describe("EntryPoint Multisig 2 of 2", function () {
     const SOURCE_ADDRESS = "neutron1chcktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
 
     let entryPoint: EntryPoint;
-    let recover: HardhatEthersSigner;
+    let owner: HardhatEthersSigner;
+    let mpcGateway: HardhatEthersSigner;
     let account: Account;
 
     beforeEach(async function () {
-        [recover] = await hre.ethers.getSigners();
+        [owner, mpcGateway] = await hre.ethers.getSigners();
 
         // Get public keys from both mnemonics
         const pubKey1 = await getPublicKeyFromMnemonic(MNEMONIC_1);
@@ -378,30 +346,21 @@ describe("EntryPoint Multisig 2 of 2", function () {
         PUBLIC_KEY_X = [pubKey1.x, pubKey2.x];
         PUBLIC_KEY_Y = [pubKey1.y, pubKey2.y];
 
-        const AccountFactoryContract = await hre.ethers.getContractFactory("AccountFactory");
-        const accountFactory = await AccountFactoryContract.deploy();
-        await accountFactory.waitForDeployment();
-
-        const EntryPointContract = await hre.ethers.getContractFactory("EntryPoint");
-        entryPoint = await EntryPointContract.deploy(accountFactory.target, recover.address);
-        await entryPoint.waitForDeployment();
-
-        await entryPoint.setExecutor(recover.address, true);
+        const deployed = await deployProxies(owner.address, mpcGateway.address);
+        const accountFactory = deployed.accountFactory;
+        entryPoint = deployed.entryPoint;
 
         const sourceChain = "sourceChain";
 
-        const payload = new AbiCoder().encode(
-            ["uint8", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
-            [1, totalSigners, THRESHOLD, PUBLIC_KEY_X[0], PUBLIC_KEY_Y[0], PUBLIC_KEY_X[1], PUBLIC_KEY_Y[1]]
-        );
+        const payload = encodeCreateAccountPayload(totalSigners, THRESHOLD, DEFAULT_SALT, PUBLIC_KEY_X, PUBLIC_KEY_Y);
 
-        await entryPoint.executePayload(sourceChain, SOURCE_ADDRESS, payload);
+        await entryPoint.connect(mpcGateway).executePayload(sourceChain, SOURCE_ADDRESS, payload);
         const accountAddr = await accountFactory.getAccount(SOURCE_ADDRESS);
 
         const AccountContract = await hre.ethers.getContractFactory("Account");
         account = AccountContract.attach(accountAddr) as Account;
 
-        await recover.sendTransaction({
+        await owner.sendTransaction({
             to: accountAddr,
             value: parseEther("2.0"),
         });
@@ -442,7 +401,7 @@ describe("EntryPoint Multisig 2 of 2", function () {
 
         const payload = encodeNewPayload(signBytes, hashOffset, signatures, txPayload);
 
-        await entryPoint.executePayload(sourceChain, SOURCE_ADDRESS, payload);
+        await entryPoint.connect(mpcGateway).executePayload(sourceChain, SOURCE_ADDRESS, payload);
 
         const finalRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
         expect(finalRecipientBalance).to.equal(initialRecipientBalance + amountToSend);
@@ -463,41 +422,33 @@ describe("EntryPoint Multisig 1 of 2", function () {
     const SOURCE_ADDRESS = "neutron1chcktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
 
     let entryPoint: EntryPoint;
-    let recover: HardhatEthersSigner;
+    let owner: HardhatEthersSigner;
+    let mpcGateway: HardhatEthersSigner;
     let account: Account;
 
     beforeEach(async function () {
-        [recover] = await hre.ethers.getSigners();
+        [owner, mpcGateway] = await hre.ethers.getSigners();
 
         const pubKey1 = await getPublicKeyFromMnemonic(MNEMONIC_1);
         const pubKey2 = await getPublicKeyFromMnemonic(MNEMONIC_2);
         PUBLIC_KEY_X = [pubKey1.x, pubKey2.x];
         PUBLIC_KEY_Y = [pubKey1.y, pubKey2.y];
 
-        const AccountFactoryContract = await hre.ethers.getContractFactory("AccountFactory");
-        const accountFactory = await AccountFactoryContract.deploy();
-        await accountFactory.waitForDeployment();
-
-        const EntryPointContract = await hre.ethers.getContractFactory("EntryPoint");
-        entryPoint = await EntryPointContract.deploy(accountFactory.target, recover.address);
-        await entryPoint.waitForDeployment();
-
-        await entryPoint.setExecutor(recover.address, true);
+        const deployed = await deployProxies(owner.address, mpcGateway.address);
+        const accountFactory = deployed.accountFactory;
+        entryPoint = deployed.entryPoint;
 
         const sourceChain = "sourceChain";
 
-        const payload = new AbiCoder().encode(
-            ["uint8", "uint64", "uint64", "bytes32", "bytes32", "bytes32", "bytes32"],
-            [1, totalSigners, THRESHOLD, PUBLIC_KEY_X[0], PUBLIC_KEY_Y[0], PUBLIC_KEY_X[1], PUBLIC_KEY_Y[1]]
-        );
+        const payload = encodeCreateAccountPayload(totalSigners, THRESHOLD, DEFAULT_SALT, PUBLIC_KEY_X, PUBLIC_KEY_Y);
 
-        await entryPoint.executePayload(sourceChain, SOURCE_ADDRESS, payload);
+        await entryPoint.connect(mpcGateway).executePayload(sourceChain, SOURCE_ADDRESS, payload);
         const accountAddr = await accountFactory.getAccount(SOURCE_ADDRESS);
 
         const AccountContract = await hre.ethers.getContractFactory("Account");
         account = AccountContract.attach(accountAddr) as Account;
 
-        await recover.sendTransaction({
+        await owner.sendTransaction({
             to: accountAddr,
             value: parseEther("2.0"),
         });
@@ -524,7 +475,7 @@ describe("EntryPoint Multisig 1 of 2", function () {
             [PUBLIC_KEY_Y[0]]
         );
 
-        await entryPoint.executePayload(sourceChain, SOURCE_ADDRESS, payload);
+        await entryPoint.connect(mpcGateway).executePayload(sourceChain, SOURCE_ADDRESS, payload);
 
         const finalRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
         expect(finalRecipientBalance).to.equal(initialRecipientBalance + amountToSend);
@@ -555,7 +506,7 @@ describe("EntryPoint Multisig 1 of 2", function () {
 
         const payload = encodeNewPayload(signBytes, hashOffset, signatures, txPayload);
 
-        await entryPoint.executePayload(sourceChain, SOURCE_ADDRESS, payload);
+        await entryPoint.connect(mpcGateway).executePayload(sourceChain, SOURCE_ADDRESS, payload);
 
         const finalRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
         expect(finalRecipientBalance).to.equal(initialRecipientBalance + amountToSend);
@@ -573,34 +524,25 @@ describe("EntryPoint Error Paths", function () {
     let account: Account;
 
     let owner: HardhatEthersSigner;
-    let executor: HardhatEthersSigner;
+    let mpcGateway: HardhatEthersSigner;
 
     let publicKeyX: string[];
     let publicKeyY: string[];
 
     beforeEach(async function () {
-        [owner, executor] = await hre.ethers.getSigners();
+        [owner, mpcGateway] = await hre.ethers.getSigners();
 
         const pubKey = await getPublicKeyFromMnemonic(TEST_MNEMONIC);
         publicKeyX = [pubKey.x];
         publicKeyY = [pubKey.y];
 
-        const AccountFactoryContract = await hre.ethers.getContractFactory("AccountFactory");
-        accountFactory = await AccountFactoryContract.deploy();
-        await accountFactory.waitForDeployment();
+        const deployed = await deployProxies(owner.address, mpcGateway.address);
+        accountFactory = deployed.accountFactory;
+        entryPoint = deployed.entryPoint;
 
-        const EntryPointContract = await hre.ethers.getContractFactory("EntryPoint");
-        entryPoint = await EntryPointContract.deploy(accountFactory.target, owner.address);
-        await entryPoint.waitForDeployment();
+        const createAccountPayload = encodeCreateAccountPayload(1, 1, DEFAULT_SALT, publicKeyX, publicKeyY);
 
-        await entryPoint.setExecutor(executor.address, true);
-
-        const createAccountPayload = new AbiCoder().encode(
-            ["uint8", "uint64", "uint64", "bytes32", "bytes32"],
-            [1, 1, 1, publicKeyX[0], publicKeyY[0]]
-        );
-
-        await entryPoint.connect(executor).executePayload(SOURCE_ADDRESS, SOURCE_ADDRESS, createAccountPayload);
+        await entryPoint.connect(mpcGateway).executePayload(SOURCE_ADDRESS, SOURCE_ADDRESS, createAccountPayload);
 
         const accountAddr = await accountFactory.getAccount(SOURCE_ADDRESS);
         const AccountContract = await hre.ethers.getContractFactory("Account");
@@ -627,7 +569,7 @@ describe("EntryPoint Error Paths", function () {
             );
 
             await expect(
-                entryPoint.connect(executor).executePayload(SOURCE_ADDRESS, SOURCE_ADDRESS, payload)
+                entryPoint.connect(mpcGateway).executePayload(SOURCE_ADDRESS, SOURCE_ADDRESS, payload)
             ).to.be.revertedWithCustomError(entryPoint, "TransactionFailed");
         });
 
@@ -653,36 +595,12 @@ describe("EntryPoint Error Paths", function () {
 
             // Should revert with TransactionFailed (Account validation fails with InvalidSequence)
             await expect(
-                entryPoint.connect(executor).executePayload(SOURCE_ADDRESS, SOURCE_ADDRESS, payload)
+                entryPoint.connect(mpcGateway).executePayload(SOURCE_ADDRESS, SOURCE_ADDRESS, payload)
             ).to.be.revertedWithCustomError(entryPoint, "TransactionFailed");
 
             // Verify no funds were transferred (validation failed)
             const balanceAfter = await hre.ethers.provider.getBalance(owner.address);
             expect(balanceAfter).to.equal(balanceBefore);
-        });
-
-        it("Should revert when target is not a valid account contract", async function () {
-            const wrongTarget = executor.address; // An EOA, not a contract
-            const sequence = (await account.accountSequence()) + 1n;
-
-            // Create txPayload with wrong target address
-            const txPayload = encodeNewTxPayload(EXPECTED_CHAIN_ID, wrongTarget, sequence, [
-                { to: owner.address, value: parseEther("0.01"), data: "0x" },
-            ]);
-
-            const txPayloadHash = computeTxPayloadHash(txPayload);
-            const { signBytes, hashOffset } = createSignBytes(txPayloadHash);
-
-            const signBytesForSigning = Buffer.from(signBytes.slice(2), "hex");
-            const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, signBytesForSigning.toString("hex"));
-
-            const signatures = [{ v: sig.v, r: sig.r, s: sig.s, x: publicKeyX[0], y: publicKeyY[0] }];
-            const payload = encodeNewPayload(signBytes, hashOffset, signatures, txPayload);
-
-            // Calling validateAndExecute on an EOA fails (no code at address)
-            // The call reverts without a specific reason when target has no code
-            await expect(entryPoint.connect(executor).executePayload(SOURCE_ADDRESS, SOURCE_ADDRESS, payload)).to.be
-                .reverted;
         });
 
         it("Should revert with TransactionFailed when chainId doesn't match", async function () {
@@ -705,460 +623,95 @@ describe("EntryPoint Error Paths", function () {
 
             // Account validates chainId and reverts with InvalidChainId, wrapped as TransactionFailed
             await expect(
-                entryPoint.connect(executor).executePayload(SOURCE_ADDRESS, SOURCE_ADDRESS, payload)
-            ).to.be.revertedWithCustomError(entryPoint, "TransactionFailed");
-        });
-
-        it("Should revert with TransactionFailed when txPayload is tampered", async function () {
-            const accountAddress = await account.getAddress();
-            const sequence = (await account.accountSequence()) + 1n;
-
-            // Create txPayload
-            const txPayload = encodeNewTxPayload(EXPECTED_CHAIN_ID, accountAddress, sequence, [
-                { to: owner.address, value: parseEther("0.01"), data: "0x" },
-            ]);
-
-            const txPayloadHash = computeTxPayloadHash(txPayload);
-            const { signBytes, hashOffset } = createSignBytes(txPayloadHash);
-
-            const signBytesForSigning = Buffer.from(signBytes.slice(2), "hex");
-            const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, signBytesForSigning.toString("hex"));
-
-            const signatures = [{ v: sig.v, r: sig.r, s: sig.s, x: publicKeyX[0], y: publicKeyY[0] }];
-
-            // Create a different txPayload (tampered)
-            const tamperedTxPayload = encodeNewTxPayload(EXPECTED_CHAIN_ID, accountAddress, sequence, [
-                { to: owner.address, value: parseEther("0.02"), data: "0x" }, // Different value
-            ]);
-
-            // Use original signBytes but tampered txPayload
-            const payload = encodeNewPayload(signBytes, hashOffset, signatures, tamperedTxPayload);
-
-            // Account detects hash mismatch and reverts with InvalidHashCommitment, wrapped as TransactionFailed
-            await expect(
-                entryPoint.connect(executor).executePayload(SOURCE_ADDRESS, SOURCE_ADDRESS, payload)
+                entryPoint.connect(mpcGateway).executePayload(SOURCE_ADDRESS, SOURCE_ADDRESS, payload)
             ).to.be.revertedWithCustomError(entryPoint, "TransactionFailed");
         });
     });
 
-    describe("Executor Management", function () {
-        it("Should allow owner to add executor", async function () {
-            const [, , newExecutor] = await hre.ethers.getSigners();
+    describe("Access Control", function () {
+        it("Should allow owner to set MPCGateway", async function () {
+            const [, , newMPCGateway] = await hre.ethers.getSigners();
 
-            await entryPoint.connect(owner).setExecutor(newExecutor.address, true);
+            await entryPoint.connect(owner).setMPCGateway(newMPCGateway.address);
 
-            expect(await entryPoint.isExecutor(newExecutor.address)).to.be.true;
+            expect(await entryPoint.mpcGateway()).to.equal(newMPCGateway.address);
         });
 
-        it("Should allow owner to remove executor", async function () {
-            await entryPoint.connect(owner).setExecutor(executor.address, false);
+        it("Should reject non-owner from setting MPCGateway", async function () {
+            const [, , , nonOwner] = await hre.ethers.getSigners();
 
-            expect(await entryPoint.isExecutor(executor.address)).to.be.false;
-        });
-
-        it("Should reject non-owner from setting executor", async function () {
-            const [, , nonOwner, newExecutor] = await hre.ethers.getSigners();
-
-            await expect(
-                entryPoint.connect(nonOwner).setExecutor(newExecutor.address, true)
-            ).to.be.revertedWithCustomError(entryPoint, "OnlyOwner");
-        });
-
-        it("Should reject non-executor from executing payload", async function () {
-            const [, , nonExecutor] = await hre.ethers.getSigners();
-
-            const payload = new AbiCoder().encode(
-                ["uint8", "uint64", "uint64", "bytes32", "bytes32"],
-                [1, 1, 1, publicKeyX[0], publicKeyY[0]]
+            await expect(entryPoint.connect(nonOwner).setMPCGateway(nonOwner.address)).to.be.revertedWithCustomError(
+                entryPoint,
+                "OwnableUnauthorizedAccount"
             );
+        });
+
+        it("Should reject non-MPCGateway from executing payload", async function () {
+            const [, , nonMPCGateway] = await hre.ethers.getSigners();
+
+            const payload = encodeCreateAccountPayload(1, 1, DEFAULT_SALT, publicKeyX, publicKeyY);
 
             await expect(
-                entryPoint.connect(nonExecutor).executePayload(SOURCE_ADDRESS, SOURCE_ADDRESS, payload)
-            ).to.be.revertedWithCustomError(entryPoint, "NotExecutor");
+                entryPoint.connect(nonMPCGateway).executePayload(SOURCE_ADDRESS, SOURCE_ADDRESS, payload)
+            ).to.be.revertedWithCustomError(entryPoint, "NotMPCGateway");
         });
     });
 });
 
 /**
- * Edge case tests for various boundary conditions
+ * Tests for multiple accounts per sourceAddress
  */
-describe("EntryPoint Edge Cases", function () {
+describe("EntryPoint Multiple Accounts", function () {
     const SOURCE_ADDRESS = "neutron1chcktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
-    const RECIPIENT_ADDRESS = "0xaa25Aa7a19f9c426E07dee59b12f944f4d9f1DD3";
 
     let entryPoint: EntryPoint;
     let accountFactory: AccountFactory;
-    let account: Account;
-
     let owner: HardhatEthersSigner;
-    let executor: HardhatEthersSigner;
+    let mpcGateway: HardhatEthersSigner;
 
     let publicKeyX: string[];
     let publicKeyY: string[];
 
     beforeEach(async function () {
-        [owner, executor] = await hre.ethers.getSigners();
+        [owner, mpcGateway] = await hre.ethers.getSigners();
 
         const pubKey = await getPublicKeyFromMnemonic(TEST_MNEMONIC);
         publicKeyX = [pubKey.x];
         publicKeyY = [pubKey.y];
 
-        const AccountFactoryContract = await hre.ethers.getContractFactory("AccountFactory");
-        accountFactory = await AccountFactoryContract.deploy();
-        await accountFactory.waitForDeployment();
-
-        const EntryPointContract = await hre.ethers.getContractFactory("EntryPoint");
-        entryPoint = await EntryPointContract.deploy(accountFactory.target, owner.address);
-        await entryPoint.waitForDeployment();
-
-        await entryPoint.setExecutor(executor.address, true);
-
-        const createAccountPayload = new AbiCoder().encode(
-            ["uint8", "uint64", "uint64", "bytes32", "bytes32"],
-            [1, 1, 1, publicKeyX[0], publicKeyY[0]]
-        );
-
-        await entryPoint.connect(executor).executePayload(SOURCE_ADDRESS, SOURCE_ADDRESS, createAccountPayload);
-
-        const accountAddr = await accountFactory.getAccount(SOURCE_ADDRESS);
-        const AccountContract = await hre.ethers.getContractFactory("Account");
-        account = AccountContract.attach(accountAddr) as Account;
-
-        await owner.sendTransaction({
-            to: accountAddr,
-            value: parseEther("10.0"),
-        });
+        const deployed = await deployProxies(owner.address, mpcGateway.address);
+        accountFactory = deployed.accountFactory;
+        entryPoint = deployed.entryPoint;
     });
 
-    describe("Large Payload Handling", function () {
-        it("Should handle transaction with large calldata (1KB)", async function () {
-            const largeData = "0x" + "ab".repeat(1024);
+    it("Should create multiple accounts for the same sourceAddress with different salts", async function () {
+        const salt1 = hre.ethers.keccak256(hre.ethers.toUtf8Bytes("salt1"));
+        const salt2 = hre.ethers.keccak256(hre.ethers.toUtf8Bytes("salt2"));
 
-            const payload = await createNewFormatPayload(
-                account,
-                SOURCE_ADDRESS,
-                [{ to: RECIPIENT_ADDRESS, value: parseEther("0.01"), data: largeData }],
-                publicKeyX,
-                publicKeyY
-            );
+        const payload1 = encodeCreateAccountPayload(1, 1, salt1, publicKeyX, publicKeyY);
+        const payload2 = encodeCreateAccountPayload(1, 1, salt2, publicKeyX, publicKeyY);
 
-            const initialBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
+        await entryPoint.connect(mpcGateway).executePayload("sourceChain", SOURCE_ADDRESS, payload1);
+        await entryPoint.connect(mpcGateway).executePayload("sourceChain", SOURCE_ADDRESS, payload2);
 
-            await entryPoint.connect(executor).executePayload(SOURCE_ADDRESS, SOURCE_ADDRESS, payload);
-
-            const finalBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
-            expect(finalBalance - initialBalance).to.equal(parseEther("0.01"));
-        });
-
-        it("Should execute large batch of small transactions", async function () {
-            const transactions = [];
-            for (let i = 0; i < 20; i++) {
-                transactions.push({
-                    to: RECIPIENT_ADDRESS,
-                    value: parseEther("0.001"),
-                    data: "0x",
-                });
-            }
-
-            const payload = await createNewFormatPayload(account, SOURCE_ADDRESS, transactions, publicKeyX, publicKeyY);
-
-            const initialBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
-
-            await entryPoint.connect(executor).executePayload(SOURCE_ADDRESS, SOURCE_ADDRESS, payload);
-
-            const finalBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
-            expect(finalBalance - initialBalance).to.equal(parseEther("0.02"));
-        });
+        const accounts = await accountFactory.getAccounts(SOURCE_ADDRESS);
+        expect(accounts.length).to.equal(2);
+        expect(accounts[0]).to.not.equal(accounts[1]);
     });
 
-    describe("Zero Value Transactions", function () {
-        it("Should handle zero-value transaction", async function () {
-            const payload = await createNewFormatPayload(
-                account,
-                SOURCE_ADDRESS,
-                [{ to: RECIPIENT_ADDRESS, value: 0n, data: "0x" }],
-                publicKeyX,
-                publicKeyY
-            );
+    it("Should return first account via getAccount for backward compatibility", async function () {
+        const salt1 = hre.ethers.keccak256(hre.ethers.toUtf8Bytes("salt1"));
+        const salt2 = hre.ethers.keccak256(hre.ethers.toUtf8Bytes("salt2"));
 
-            await entryPoint.connect(executor).executePayload(SOURCE_ADDRESS, SOURCE_ADDRESS, payload);
+        const payload1 = encodeCreateAccountPayload(1, 1, salt1, publicKeyX, publicKeyY);
+        const payload2 = encodeCreateAccountPayload(1, 1, salt2, publicKeyX, publicKeyY);
 
-            expect(await account.accountSequence()).to.equal(1n);
-        });
-    });
+        await entryPoint.connect(mpcGateway).executePayload("sourceChain", SOURCE_ADDRESS, payload1);
+        await entryPoint.connect(mpcGateway).executePayload("sourceChain", SOURCE_ADDRESS, payload2);
 
-    describe("Hash Commitment Validation", function () {
-        it("Should reject signBytes with invalid hex prefix", async function () {
-            const accountAddress = await account.getAddress();
-            const sequence = (await account.accountSequence()) + 1n;
+        const firstAccount = await accountFactory.getAccount(SOURCE_ADDRESS);
+        const allAccounts = await accountFactory.getAccounts(SOURCE_ADDRESS);
 
-            const txPayload = encodeNewTxPayload(EXPECTED_CHAIN_ID, accountAddress, sequence, [
-                { to: RECIPIENT_ADDRESS, value: parseEther("0.01"), data: "0x" },
-            ]);
-
-            const txPayloadHash = computeTxPayloadHash(txPayload);
-            // Create signBytes with invalid prefix (no "0x")
-            const invalidSignBytes =
-                "0x" + Buffer.from('{"tx_hash":"' + txPayloadHash.slice(2) + '"}', "utf8").toString("hex");
-            const hashOffset = 12; // Points to where "0x" should be, but it's not there
-
-            const signBytesForSigning = Buffer.from(invalidSignBytes.slice(2), "hex");
-            const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, signBytesForSigning.toString("hex"));
-
-            const signatures = [{ v: sig.v, r: sig.r, s: sig.s, x: publicKeyX[0], y: publicKeyY[0] }];
-            const payload = encodeNewPayload(invalidSignBytes, hashOffset, signatures, txPayload);
-
-            // Should fail validation due to invalid hex prefix (Account rejects with InvalidHashCommitment)
-            await expect(
-                entryPoint.connect(executor).executePayload(SOURCE_ADDRESS, SOURCE_ADDRESS, payload)
-            ).to.be.revertedWithCustomError(entryPoint, "TransactionFailed");
-        });
-
-        it("Should reject signBytes with offset out of bounds", async function () {
-            const accountAddress = await account.getAddress();
-            const sequence = (await account.accountSequence()) + 1n;
-
-            const txPayload = encodeNewTxPayload(EXPECTED_CHAIN_ID, accountAddress, sequence, [
-                { to: RECIPIENT_ADDRESS, value: parseEther("0.01"), data: "0x" },
-            ]);
-
-            const txPayloadHash = computeTxPayloadHash(txPayload);
-            const { signBytes } = createSignBytes(txPayloadHash);
-            const invalidOffset = 1000; // Way beyond signBytes length
-
-            const signBytesForSigning = Buffer.from(signBytes.slice(2), "hex");
-            const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, signBytesForSigning.toString("hex"));
-
-            const signatures = [{ v: sig.v, r: sig.r, s: sig.s, x: publicKeyX[0], y: publicKeyY[0] }];
-            const payload = encodeNewPayload(signBytes, invalidOffset, signatures, txPayload);
-
-            // Should revert with TransactionFailed (Account reverts with InvalidHashOffset)
-            await expect(
-                entryPoint.connect(executor).executePayload(SOURCE_ADDRESS, SOURCE_ADDRESS, payload)
-            ).to.be.revertedWithCustomError(entryPoint, "TransactionFailed");
-        });
-    });
-});
-
-describe("EntryPoint Batch Transaction Limits", function () {
-    const SOURCE_ADDRESS = "neutron1chcktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
-
-    let entryPoint: EntryPoint;
-    let accountFactory: AccountFactory;
-    let account: Account;
-
-    let owner: HardhatEthersSigner;
-    let executor: HardhatEthersSigner;
-    let recipient: HardhatEthersSigner;
-
-    let publicKeyX: string[];
-    let publicKeyY: string[];
-
-    beforeEach(async function () {
-        [owner, executor, recipient] = await hre.ethers.getSigners();
-
-        const pubKey = await getPublicKeyFromMnemonic(TEST_MNEMONIC);
-        publicKeyX = [pubKey.x];
-        publicKeyY = [pubKey.y];
-
-        const AccountFactoryContract = await hre.ethers.getContractFactory("AccountFactory");
-        accountFactory = await AccountFactoryContract.deploy();
-        await accountFactory.waitForDeployment();
-
-        const EntryPointContract = await hre.ethers.getContractFactory("EntryPoint");
-        entryPoint = await EntryPointContract.deploy(accountFactory.target, owner.address);
-        await entryPoint.waitForDeployment();
-
-        await entryPoint.setExecutor(executor.address, true);
-
-        const createAccountPayload = new AbiCoder().encode(
-            ["uint8", "uint64", "uint64", "bytes32", "bytes32"],
-            [1, 1, 1, publicKeyX[0], publicKeyY[0]]
-        );
-
-        await entryPoint.connect(executor).executePayload(SOURCE_ADDRESS, SOURCE_ADDRESS, createAccountPayload);
-
-        const accountAddr = await accountFactory.getAccount(SOURCE_ADDRESS);
-        const AccountContract = await hre.ethers.getContractFactory("Account");
-        account = AccountContract.attach(accountAddr) as Account;
-
-        await owner.sendTransaction({
-            to: accountAddr,
-            value: parseEther("100.0"),
-        });
-    });
-
-    describe("MAX_BATCH_SIZE Enforcement", function () {
-        it("Should accept batch with exactly 20 transactions (MAX_BATCH_SIZE)", async function () {
-            const transactions = [];
-            for (let i = 0; i < 20; i++) {
-                transactions.push({
-                    to: recipient.address,
-                    value: parseEther("0.01"),
-                    data: "0x",
-                });
-            }
-
-            const payload = await createNewFormatPayload(account, SOURCE_ADDRESS, transactions, publicKeyX, publicKeyY);
-
-            const initialBalance = await hre.ethers.provider.getBalance(recipient.address);
-
-            await entryPoint.connect(executor).executePayload(SOURCE_ADDRESS, SOURCE_ADDRESS, payload);
-
-            const finalBalance = await hre.ethers.provider.getBalance(recipient.address);
-            const expectedGain = parseEther("0.01") * 20n;
-
-            expect(finalBalance - initialBalance).to.equal(expectedGain);
-        });
-
-        it("Should reject batch with 21 transactions (exceeds MAX_BATCH_SIZE)", async function () {
-            const transactions = [];
-            for (let i = 0; i < 21; i++) {
-                transactions.push({
-                    to: recipient.address,
-                    value: parseEther("0.01"),
-                    data: "0x",
-                });
-            }
-
-            const payload = await createNewFormatPayload(account, SOURCE_ADDRESS, transactions, publicKeyX, publicKeyY);
-
-            // Account validates batch size and reverts with InvalidPayloadArray, wrapped as TransactionFailed
-            await expect(
-                entryPoint.connect(executor).executePayload(SOURCE_ADDRESS, SOURCE_ADDRESS, payload)
-            ).to.be.revertedWithCustomError(entryPoint, "TransactionFailed");
-        });
-
-        it("Should accept batch with 1 transaction", async function () {
-            const payload = await createNewFormatPayload(
-                account,
-                SOURCE_ADDRESS,
-                [{ to: recipient.address, value: parseEther("0.01"), data: "0x" }],
-                publicKeyX,
-                publicKeyY
-            );
-
-            const initialBalance = await hre.ethers.provider.getBalance(recipient.address);
-
-            await entryPoint.connect(executor).executePayload(SOURCE_ADDRESS, SOURCE_ADDRESS, payload);
-
-            const finalBalance = await hre.ethers.provider.getBalance(recipient.address);
-            expect(finalBalance - initialBalance).to.equal(parseEther("0.01"));
-        });
-    });
-});
-
-describe("EntryPoint ERC20 Operations", function () {
-    const RECIPIENT_ADDRESS = "0x390dc2368bfde7e7a370af46c0b834b718d570c1";
-
-    let PUBLIC_KEY_X: string[];
-    let PUBLIC_KEY_Y: string[];
-
-    const THRESHOLD = 1;
-    const totalSigners = 1;
-
-    const SOURCE_ADDRESS = "neutron1chcktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
-
-    let entryPoint: EntryPoint;
-    let recover: HardhatEthersSigner;
-    let account: Account;
-    let myToken: MyToken;
-
-    this.beforeAll(async function () {
-        [recover] = await hre.ethers.getSigners();
-
-        const pubKey = await getPublicKeyFromMnemonic(TEST_MNEMONIC);
-        PUBLIC_KEY_X = [pubKey.x];
-        PUBLIC_KEY_Y = [pubKey.y];
-
-        const AccountFactoryContract = await hre.ethers.getContractFactory("AccountFactory");
-        const accountFactory = await AccountFactoryContract.deploy();
-        await accountFactory.waitForDeployment();
-
-        const EntryPointContract = await hre.ethers.getContractFactory("EntryPoint");
-        entryPoint = await EntryPointContract.deploy(accountFactory.target, recover.address);
-        await entryPoint.waitForDeployment();
-
-        await entryPoint.setExecutor(recover.address, true);
-
-        const sourceChain = "sourceChain";
-
-        const payload = new AbiCoder().encode(
-            ["uint8", "uint64", "uint64", "bytes32", "bytes32"],
-            [1, totalSigners, THRESHOLD, PUBLIC_KEY_X[0], PUBLIC_KEY_Y[0]]
-        );
-
-        await entryPoint.executePayload(sourceChain, SOURCE_ADDRESS, payload);
-        const accountAddr = await accountFactory.getAccount(SOURCE_ADDRESS);
-
-        const AccountContract = await hre.ethers.getContractFactory("Account");
-        account = AccountContract.attach(accountAddr) as Account;
-
-        await recover.sendTransaction({
-            to: accountAddr,
-            value: parseEther("2.0"),
-        });
-
-        const MyTokenContract = await hre.ethers.getContractFactory("MyToken");
-        myToken = await MyTokenContract.deploy("MyToken", "MTK", 18);
-        await myToken.waitForDeployment();
-
-        await myToken.transfer(accountAddr, parseEther("3.0"));
-    });
-
-    it("should have funds", async function () {
-        const accountAddress = await account.getAddress();
-        const balance = await hre.ethers.provider.getBalance(accountAddress);
-        expect(balance).to.equal(parseEther("2.0"));
-
-        const myTokenBalance = await myToken.balanceOf(accountAddress);
-        expect(myTokenBalance).to.equal(parseEther("3.0"));
-    });
-
-    it("should execute erc20 transfer from Account contract", async function () {
-        const initialRecipientBalance = await myToken.balanceOf(RECIPIENT_ADDRESS);
-        const amountToSend = parseEther("0.001");
-
-        const sourceChain = "sourceChain";
-
-        const transferData = myToken.interface.encodeFunctionData("transfer", [RECIPIENT_ADDRESS, amountToSend]);
-
-        const payload = await createNewFormatPayload(
-            account,
-            SOURCE_ADDRESS,
-            [{ to: myToken.target as string, value: 0n, data: transferData }],
-            PUBLIC_KEY_X,
-            PUBLIC_KEY_Y
-        );
-
-        await entryPoint.executePayload(sourceChain, SOURCE_ADDRESS, payload);
-
-        const finalRecipientBalance = await myToken.balanceOf(RECIPIENT_ADDRESS);
-        expect(finalRecipientBalance).to.equal(initialRecipientBalance + amountToSend);
-    });
-
-    it("should execute erc20 approve from Account contract", async function () {
-        const amountToSend = parseEther("0.001");
-        const accountAddress = await account.getAddress();
-
-        const sourceChain = "sourceChain";
-
-        const initialAllowance = await myToken.allowance(accountAddress, RECIPIENT_ADDRESS);
-        expect(initialAllowance).to.equal(0);
-
-        const approveData = myToken.interface.encodeFunctionData("approve", [RECIPIENT_ADDRESS, amountToSend]);
-
-        const payload = await createNewFormatPayload(
-            account,
-            SOURCE_ADDRESS,
-            [{ to: myToken.target as string, value: 0n, data: approveData }],
-            PUBLIC_KEY_X,
-            PUBLIC_KEY_Y
-        );
-
-        await entryPoint.executePayload(sourceChain, SOURCE_ADDRESS, payload);
-
-        const finalRecipientAllowance = await myToken.allowance(accountAddress, RECIPIENT_ADDRESS);
-        expect(finalRecipientAllowance).to.equal(amountToSend);
+        expect(firstAccount).to.equal(allAccounts[0]);
     });
 });
