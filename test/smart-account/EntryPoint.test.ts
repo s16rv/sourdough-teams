@@ -15,7 +15,7 @@ import {
 import { generateSignatureWithMnemonic, getPublicKeyFromMnemonic } from "../../scripts/generateSignature";
 
 const TEST_MNEMONIC = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-const EXPECTED_CHAIN_ID = "ethereum-1";
+const EXPECTED_CHAIN_ID = 31337n; // Hardhat default chain ID
 
 /**
  * Helper to create a signed payload for the new format
@@ -688,8 +688,8 @@ describe("EntryPoint Error Paths", function () {
             const accountAddress = await account.getAddress();
             const sequence = (await account.accountSequence()) + 1n;
 
-            // Create txPayload with wrong chainId
-            const txPayload = encodeNewTxPayload("wrong-chain-id", accountAddress, sequence, [
+            // Create txPayload with wrong chainId (use 99999 instead of 31337)
+            const txPayload = encodeNewTxPayload(99999n, accountAddress, sequence, [
                 { to: owner.address, value: parseEther("0.01"), data: "0x" },
             ]);
 

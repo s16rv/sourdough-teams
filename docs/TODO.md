@@ -18,7 +18,7 @@ Tracking missing functionality, security fixes, and improvements for audit readi
 - [x] **Debug events** - KEPT: DebugReason, DebugTxHash, DebugError events retained for debugging. Zero-cost when not triggered, valuable for diagnosing failures.
 - [ ] **Recovery path chain binding** - `recoverTransaction` has no chain_id validation. Add `chainId` to `recoverProposal` payload and validate against `block.chainid` to prevent cross-chain replay if same account exists on multiple chains via CREATE2
 - [x] **Owner signature doesn't bind to data** - FIXED: New payload format includes hash commitment in signBytes. Owner signs `sha256(signBytes)` which contains `keccak256(txPayload)`. Account verifies `keccak256(txPayload) == extractedHash` before execution.
-- [ ] **chain_id validation (numeric)** - Current implementation validates chainId as string (e.g., "ethereum-1"). Should migrate to use `block.chainid` (numeric) for stronger validation. String comparison is gas-inefficient and requires hardcoded constant. Recovery path also needs chain_id validation.
+- [x] **chain_id validation (numeric)** - FIXED: txPayload now uses `uint256 evmChainId` instead of string. EntryPoint validates against `block.chainid` for gas-efficient on-chain validation. Recovery path still needs chain_id validation (separate TODO).
 
 ## Gas Optimizations
 
