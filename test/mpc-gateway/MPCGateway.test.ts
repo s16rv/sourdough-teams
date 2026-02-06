@@ -1,7 +1,8 @@
 import hre, { upgrades } from "hardhat";
 import { expect } from "chai";
 import { ethers } from "hardhat";
-import { EntryPoint, MPCGateway, MPCVerifier } from "../../typechain-types";
+import { EntryPoint, MPCGateway, MPCVerifier, AccountFactory } from "../../typechain-types";
+import { encodeCreateAccountPayload, DEFAULT_SALT } from "../utils/lib";
 
 describe("MPCGateway", function () {
     let mpcGateway: MPCGateway;
@@ -15,7 +16,6 @@ describe("MPCGateway", function () {
     const signatureV = 27;
     const signatureR = "0x9272896f66ef96f4516bbea12ee7e04673060df8dc07b2b79b261ed611ac8b08";
     const signatureS = "0x7143dfd748a847b8961a4a57902c4f3198e80d94b165a63625ae8b227fdb649e";
-    const signatureV = 27;
 
     // Test values for contract call parameters
     const sourceChain = "sourdough-1";
@@ -260,7 +260,6 @@ describe("MPCGateway Entrypoint Integration", function () {
     const signatureV = 27;
     const signatureR = "0x9272896f66ef96f4516bbea12ee7e04673060df8dc07b2b79b261ed611ac8b08";
     const signatureS = "0x7143dfd748a847b8961a4a57902c4f3198e80d94b165a63625ae8b227fdb649e";
-    const signatureV = 27;
 
     // Test values for contract call parameters
     const sourceChain = "sourdough-1";
@@ -428,16 +427,13 @@ describe("MPCGateway Verifier Integration", function () {
     let nonOwner: any;
     let relayer: any;
 
-    // MPC Public Key values - used to derive the signer address
-    const MPC_PUBLIC_KEY_X = "0xf8beefb970589c6e2a7105c161b51661463ea39bf5360222d42e5a3eb5033e19";
-    const MPC_PUBLIC_KEY_Y = "0x9e90e07eb23e01251a5493be008c70758e5275c56a6d79ed2223d8aeb38a431f";
+    // Generate a random wallet for testing MPC signatures
+    const mpcWallet = ethers.Wallet.createRandom();
+    const pubKey = mpcWallet.signingKey.publicKey; // 0x04 + x + y
+    const MPC_PUBLIC_KEY_X = "0x" + pubKey.slice(4, 68);
+    const MPC_PUBLIC_KEY_Y = "0x" + pubKey.slice(68);
 
-    // Helper to derive Ethereum address from public key
-    function publicKeyToAddress(pubKeyX: string, pubKeyY: string): string {
-        const pubKeyBytes = hre.ethers.concat([pubKeyX, pubKeyY]);
-        const hash = hre.ethers.keccak256(pubKeyBytes);
-        return "0x" + hash.slice(-40);
-    }
+    let params: any;
 
     beforeEach(async function () {
         [owner, nonOwner, relayer] = await ethers.getSigners();
@@ -458,6 +454,36 @@ describe("MPCGateway Verifier Integration", function () {
             kind: "uups",
         })) as unknown as MPCGateway;
         await mpcGateway.waitForDeployment();
+
+        // Define params for tests
+        params = {
+            sourceChain: "sourdough-1",
+            sourceAddress: "cosmos1zypqa76je7pxsdwkfah6mu9a583sju6xqt3mv6",
+            destinationChain: "polygon",
+            destinationAddress: mockEntryPoint.target,
+            payload: "0x1234",
+            signatureR: "",
+            signatureS: "",
+            signatureV: 0,
+        };
+
+        // Generate signature
+        const encodedParams = ethers.AbiCoder.defaultAbiCoder().encode(
+            ["string", "string", "string", "address", "bytes"],
+            [
+                params.sourceChain,
+                params.sourceAddress,
+                params.destinationChain,
+                params.destinationAddress,
+                params.payload,
+            ]
+        );
+        const payloadHash = ethers.sha256(encodedParams);
+        const signature = mpcWallet.signingKey.sign(payloadHash);
+
+        params.signatureR = signature.r;
+        params.signatureS = signature.s;
+        params.signatureV = signature.v - 27;
     });
 
     describe("MPCVerifier Initialization", function () {
@@ -468,9 +494,6 @@ describe("MPCGateway Verifier Integration", function () {
         });
 
         it("Should pass to validate a signature with the provided public key", async function () {
-            // Parse the hex data to get the signature and payload
-            const params = parseExecuteContractCallHex();
-
             // Generate a payload hash similar to what the contract would do
             const encodedParams = ethers.AbiCoder.defaultAbiCoder().encode(
                 ["string", "string", "string", "address", "bytes"],
@@ -485,10 +508,9 @@ describe("MPCGateway Verifier Integration", function () {
             const payloadHash = ethers.sha256(encodedParams);
 
             // Try to validate the signature directly with the MPCVerifier
-            // This should fail because the signature doesn't match the public key
             const isValid = await mpcVerifier.validateMPCSignature(
                 payloadHash,
-                0,
+                params.signatureV,
                 params.signatureR,
                 params.signatureS
             );
@@ -501,7 +523,6 @@ describe("MPCGateway Verifier Integration", function () {
     describe("Execute Contract Call", function () {
         it("Should fail when signature does not match signer address", async function () {
             // Using arbitrary signature values that won't match the expected signer
-            const signatureV = 27;
             const signatureR = "0xd9d9d77db6e734f1d2a1428bfd92b0f2969e5eb03759843e0330b413964eb177";
             const signatureS = "0x4deaa3be2edb551dbb07102b0a88b510170154df6a1f5ed58101abe99440dda5";
 
@@ -509,8 +530,8 @@ describe("MPCGateway Verifier Integration", function () {
                 .connect(relayer)
                 .executeContractCall.staticCall(
                     0,
-                    params.signatureR,
-                    params.signatureS,
+                    signatureR,
+                    signatureS,
                     params.sourceChain,
                     params.sourceAddress,
                     params.destinationChain,

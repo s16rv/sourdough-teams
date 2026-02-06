@@ -106,7 +106,7 @@ describe("Integration: Full Flow", function () {
 
         // Deploy MPCVerifier with MPC public key
         const MPCVerifierContract = await hre.ethers.getContractFactory("MPCVerifier");
-        mpcVerifier = await MPCVerifierContract.deploy(mpcOwner.address, mpcPublicKeyX, mpcPublicKeyY);
+        mpcVerifier = await MPCVerifierContract.deploy(mpcOwner.address, mpcPubKey.x, mpcPubKey.y);
         await mpcVerifier.waitForDeployment();
 
         // Deploy AccountFactory proxy
