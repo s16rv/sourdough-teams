@@ -27,6 +27,8 @@
         "@cosmjs/crypto": "^0.32.4",
         "@cosmjs/encoding": "^0.32.4",
         "@openzeppelin/contracts": "^5.4.0",
+        "@openzeppelin/contracts-upgradeable": "^5.4.0",
+        "@openzeppelin/hardhat-upgrades": "^3.9.1",
         "dotenv": "^16.4.5",
         "ethers": "^6.13.3"
     },

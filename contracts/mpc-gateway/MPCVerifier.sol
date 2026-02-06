@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.21;
+pragma solidity ^0.8.24;
 
 import "./interfaces/IMPCVerifier.sol";
 
 contract MPCVerifier is IMPCVerifier {
-    address private immutable ownerAddress;
-    bytes32 public publicKeyX;
-    bytes32 public publicKeyY;
-
     // secp256k1 curve order / 2 for malleability check (EIP-2)
     uint256 private constant SECP256K1_N_DIV_2 =
         0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0;
+
+    address private immutable ownerAddress;
+    bytes32 public publicKeyX;
+    bytes32 public publicKeyY;
 
     /**
      * @notice Initializes the MPC verifier contract
@@ -30,9 +30,9 @@ contract MPCVerifier is IMPCVerifier {
     }
 
     /**
-     * @notice Validates the MPC signature
+     * @notice Validates the MPC signature using native ecrecover
      * @param payloadHash Hash of the payload to be signed
-     * @param v Recovery id
+     * @param v Recovery parameter of the signature
      * @param r X coordinate of the signature
      * @param s Y coordinate of the signature
      * @return bool True if the signature is valid, false otherwise

@@ -28,8 +28,8 @@ Source Chain --> MPC Relayer --> EVM Chain (this repo)
 | User funds in accounts | High   | ETH and tokens held by smart accounts           |
 | Account control        | High   | Public keys and threshold determining ownership |
 | RoutingRailgun funds   | High   | Tokens staged for Railgun shielding             |
-| Executor permissions   | Medium | Addresses authorized to relay payloads          |
-| MPC public key         | Medium | Key used to validate MPC signatures             |
+| Proxy upgrade rights   | Medium | Owner can upgrade infrastructure contracts      |
+| MPC signer address     | Medium | Address used to validate MPC signatures         |
 | System availability    | Medium | Ability to process transactions                 |
 
 ## Authorization Model
@@ -68,8 +68,14 @@ Source Chain --> MPC Relayer --> EVM Chain (this repo)
 |                                      | Account |            |
 |                                      +---------+            |
 |  - Requires valid MPC signature on txHash                   |
-|  - Account verifies owner signatures + sequence             |
-|  - Goes through operator infrastructure                     |
+|  - EntryPoint is "dumb router" - just parses and forwards   |
+|  - Account validates everything atomically:                 |
+|    * evmChainId == block.chainid                            |
+|    * accountAddress == address(this)                        |
+|    * keccak256(txPayload) == hash in signBytes              |
+|    * threshold owner signatures on sha256(signBytes)        |
+|    * sequence == accountSequence + 1                        |
+|  - Then executes calls atomically (no TOCTOU possible)      |
 |                                                             |
 |  Path 2: Recovery (direct, censorship resistant)            |
 |  +---------------------+   +---------+                      |
@@ -77,10 +83,12 @@ Source Chain --> MPC Relayer --> EVM Chain (this repo)
 |  +---------------------+   +---------+                      |
 |  - Anyone can call with valid signatures                    |
 |  - Requires threshold owner signatures                      |
+|  - Validates evmChainId == block.chainid                    |
 |  - Bypasses MPC infrastructure entirely                     |
 |  - Escape hatch for censorship/liveness issues              |
 |                                                             |
 |  Both paths verify signatures. Security is equivalent.      |
+|  Account is the "trust anchor" - self-protecting.           |
 +-------------------------------------------------------------+
 ```
 
@@ -141,9 +149,8 @@ Source Chain --> MPC Relayer --> EVM Chain (this repo)
 
 | Entity                  | Trusted For                                                      | NOT Trusted For                       |
 | ----------------------- | ---------------------------------------------------------------- | ------------------------------------- |
-| **EVM chain**           | Executing contracts correctly                                    | -                                     |
-| **Secp256k1Verifier**   | Correct signature verification                                   | -                                     |
-| **Operator (multisig)** | Maintaining infrastructure, setting executors, rotating MPC keys | Accessing user funds                  |
+| **EVM chain**           | Executing contracts correctly, ecrecover precompile              | -                                     |
+| **Operator (multisig)** | Maintaining infrastructure, upgrading proxies, rotating MPC keys | Accessing user funds                  |
 | **MPC system**          | Relaying valid payloads                                          | - (account verifies anyway)           |
 | **Source chain**        | Transaction origination, signature collection                    | - (censorship -> recovery path)       |
 | **Account signers**     | Acting in user's interest                                        | - (threshold protects)                |
@@ -165,55 +172,101 @@ These properties must **always** hold:
 
 ## External Dependencies
 
-| Dependency                         | Risk                         | Impact if Compromised                 |
-| ---------------------------------- | ---------------------------- | ------------------------------------- |
-| OpenZeppelin contracts             | Bug in standard library      | Contract malfunction                  |
-| Secp256k1Verifier (FreshCryptoLib) | Signature verification bug   | Catastrophic                          |
-| EVM chain                          | Chain halt, reorg            | Liveness lost, potential double-spend |
-| Railgun protocol                   | Protocol bug                 | RoutingRailgun funds at risk          |
-| ERC20 tokens                       | Non-standard implementations | Silent transfer failures              |
+| Dependency                           | Risk                         | Impact if Compromised                 |
+| ------------------------------------ | ---------------------------- | ------------------------------------- |
+| OpenZeppelin contracts (upgradeable) | Bug in standard library      | Contract malfunction                  |
+| EVM ecrecover precompile             | Signature verification bug   | Catastrophic (highly unlikely)        |
+| EVM chain                            | Chain halt, reorg            | Liveness lost, potential double-spend |
+| Railgun protocol                     | Protocol bug                 | RoutingRailgun funds at risk          |
+| ERC20 tokens                         | Non-standard implementations | Silent transfer failures              |
 
 ## Administrative Model
 
-| Contract              | Admin        | Can Do                                | Should Be Able To Do                |
-| --------------------- | ------------ | ------------------------------------- | ----------------------------------- |
-| MPCVerifier           | ownerAddress | Update MPC public key                 | -                                   |
-| MPCGateway            | None         | -                                     | Update verifier address (TODO)      |
-| EntryPoint            | ownerAddress | Set/remove executors                  | -                                   |
-| AccountFactory        | None         | -                                     | Update entry point, verifier (TODO) |
-| Account instances     | None         | -                                     | Immutable by design                 |
-| RoutingRailgun        | controller   | Approve tokens, execute calls, refund | -                                   |
-| RoutingRailgunFactory | None         | -                                     | Update Railgun address (TODO)       |
+| Contract              | Type       | Admin        | Can Do                                    |
+| --------------------- | ---------- | ------------ | ----------------------------------------- |
+| MPCVerifier           | Immutable  | ownerAddress | Update MPC signer address                 |
+| MPCGateway            | UUPS Proxy | owner        | Upgrade implementation, set verifier      |
+| EntryPoint            | UUPS Proxy | owner        | Upgrade implementation, set MPCGateway    |
+| AccountFactory        | UUPS Proxy | owner        | Upgrade implementation, set EntryPoint    |
+| Account instances     | Immutable  | None         | Immutable by design (user's trust anchor) |
+| RoutingRailgun        | Immutable  | controller   | Approve tokens, execute calls, refund     |
+| RoutingRailgunFactory | Immutable  | None         | -                                         |
 
 ### Operator
 
 The **operator** is expected to be a multisig that controls administrative functions across the system. The operator:
 
-- **Can** set executors on EntryPoint
-- **Can** rotate MPC public keys on MPCVerifier
+- **Can** upgrade MPCGateway, EntryPoint, AccountFactory (UUPS proxies)
+- **Can** set MPCGateway address on EntryPoint
+- **Can** set EntryPoint address on AccountFactory
+- **Can** rotate MPC signer address on MPCVerifier
 - **Cannot** access user funds (no signature authority)
 - **Cannot** modify user accounts (accounts are immutable)
-- **Can** affect liveness by removing executors (but recovery path exists)
+- **Can** affect liveness by misconfiguring contracts (but recovery path exists)
 
 ### Admin Limitations
 
-- Adding a malicious executor doesn't compromise funds (signatures still protect)
-- Rotating MPC key requires careful coordination with off-chain MPC system
+- Upgrading infrastructure contracts doesn't compromise funds (Account validates all signatures)
+- Rotating MPC signer requires careful coordination with off-chain MPC system
 - Account code is locked at creation (upgrade by creating new account)
+- Inter-contract access control prevents unauthorized calls (onlyMPCGateway, onlyEntryPoint)
 
 ## Known Issues & Accepted Risks
 
-| Issue                            | Status           | Rationale                                     |
-| -------------------------------- | ---------------- | --------------------------------------------- |
-| No SafeERC20 usage               | **Needs fix**    | Silent failures with non-standard tokens      |
-| No reentrancy guards             | **Needs review** | External calls with value in Account.\_call() |
-| Debug events in production       | **Needs fix**    | Should be removed or gated                    |
-| O(n\*m) pubkey validation        | Accepted         | N and M are small in practice                 |
-| No grants/delegation             | **Planned**      | Simpler model for now, to be added            |
-| AccountFactory publicly callable | **Needs fix**    | Should be EntryPoint-only                     |
+| Issue                         | Status      | Rationale                                                      |
+| ----------------------------- | ----------- | -------------------------------------------------------------- |
+| SafeERC20 usage               | ✅ Fixed    | Using SafeERC20 in RoutingRailgun.sol                          |
+| Reentrancy protection         | ✅ Fixed    | CEI pattern in Account, ReentrancyGuard in RoutingRailgun      |
+| TOCTOU vulnerability          | ✅ Fixed    | Atomic validateAndExecute(), executeTransactions() removed     |
+| Recovery path chain binding   | ✅ Fixed    | recoverTransaction validates evmChainId == block.chainid       |
+| Inter-contract access control | ✅ Fixed    | onlyMPCGateway on EntryPoint, onlyEntryPoint on AccountFactory |
+| Debug events in production    | Accepted    | Zero-cost when not triggered, valuable for debugging           |
+| O(n\*m) pubkey validation     | Accepted    | N and M are small in practice                                  |
+| No grants/delegation          | **Planned** | Simpler model for now, to be added                             |
+
+## Trust Anchor Architecture
+
+The **Account contract is the trust anchor** of the system. This means:
+
+1. **Account validates everything atomically** - All validation (chainId, accountAddress, signatures, sequence, hash commitment) AND execution happen in a single function call. No way to split validation from execution (prevents TOCTOU attacks).
+
+2. **Account is immutable** - Once deployed, Account code cannot change. Signers and threshold are fixed at creation.
+
+3. **EntryPoint is a dumb router** - EntryPoint just parses payloads and forwards to Account. Even a compromised EntryPoint cannot steal funds because Account validates all cryptographic proofs.
+
+4. **Infrastructure is upgradeable** - MPCGateway, EntryPoint, AccountFactory can be upgraded (via proxy pattern). This is safe because security doesn't depend on them - Account protects itself.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    TRUST HIERARCHY                          │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  Infrastructure Layer (team-controlled, upgradeable)        │
+│  ┌─────────────┐  ┌─────────────┐  ┌────────────────┐      │
+│  │ MPCGateway  │→ │ EntryPoint  │→ │ AccountFactory │      │
+│  │   (proxy)   │  │   (proxy)   │  │    (proxy)     │      │
+│  └─────────────┘  └─────────────┘  └────────────────┘      │
+│        │                │                   │               │
+│        ▼                ▼                   ▼               │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │               TRUST ANCHOR (immutable)              │   │
+│  │  ┌─────────────────────────────────────────────┐   │   │
+│  │  │                 Account                      │   │   │
+│  │  │  - Validates chainId, accountAddress         │   │   │
+│  │  │  - Validates signatures against stored keys  │   │   │
+│  │  │  - Validates sequence (replay protection)    │   │   │
+│  │  │  - Validates hash commitment                 │   │   │
+│  │  │  - Executes calls atomically                 │   │   │
+│  │  └─────────────────────────────────────────────┘   │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
 
 ## Revision History
 
-| Date       | Author  | Changes              |
-| ---------- | ------- | -------------------- |
-| 2026-01-30 | Initial | Created threat model |
+| Date       | Author  | Changes                                                            |
+| ---------- | ------- | ------------------------------------------------------------------ |
+| 2026-01-30 | Initial | Created threat model                                               |
+| 2026-02-04 | Update  | Added trust anchor architecture, updated for TOCTOU fix            |
+| 2026-02-04 | Update  | UUPS proxies, inter-contract access control, MPCVerifier ecrecover |

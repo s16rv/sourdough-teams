@@ -1,28 +1,79 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.21;
+pragma solidity ^0.8.24;
 
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "./interfaces/IMPCGateway.sol";
 import "./interfaces/IMPCVerifier.sol";
 import "../smart-account/interfaces/IEntryPoint.sol";
 
-contract MPCGateway is IMPCGateway {
-    mapping(bytes32 => bool) public executedCalls;
-    IMPCVerifier private verifier;
+contract MPCGateway is IMPCGateway, Initializable, UUPSUpgradeable, OwnableUpgradeable {
+    /// @custom:storage-location erc7201:sourdough.storage.MPCGateway
+    struct MPCGatewayStorage {
+        mapping(bytes32 => bool) executedCalls;
+        IMPCVerifier verifier;
+    }
+
+    // keccak256(abi.encode(uint256(keccak256("sourdough.storage.MPCGateway")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant STORAGE_LOCATION =
+        keccak256(abi.encode(uint256(keccak256("sourdough.storage.MPCGateway")) - 1)) & ~bytes32(uint256(0xff));
+
+    function _getMPCGatewayStorage() private pure returns (MPCGatewayStorage storage $) {
+        bytes32 slot = STORAGE_LOCATION;
+        assembly {
+            $.slot := slot
+        }
+    }
+
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
 
     /**
-     * @dev Constructor that initializes the contract.
-     * @param _verifierAddress The address of the MPC verifier contract.
+     * @notice Initializes the MPCGateway contract
+     * @param _verifierAddress The address of the MPCVerifier contract
+     * @param _owner The address of the contract owner
      */
-    constructor(address _verifierAddress) {
+    function initialize(address _verifierAddress, address _owner) public initializer {
         if (_verifierAddress == address(0)) revert ZeroAddress();
-        verifier = IMPCVerifier(_verifierAddress);
+        if (_owner == address(0)) revert ZeroAddress();
+
+        __Ownable_init(_owner);
+        __UUPSUpgradeable_init();
+
+        MPCGatewayStorage storage $ = _getMPCGatewayStorage();
+        $.verifier = IMPCVerifier(_verifierAddress);
+    }
+
+    /**
+     * @notice Returns whether a transaction has been executed
+     * @param txHash The transaction hash to check
+     * @return bool True if the transaction has been executed
+     */
+    function executedCalls(bytes32 txHash) external view returns (bool) {
+        MPCGatewayStorage storage $ = _getMPCGatewayStorage();
+        return $.executedCalls[txHash];
+    }
+
+    /**
+     * @notice Sets the verifier contract address
+     * @param newVerifier The new verifier address
+     * @dev Only the contract owner can update the verifier
+     */
+    function setVerifier(address newVerifier) external onlyOwner {
+        if (newVerifier == address(0)) revert ZeroAddress();
+        MPCGatewayStorage storage $ = _getMPCGatewayStorage();
+        emit VerifierUpdated(address($.verifier), newVerifier);
+        $.verifier = IMPCVerifier(newVerifier);
     }
 
     /**
      * @notice Approves a contract call by validating the MPC signature
      * @dev Internal function that validates the MPC signature against the transaction hash
      * @param txHash The hash of the transaction parameters
-     * @param v The recovery id of the MPC signature
+     * @param v The v component of the MPC signature (recovery parameter)
      * @param r The r component of the MPC signature
      * @param s The s component of the MPC signature
      * @param sourceChain Identifier of the chain where the transaction originated
@@ -39,19 +90,15 @@ contract MPCGateway is IMPCGateway {
         string calldata sourceAddress,
         address destinationAddress
     ) internal returns (bool) {
+        MPCGatewayStorage storage $ = _getMPCGatewayStorage();
         // Call Verifier to validate MPC signature
-        bool isValidSignature = verifier.validateMPCSignature(txHash, v, r, s);
+        bool isValidSignature = $.verifier.validateMPCSignature(txHash, v, r, s);
         if (!isValidSignature) {
             return false;
         }
 
         // Emit ContractCallApproved event
-        emit ContractCallApproved(
-            sourceChain,
-            sourceAddress,
-            destinationAddress,
-            txHash
-        );
+        emit ContractCallApproved(sourceChain, sourceAddress, destinationAddress, txHash);
 
         return true;
     }
@@ -78,6 +125,8 @@ contract MPCGateway is IMPCGateway {
         address destinationAddress,
         bytes calldata payload
     ) external returns (bool) {
+        MPCGatewayStorage storage $ = _getMPCGatewayStorage();
+
         emit ContractCallExecuting(
             mpcSignatureV,
             mpcSignatureR,
@@ -96,13 +145,13 @@ contract MPCGateway is IMPCGateway {
         emit DebugTxHash(txHash);
 
         // Check if already executed to prevent replay attacks
-        if (executedCalls[txHash]) {
+        if ($.executedCalls[txHash]) {
             emit DebugError("TransactionAlreadyExecuted");
             return false;
         }
 
         // Mark transaction as executed to prevent replay
-        executedCalls[txHash] = true;
+        $.executedCalls[txHash] = true;
 
         // Ensure transaction is approved
         bool isApproved = _approveContractCall(
@@ -116,7 +165,7 @@ contract MPCGateway is IMPCGateway {
         );
         if (!isApproved) {
             emit DebugError("TransactionNotApproved");
-            executedCalls[txHash] = false;
+            $.executedCalls[txHash] = false;
             return false;
         }
 
@@ -129,17 +178,12 @@ contract MPCGateway is IMPCGateway {
         );
         if (!result) {
             emit DebugError("CallFailed");
-            executedCalls[txHash] = false;
+            $.executedCalls[txHash] = false;
             return false;
         }
 
         // Emit ContractCallExecuted event for tracking
-        emit ContractCallExecuted(
-            sourceChain,
-            sourceAddress,
-            destinationAddress,
-            txHash
-        );
+        emit ContractCallExecuted(sourceChain, sourceAddress, destinationAddress, txHash);
         return true;
     }
 
@@ -160,13 +204,10 @@ contract MPCGateway is IMPCGateway {
         address destinationAddress,
         bytes calldata payload
     ) public pure returns (bytes32) {
-        return sha256(abi.encode(
-            sourceChain,
-            sourceAddress,
-            destinationChain,
-            destinationAddress,
-            payload
-        ));
+        return
+            sha256(
+                abi.encode(sourceChain, sourceAddress, destinationChain, destinationAddress, payload)
+            );
     }
 
     /**
@@ -191,4 +232,10 @@ contract MPCGateway is IMPCGateway {
             return false;
         }
     }
+
+    /**
+     * @dev Authorizes an upgrade to a new implementation
+     * @param newImplementation Address of the new implementation
+     */
+    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 }

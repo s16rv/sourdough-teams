@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.21;
+pragma solidity ^0.8.24;
 
 interface IAccountFactory {
     /**
@@ -8,9 +8,15 @@ interface IAccountFactory {
     error ZeroAddress();
 
     /**
+     * @dev Error thrown when caller is not the owner.
+     */
+    error OnlyOwner();
+
+    /**
      * @dev Error thrown when the threshold is invalid.
      */
     error InvalidThreshold();
+
     /**
      * @dev Error thrown when the signature is invalid.
      */
@@ -25,11 +31,23 @@ interface IAccountFactory {
      * @dev Error thrown when the authorization provided for a transaction is invalid.
      */
     error InvalidAuthorization();
-    
+
     /**
      * @dev Error thrown when the account already exists.
      */
     error AccountAlreadyExists();
+
+    /**
+     * @dev Error thrown when the caller is not the EntryPoint.
+     */
+    error NotEntryPoint();
+
+    /**
+     * @dev Event emitted when the EntryPoint address is updated.
+     * @param oldEntryPoint The previous EntryPoint address.
+     * @param newEntryPoint The new EntryPoint address.
+     */
+    event EntryPointUpdated(address oldEntryPoint, address newEntryPoint);
 
     /**
      * @dev Creates a new account contract using the provided parameters and deploys it using CREATE2.
@@ -38,6 +56,7 @@ interface IAccountFactory {
      * @param y The y part of the public key.
      * @param threshold The threshold of the account.
      * @param sourceAddress The address on the source chain where the transaction originated.
+     * @param salt A salt value to allow multiple accounts per sourceAddress.
      * @return accountAddress The address of the newly created account contract.
      */
     function createAccount(
@@ -45,7 +64,8 @@ interface IAccountFactory {
         bytes32[] memory x,
         bytes32[] memory y,
         uint64 threshold,
-        string calldata sourceAddress
+        string calldata sourceAddress,
+        bytes32 salt
     ) external returns (address);
 
     /**
@@ -55,6 +75,7 @@ interface IAccountFactory {
      * @param y The y part of the public key.
      * @param addrHash The hash address on the source chain where the transaction originated.
      * @param threshold The threshold of the account.
+     * @param salt A salt value to allow multiple accounts per sourceAddress.
      * @return The address at which the contract would be deployed.
      */
     function computeAddress(
@@ -62,13 +83,28 @@ interface IAccountFactory {
         bytes32[] memory x,
         bytes32[] memory y,
         bytes32 addrHash,
-        uint64 threshold
+        uint64 threshold,
+        bytes32 salt
     ) external view returns (address);
 
     /**
-     * @dev Returns the list of accounts created by a particular signer.
+     * @dev Returns the first account created by a particular signer (backward compatibility).
      * @param sourceAddress The address on the source chain where the transaction originated.
-     * @return An account address created by the signer.
+     * @return An account address created by the signer, or address(0) if none exists.
      */
     function getAccount(string calldata sourceAddress) external view returns (address);
+
+    /**
+     * @dev Returns all accounts created by a particular signer.
+     * @param sourceAddress The address on the source chain where the transaction originated.
+     * @return An array of account addresses created by the signer.
+     */
+    function getAccounts(string calldata sourceAddress) external view returns (address[] memory);
+
+    /**
+     * @notice Sets the EntryPoint address.
+     * @dev Only the owner can set the EntryPoint address.
+     * @param _entryPoint The address of the EntryPoint contract.
+     */
+    function setEntryPoint(address _entryPoint) external;
 }

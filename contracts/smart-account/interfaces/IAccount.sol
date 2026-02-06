@@ -1,7 +1,22 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.21;
+pragma solidity ^0.8.24;
 
+/**
+ * @title IAccount
+ * @dev SECURITY: All functions that move funds MUST validate signatures atomically.
+ * Never split validation and execution into separate calls - this enables TOCTOU attacks.
+ */
 interface IAccount {
+    /**
+     * @dev Struct to pack signature data and reduce stack depth.
+     */
+    struct SignatureData {
+        uint8[] v;
+        bytes32[] r;
+        bytes32[] s;
+        bytes32[] x;
+        bytes32[] y;
+    }
     /**
      * @dev Error thrown when the signature is invalid.
      */
@@ -90,6 +105,16 @@ interface IAccount {
     error InvalidHashCommitment();
 
     /**
+     * @dev Error thrown when the chain ID doesn't match block.chainid.
+     */
+    error InvalidChainId();
+
+    /**
+     * @dev Error thrown when the account address in payload doesn't match this contract.
+     */
+    error InvalidAccountAddress();
+
+    /**
      * @dev Event emitted when the account is initialized.
      */
     event AccountInitialized();
@@ -131,16 +156,19 @@ interface IAccount {
     ) external view returns (bool, string memory);
 
     /**
-     * @dev Executes a transaction to a specified destination address.
-     * @param destList The list of destination addresses of the transactions.
-     * @param valueList The list of amounts of Ether to send.
-     * @param dataList The list of data to pass to the destinations.
+     * @dev Validates and executes a transaction atomically. This is the main entry point for the normal path.
+     * Account validates everything (signatures, chainId, accountAddress, sequence) and executes calls.
+     * @param signBytes The AMINO_JSON message that was signed.
+     * @param txPayloadHashOffset The offset to the hash in signBytes (points to "0x" prefix).
+     * @param sigs Signature data (v, r, s, x, y arrays).
+     * @param txPayload The transaction payload containing evmChainId, accountAddress, sequence, count, and calls.
      * @return bool indicating whether the transaction was successful.
      */
-    function executeTransactions(
-        address[] calldata destList,
-        uint256[] calldata valueList,
-        bytes[] calldata dataList
+    function validateAndExecute(
+        bytes calldata signBytes,
+        uint256 txPayloadHashOffset,
+        SignatureData calldata sigs,
+        bytes calldata txPayload
     ) external returns (bool);
 
     /**

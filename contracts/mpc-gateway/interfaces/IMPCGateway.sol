@@ -1,11 +1,16 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.21;
+pragma solidity ^0.8.24;
 
 interface IMPCGateway {
     /**
      * @dev Error thrown when a zero address is provided.
      */
     error ZeroAddress();
+
+    /**
+     * @dev Error thrown when caller is not the owner.
+     */
+    error OnlyOwner();
 
     /**
      * @dev Error thrown when the transaction has already been executed.
@@ -51,10 +56,11 @@ interface IMPCGateway {
         address destinationAddress,
         bytes32 txHash
     );
-    
+
     /**
      * @notice Emitted when a contract call is being executed.
      * @dev This event is emitted at the beginning of the executeContractCall function.
+     * @param mpcSignatureV The v component of the MPC signature (recovery parameter)
      * @param mpcSignatureR The r component of the MPC signature
      * @param mpcSignatureS The s component of the MPC signature
      * @param sourceChain Identifier of the chain where the transaction originated
@@ -69,7 +75,7 @@ interface IMPCGateway {
         string sourceAddress,
         address destinationAddress
     );
-    
+
     /**
      * @notice Debug event emitted with the transaction hash.
      * @param txHash Hash of the transaction
@@ -82,13 +88,19 @@ interface IMPCGateway {
      */
     event DebugError(string errorMessage);
 
-    // ContractCallParams struct has been removed in favor of using individual parameters directly
+    /**
+     * @notice Emitted when the verifier address is updated.
+     * @param oldVerifier The previous verifier address.
+     * @param newVerifier The new verifier address.
+     */
+    event VerifierUpdated(address oldVerifier, address newVerifier);
 
     /**
      * @notice Executes a contract call on the destination chain.
      * @dev This function is called by the relayer on the destination chain to execute a contract call.
-     * @param mpcSignatureR Signature from the MPC service (Hex bytes)
-     * @param mpcSignatureS Signature from the MPC service (Hex bytes)
+     * @param mpcSignatureV Recovery parameter of the MPC signature
+     * @param mpcSignatureR Signature from the MPC service (r component)
+     * @param mpcSignatureS Signature from the MPC service (s component)
      * @param sourceChain Identifier of the chain where the transaction originated
      * @param sourceAddress Address of the sender on the source chain
      * @param destinationChain Identifier of the target chain
@@ -105,4 +117,11 @@ interface IMPCGateway {
         address destinationAddress,
         bytes calldata payload
     ) external returns (bool);
+
+    /**
+     * @notice Sets the verifier contract address.
+     * @param newVerifier The new verifier address.
+     * @dev Only the contract owner can update the verifier.
+     */
+    function setVerifier(address newVerifier) external;
 }

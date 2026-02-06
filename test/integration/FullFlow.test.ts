@@ -1,4 +1,4 @@
-import hre from "hardhat";
+import hre, { upgrades } from "hardhat";
 import { expect } from "chai";
 import { AbiCoder, parseEther, sha256 } from "ethers";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
@@ -11,6 +11,8 @@ import {
     computeTxPayloadHash,
     createSignBytes,
     encodeNewPayload,
+    encodeCreateAccountPayload,
+    DEFAULT_SALT,
 } from "../utils/lib";
 
 /**
@@ -41,10 +43,19 @@ describe("Integration: Full Flow", function () {
     let publicKeyX: string[];
     let publicKeyY: string[];
 
-    // MPC key pair for signing
+    // MPC key pair for signing - using ecrecover now, so we need the derived address
     const MPC_MNEMONIC = "test test test test test test test test test test test junk";
-    let mpcPublicKeyX: string;
-    let mpcPublicKeyY: string;
+    let mpcSignerAddress: string;
+
+    /**
+     * Helper function to derive an Ethereum address from a mnemonic's public key
+     */
+    function publicKeyToAddress(pubKeyX: string, pubKeyY: string): string {
+        // Ethereum address is the last 20 bytes of keccak256(pubKeyX || pubKeyY)
+        const pubKeyBytes = hre.ethers.concat([pubKeyX, pubKeyY]);
+        const hash = hre.ethers.keccak256(pubKeyBytes);
+        return "0x" + hash.slice(-40);
+    }
 
     /**
      * Helper function to create a new format payload for Category 2 transactions
@@ -67,7 +78,6 @@ describe("Integration: Full Flow", function () {
         const { signBytes, hashOffset } = createSignBytes(txPayloadHash);
 
         // 4. Sign sha256(signBytes) with user's key
-        // Note: generateSignatureWithMnemonic computes sha256 internally, so we pass the raw signBytes content
         const signBytesBuffer = Buffer.from(signBytes.slice(2), "hex");
         const userSig = await generateSignatureWithMnemonic(signerMnemonic, signBytesBuffer.toString("hex"));
 
@@ -90,43 +100,55 @@ describe("Integration: Full Flow", function () {
         publicKeyX = [userPubKey.x];
         publicKeyY = [userPubKey.y];
 
-        // Get MPC public key
+        // Get MPC public key and derive address
         const mpcPubKey = await getPublicKeyFromMnemonic(MPC_MNEMONIC);
-        mpcPublicKeyX = mpcPubKey.x;
-        mpcPublicKeyY = mpcPubKey.y;
+        mpcSignerAddress = publicKeyToAddress(mpcPubKey.x, mpcPubKey.y);
 
         // Deploy MPCVerifier with MPC public key
         const MPCVerifierContract = await hre.ethers.getContractFactory("MPCVerifier");
-        mpcVerifier = await MPCVerifierContract.deploy(mpcOwner.address, mpcPublicKeyX, mpcPublicKeyY);
+        mpcVerifier = await MPCVerifierContract.deploy(mpcOwner.address, mpcPubKey.x, mpcPubKey.y);
         await mpcVerifier.waitForDeployment();
 
-        // Deploy AccountFactory
+        // Deploy AccountFactory proxy
         const AccountFactoryContract = await hre.ethers.getContractFactory("AccountFactory");
-        accountFactory = await AccountFactoryContract.deploy();
+        accountFactory = (await upgrades.deployProxy(AccountFactoryContract, [hre.ethers.ZeroAddress, owner.address], {
+            kind: "uups",
+        })) as unknown as AccountFactory;
         await accountFactory.waitForDeployment();
 
-        // Deploy EntryPoint
+        // Deploy EntryPoint proxy (with address(0) for mpcGateway initially)
         const EntryPointContract = await hre.ethers.getContractFactory("EntryPoint");
-        entryPoint = await EntryPointContract.deploy(accountFactory.target, owner.address);
+        entryPoint = (await upgrades.deployProxy(
+            EntryPointContract,
+            [await accountFactory.getAddress(), owner.address, hre.ethers.ZeroAddress],
+            { kind: "uups" }
+        )) as unknown as EntryPoint;
         await entryPoint.waitForDeployment();
 
-        // Deploy MPCGateway
+        // Deploy MPCGateway proxy
         const MPCGatewayContract = await hre.ethers.getContractFactory("MPCGateway");
-        mpcGateway = await MPCGatewayContract.deploy(mpcVerifier.target);
+        mpcGateway = (await upgrades.deployProxy(MPCGatewayContract, [await mpcVerifier.getAddress(), owner.address], {
+            kind: "uups",
+        })) as unknown as MPCGateway;
         await mpcGateway.waitForDeployment();
 
-        // Set MPCGateway as executor on EntryPoint
-        await entryPoint.setExecutor(mpcGateway.target, true);
+        // Wire up contracts
+        await accountFactory.setEntryPoint(await entryPoint.getAddress());
+        await entryPoint.setMPCGateway(await mpcGateway.getAddress());
 
-        // Create account via EntryPoint (simulating account creation)
-        const createAccountPayload = new AbiCoder().encode(
-            ["uint8", "uint64", "uint64", "bytes32", "bytes32"],
-            [1, 1, 1, publicKeyX[0], publicKeyY[0]] // category=1, totalSigners=1, threshold=1
-        );
+        // Create account via EntryPoint (need to impersonate mpcGateway)
+        const mpcGatewayAddress = await mpcGateway.getAddress();
+        // Fund the impersonated address using hardhat_setBalance (no receive() function needed)
+        await hre.network.provider.send("hardhat_setBalance", [
+            mpcGatewayAddress,
+            "0xDE0B6B3A7640000", // 1 ETH in hex
+        ]);
+        const mpcGatewaySigner = await hre.ethers.getImpersonatedSigner(mpcGatewayAddress);
 
-        // Need to set owner as executor temporarily to create account
-        await entryPoint.setExecutor(owner.address, true);
-        await entryPoint.executePayload(SOURCE_CHAIN, SOURCE_ADDRESS, createAccountPayload);
+        const createAccountPayload = encodeCreateAccountPayload(1, 1, DEFAULT_SALT, publicKeyX, publicKeyY);
+        await entryPoint
+            .connect(mpcGatewaySigner)
+            .executePayload(SOURCE_CHAIN, SOURCE_ADDRESS, createAccountPayload, { gasLimit: 5000000 });
 
         // Get the created account
         const accountAddr = await accountFactory.getAccount(SOURCE_ADDRESS);
@@ -157,16 +179,17 @@ describe("Integration: Full Flow", function () {
                 publicKeyY[0]
             );
 
-            // 2. Compute txHash preimage for MPC signature
+            // 2. Compute txHash preimage for MPC signature (matches sha256 in contract)
             const txHashPreimage = new AbiCoder().encode(
                 ["string", "string", "string", "address", "bytes"],
                 [SOURCE_CHAIN, SOURCE_ADDRESS, DESTINATION_CHAIN, entryPoint.target, fullPayload]
             );
 
-            // 3. Sign txHash preimage with MPC key
+            // 3. Sign the preimage with MPC key
+            // generateSignatureWithMnemonic will sha256 hash the input, matching what the contract does
             const mpcSig = await generateSignatureWithMnemonic(MPC_MNEMONIC, txHashPreimage.slice(2));
 
-            // 4. Execute via MPCGateway
+            // 4. Execute via MPCGateway (now includes v parameter, v needs +27 for ecrecover)
             const tx = await mpcGateway
                 .connect(relayer)
                 .executeContractCall(
@@ -338,13 +361,11 @@ describe("Integration: Full Flow", function () {
             const accountSequence = await account.accountSequence();
 
             // Encode recovery payload
-            const selector = hre.ethers.id("recoverProposal(uint64,address,uint256,bytes)").slice(0, 10);
             const abiCoder = new AbiCoder();
-            const encodedParams = abiCoder.encode(
-                ["uint64", "address", "uint256", "bytes"],
-                [accountSequence + 1n, RECIPIENT_ADDRESS, amountToSend, "0x"]
+            const txPayload = abiCoder.encode(
+                ["uint256", "uint64", "address", "uint256", "bytes"],
+                [CHAIN_ID, accountSequence + 1n, RECIPIENT_ADDRESS, amountToSend, "0x"]
             );
-            const txPayload = selector + encodedParams.slice(2);
 
             // Sign with user key directly (no MPC involved)
             const userSig = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayload.slice(2));

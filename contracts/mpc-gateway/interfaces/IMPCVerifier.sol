@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.21;
+pragma solidity ^0.8.24;
 
 interface IMPCVerifier {
     /**
@@ -11,6 +11,11 @@ interface IMPCVerifier {
      * @dev Error thrown when caller is not the owner.
      */
     error OnlyOwner();
+
+    /**
+     * @dev Error thrown when signature has invalid s value (malleability check).
+     */
+    error InvalidSignatureS();
 
     /**
      * @notice Emitted when the MPC public key is updated.
@@ -28,11 +33,13 @@ interface IMPCVerifier {
     );
 
     /**
-     * @notice Verifies the MPC signature.
+     * @notice Verifies the MPC signature using native ecrecover.
      * @dev This function is called by the relayer on the destination chain to verify the MPC signature.
      * @param payloadHash Hash of the payload
+     * @param v Recovery parameter of the signature.
      * @param r Part of the signature (r).
      * @param s Part of the signature (s).
+     * @return bool True if the signature is valid, false otherwise.
      */
     function validateMPCSignature(
         bytes32 payloadHash,

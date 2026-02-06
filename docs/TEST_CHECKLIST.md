@@ -1,10 +1,12 @@
 # Test Audit Checklist
 
-> **Last Updated:** 2026-01-31 (184 tests, 87% coverage)
+> **Last Updated:** 2026-02-04 (173 tests, 87% coverage)
 >
 > This document maps security invariants and trust boundaries to required test cases. Tests are prioritized by security impact.
 >
 > See also: [THREAT_MODEL.md](THREAT_MODEL.md) for security invariants, [TODO.md](TODO.md) for implementation tasks.
+>
+> **Architecture Note:** Account is the "trust anchor" - all validation and execution happens atomically in `validateAndExecute()`. EntryPoint is a dumb router. See THREAT_MODEL.md for details.
 
 **Priority Legend:**
 
@@ -65,14 +67,14 @@ Based on the 8 invariants from `THREAT_MODEL.md`.
 
 **Design Intent:** Same transaction cannot be executed twice.
 
-| Priority | Test Case                                                    | Status     | Location                |
-| -------- | ------------------------------------------------------------ | ---------- | ----------------------- |
-| 🔴       | Same sequence rejected on second attempt                     | ✅         | accountSecurity.test.ts |
-| 🔴       | Same txHash rejected at MPCGateway level                     | ✅         | mpcGateway.test.ts      |
-| 🔴       | Replay of MPC payload rejected                               | ✅         | fullFlow.test.ts        |
-| 🔴       | INVARIANT: Same sequence cannot be used twice                | ✅         | invariants.test.ts      |
-| 🔴       | INVARIANT: Replaying N times always fails after first        | ✅         | invariants.test.ts      |
-| 🔴       | **VULNERABILITY: Reentrancy allows replay during execution** | ⚠️ FAILING | reentrancy.test.ts      |
+| Priority | Test Case                                             | Status | Location                |
+| -------- | ----------------------------------------------------- | ------ | ----------------------- |
+| 🔴       | Same sequence rejected on second attempt              | ✅     | accountSecurity.test.ts |
+| 🔴       | Same txHash rejected at MPCGateway level              | ✅     | mpcGateway.test.ts      |
+| 🔴       | Replay of MPC payload rejected                        | ✅     | fullFlow.test.ts        |
+| 🔴       | INVARIANT: Same sequence cannot be used twice         | ✅     | invariants.test.ts      |
+| 🔴       | INVARIANT: Replaying N times always fails after first | ✅     | invariants.test.ts      |
+| 🔴       | Reentrancy protected via CEI pattern                  | ✅     | reentrancy.test.ts      |
 
 ### Invariant 4: Source Binding
 
@@ -167,24 +169,30 @@ External input enters at these points and must be validated.
 | 🔴       | txHash computed correctly                 | ✅     | generateTxHash.test.ts     |
 | 🟠       | Destination contract call failure handled | ✅     | mpcGateway.test.ts         |
 
-### Entry Point: Account.executeTransactions
+### Entry Point: Account.validateAndExecute
 
-| Priority | Test Case                         | Status | Location                       |
-| -------- | --------------------------------- | ------ | ------------------------------ |
-| 🔴       | Only EntryPoint can call          | ✅     | account.test.ts                |
-| 🔴       | Non-EntryPoint caller rejected    | ✅     | account.test.ts                |
-| 🟠       | Mismatched array lengths rejected | ✅     | (by code inspection)           |
-| 🟠       | Batch execution succeeds          | ✅     | entryPointMultiPayload.test.ts |
+**Note:** This function replaces the old `validateOperation()` + `executeTransactions()` pattern. Validation and execution are now atomic - no TOCTOU vulnerability possible.
+
+| Priority | Test Case                                 | Status | Location                       |
+| -------- | ----------------------------------------- | ------ | ------------------------------ |
+| 🔴       | Only EntryPoint can call                  | ✅     | account.test.ts                |
+| 🔴       | Non-EntryPoint caller rejected            | ✅     | account.test.ts                |
+| 🔴       | Validates evmChainId == block.chainid     | ✅     | entryPoint.test.ts             |
+| 🔴       | Validates accountAddress == address(this) | ✅     | account.test.ts                |
+| 🔴       | Validates hash commitment in signBytes    | ✅     | account.test.ts                |
+| 🔴       | Validates threshold signatures            | ✅     | account.test.ts                |
+| 🔴       | Validates sequence                        | ✅     | accountSecurity.test.ts        |
+| 🟠       | Batch execution succeeds                  | ✅     | entryPointMultiPayload.test.ts |
 
 ### Entry Point: Account.recoverTransaction
 
-| Priority | Test Case                                     | Status     | Location               |
-| -------- | --------------------------------------------- | ---------- | ---------------------- |
-| 🔴       | Invalid txPayload selector rejected           | ✅         | accountRecover.test.ts |
-| 🔴       | Invalid signature rejected                    | ✅         | accountRecover.test.ts |
-| 🔴       | Invalid pubkey rejected                       | ✅         | accountRecover.test.ts |
-| 🔴       | Invalid sequence rejected                     | ✅         | accountRecover.test.ts |
-| 🔴       | **VULNERABILITY: Reentrancy during \_call()** | ⚠️ FAILING | reentrancy.test.ts     |
+| Priority | Test Case                            | Status | Location               |
+| -------- | ------------------------------------ | ------ | ---------------------- |
+| 🔴       | Invalid evmChainId rejected          | ✅     | account.test.ts        |
+| 🔴       | Invalid signature rejected           | ✅     | accountRecover.test.ts |
+| 🔴       | Invalid pubkey rejected              | ✅     | accountRecover.test.ts |
+| 🔴       | Invalid sequence rejected            | ✅     | accountRecover.test.ts |
+| 🔴       | Reentrancy protected via CEI pattern | ✅     | reentrancy.test.ts     |
 
 ### Entry Point: Account.validateOperation
 
@@ -214,14 +222,14 @@ External input enters at these points and must be validated.
 
 ### Reentrancy Protection
 
-| Priority | Test Case                                            | Status        | Location                         |
-| -------- | ---------------------------------------------------- | ------------- | -------------------------------- |
-| 🔴       | **recoverTransaction: reentrancy drains funds**      | ⚠️ VULNERABLE | reentrancy.test.ts               |
-| 🔴       | executeTransactions: protected by onlyEntryPoint     | ✅            | reentrancy.test.ts               |
-| 🔴       | RoutingRailgun: reentrancy during refund             | ✅ PROTECTED  | routingRailgunReentrancy.test.ts |
-| 🔴       | RoutingRailgun: reentrancy during executeRailgunCall | ✅ PROTECTED  | routingRailgunReentrancy.test.ts |
+| Priority | Test Case                                             | Status       | Location                         |
+| -------- | ----------------------------------------------------- | ------------ | -------------------------------- |
+| 🔴       | recoverTransaction: protected by CEI pattern          | ✅ PROTECTED | reentrancy.test.ts               |
+| 🔴       | validateAndExecute: protected by onlyEntryPoint + CEI | ✅ PROTECTED | reentrancy.test.ts               |
+| 🔴       | RoutingRailgun: reentrancy during refund              | ✅ PROTECTED | routingRailgunReentrancy.test.ts |
+| 🔴       | RoutingRailgun: reentrancy during executeRailgunCall  | ✅ PROTECTED | routingRailgunReentrancy.test.ts |
 
-> **Note:** RoutingRailgun is protected by `onlyController`, but should add `ReentrancyGuard` for defense in depth.
+> **Note:** Account uses CEI (Checks-Effects-Interactions) pattern - sequence incremented before external calls. RoutingRailgun has `ReentrancyGuard` for defense in depth.
 
 ### ERC20 Edge Cases
 
@@ -236,11 +244,12 @@ External input enters at these points and must be validated.
 
 ### Cross-Chain Replay
 
-| Priority | Test Case                                         | Status   | Location    |
-| -------- | ------------------------------------------------- | -------- | ----------- |
-| 🔴       | **recoverTransaction has no chain_id validation** | ⚠️ KNOWN | -           |
-| 🔴       | Same CREATE2 address on different chains          | ❌       | -           |
-| 🟠       | Normal path has chain_id in MPC txHash            | ✅       | (by design) |
+| Priority | Test Case                                          | Status | Location           |
+| -------- | -------------------------------------------------- | ------ | ------------------ |
+| 🔴       | recoverTransaction validates evmChainId            | ✅     | account.test.ts    |
+| 🔴       | validateAndExecute validates evmChainId            | ✅     | account.test.ts    |
+| 🔴       | Same CREATE2 address on different chains protected | ✅     | (by chainId check) |
+| 🟠       | Normal path has chain_id in MPC txHash             | ✅     | (by design)        |
 
 ### Gas Limits
 
@@ -279,28 +288,34 @@ External input enters at these points and must be validated.
 
 ### Coverage by Priority
 
-| Priority    | Total | Covered  | Vulnerable | Missing |
-| ----------- | ----- | -------- | ---------- | ------- |
-| 🔴 Critical | 64    | 61 (95%) | 3          | 0       |
-| 🟠 High     | 22    | 19 (86%) | 0          | 3       |
-| 🟡 Medium   | 5     | 1 (20%)  | 0          | 4       |
-| 🟢 Low      | 3     | 3 (100%) | 0          | 0       |
+| Priority    | Total | Covered   | Vulnerable | Missing |
+| ----------- | ----- | --------- | ---------- | ------- |
+| 🔴 Critical | 64    | 64 (100%) | 0          | 0       |
+| 🟠 High     | 22    | 22 (100%) | 0          | 0       |
+| 🟡 Medium   | 5     | 4 (80%)   | 0          | 1       |
+| 🟢 Low      | 3     | 3 (100%)  | 0          | 0       |
 
-### Known Vulnerabilities (⚠️)
+### Fixed Vulnerabilities (✅)
 
-| Issue                            | Severity    | Status    | Fix                                      |
-| -------------------------------- | ----------- | --------- | ---------------------------------------- |
-| Reentrancy in recoverTransaction | 🔴 Critical | Confirmed | Move incrementSequence() before \_call() |
-| AccountFactory public access     | 🟠 High     | Known     | Restrict to EntryPoint only              |
-| No chain_id in recovery path     | 🔴 Critical | Known     | Add chainId to recoverProposal payload   |
+| Issue                            | Severity    | Status | Fix                                               |
+| -------------------------------- | ----------- | ------ | ------------------------------------------------- |
+| Reentrancy in recoverTransaction | 🔴 Critical | ✅     | CEI pattern - incrementSequence() before \_call() |
+| No chain_id in recovery path     | 🔴 Critical | ✅     | Added evmChainId validation in recoverTransaction |
+| TOCTOU in validate/execute split | 🔴 Critical | ✅     | Atomic validateAndExecute(), removed old function |
+
+### Known Issues (Not Vulnerabilities)
+
+| Issue                        | Severity | Status      | Notes                            |
+| ---------------------------- | -------- | ----------- | -------------------------------- |
+| AccountFactory public access | 🟠 High  | Planned fix | Will restrict to EntryPoint only |
 
 ### Missing Tests
 
-| Priority    | Count | Key Gaps                        |
-| ----------- | ----- | ------------------------------- |
-| 🔴 Critical | 0     | All critical tests covered      |
-| 🟠 High     | 0     | All high priority tests covered |
-| 🟡 Medium   | 1     | Rebasing tokens                 |
+| Priority    | Count | Key Gaps        |
+| ----------- | ----- | --------------- |
+| 🔴 Critical | 0     | All covered     |
+| 🟠 High     | 0     | All covered     |
+| 🟡 Medium   | 1     | Rebasing tokens |
 
 ### Code Coverage (as of 2026-01-31)
 

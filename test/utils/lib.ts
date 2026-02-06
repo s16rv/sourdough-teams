@@ -1,4 +1,4 @@
-import { AbiCoder, keccak256 } from "ethers";
+import { AbiCoder, keccak256, ethers } from "ethers";
 
 export function combineHexStrings(hexString1: string, hexString2: string): string {
     const buffer1 = Buffer.from(hexString1.slice(2), "hex");
@@ -111,6 +111,30 @@ export function createSignBytes(
 }
 
 /**
+ * Encode the recovery transaction payload.
+ * Format: (uint256 evmChainId, uint64 sequence, address dest, uint256 value, bytes data)
+ * @param evmChainId The EVM chain ID
+ * @param sequence The sequence number
+ * @param dest The destination address
+ * @param value The ETH value to send
+ * @param data The call data
+ * @returns The ABI-encoded recovery payload
+ */
+export function encodeRecoverPayload(
+    evmChainId: bigint,
+    sequence: bigint,
+    dest: string,
+    value: bigint,
+    data: string
+): string {
+    const coder = new AbiCoder();
+    return coder.encode(
+        ["uint256", "uint64", "address", "uint256", "bytes"],
+        [evmChainId, sequence, dest, value, data]
+    );
+}
+
+/**
  * Encode the new payload format for Category 2 transactions.
  * @param signBytes The signed message bytes (hex encoded)
  * @param txPayloadHashOffset Offset to the hash in signBytes
@@ -150,3 +174,33 @@ export function encodeNewPayload(
 
     return payload;
 }
+
+/**
+ * Encode a Category 1 (createAccount) payload with salt parameter
+ * New format: category(8) + totalSigners(64) + threshold(64) + salt(256) + pubkeys...
+ */
+export function encodeCreateAccountPayload(
+    totalSigners: number,
+    threshold: number,
+    salt: string,
+    publicKeysX: string[],
+    publicKeysY: string[]
+): string {
+    const coder = new AbiCoder();
+
+    // Header: category(uint8) + totalSigners(uint64) + threshold(uint64) + salt(bytes32)
+    let payload = coder.encode(["uint8", "uint64", "uint64", "bytes32"], [1, totalSigners, threshold, salt]);
+
+    // Add public keys
+    for (let i = 0; i < totalSigners; i++) {
+        const pubKey = coder.encode(["bytes32", "bytes32"], [publicKeysX[i], publicKeysY[i]]);
+        payload = combineHexStrings(payload, pubKey);
+    }
+
+    return payload;
+}
+
+/**
+ * Default salt value for backward compatibility in tests
+ */
+export const DEFAULT_SALT = ethers.ZeroHash;
