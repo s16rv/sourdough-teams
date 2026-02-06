@@ -4,17 +4,13 @@ pragma solidity ^0.8.24;
 import "./interfaces/IMPCVerifier.sol";
 
 contract MPCVerifier is IMPCVerifier {
-    // secp256k1 curve order divided by 2, for malleability check (EIP-2)
-    bytes32 private constant SECP256K1_N_DIV_2 =
-        0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0;
+    // secp256k1 curve order / 2 for malleability check (EIP-2)
+    uint256 private constant SECP256K1_N_DIV_2 =
+        0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0;
 
     address private immutable ownerAddress;
     bytes32 public publicKeyX;
     bytes32 public publicKeyY;
-
-    // secp256k1 curve order / 2 for malleability check (EIP-2)
-    uint256 private constant SECP256K1_N_DIV_2 =
-        0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0;
 
     /**
      * @notice Initializes the MPC verifier contract
@@ -55,15 +51,19 @@ contract MPCVerifier is IMPCVerifier {
     }
 
     /**
-     * @notice Updates the MPC signer address
-     * @param newSignerAddress The new MPC signer address
-     * @dev Only the contract owner can update the signer address
+     * @notice Updates the MPC public key
+     * @param newPublicKeyX X coordinate of the new MPC public key
+     * @param newPublicKeyY Y coordinate of the new MPC public key
+     * @dev Only the contract owner can update the public key
      */
-    function updateMPCSigner(address newSignerAddress) public {
+    function updateMPCPublicKey(
+        bytes32 newPublicKeyX,
+        bytes32 newPublicKeyY
+    ) public {
         if (msg.sender != ownerAddress) revert OnlyOwner();
-        if (newSignerAddress == address(0)) revert ZeroAddress();
-        emit MPCSignerUpdated(mpcSignerAddress, newSignerAddress);
-        mpcSignerAddress = newSignerAddress;
+        emit MPCPublicKeyUpdated(publicKeyX, publicKeyY, newPublicKeyX, newPublicKeyY);
+        publicKeyX = newPublicKeyX;
+        publicKeyY = newPublicKeyY;
     }
 
     /**

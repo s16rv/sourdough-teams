@@ -18,12 +18,19 @@ interface IMPCVerifier {
     error InvalidSignatureS();
 
     /**
-     * @notice Emitted when the MPC signer address is updated.
-     * @dev Event emitted when the MPC signer is updated.
-     * @param oldSignerAddress The previous MPC signer address.
-     * @param newSignerAddress The new MPC signer address.
+     * @notice Emitted when the MPC public key is updated.
+     * @dev Event emitted when the MPC public key is updated.
+     * @param publicKeyX The previous X component of the MPC public key.
+     * @param publicKeyY The previous Y component of the MPC public key.
+     * @param newPublicKeyX The new X component of the MPC public key.
+     * @param newPublicKeyY The new Y component of the MPC public key.
      */
-    event MPCSignerUpdated(address oldSignerAddress, address newSignerAddress);
+    event MPCPublicKeyUpdated(
+        bytes32 publicKeyX,
+        bytes32 publicKeyY,
+        bytes32 newPublicKeyX,
+        bytes32 newPublicKeyY
+    );
 
     /**
      * @notice Verifies the MPC signature using native ecrecover.
@@ -40,11 +47,4 @@ interface IMPCVerifier {
         bytes32 r,
         bytes32 s
     ) external view returns (bool);
-
-    /**
-     * @notice Updates the MPC signer address.
-     * @param newSignerAddress The new MPC signer address.
-     * @dev Only the contract owner can update the signer address.
-     */
-    function updateMPCSigner(address newSignerAddress) external;
 }

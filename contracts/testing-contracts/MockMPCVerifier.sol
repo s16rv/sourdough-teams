@@ -6,7 +6,6 @@ import "../mpc-gateway/interfaces/IMPCVerifier.sol";
 contract MockMPCVerifier is IMPCVerifier {
     bool private shouldValidate = true;
     address private owner;
-    address public mpcSignerAddress;
 
     constructor() {
         owner = msg.sender;
@@ -25,10 +24,5 @@ contract MockMPCVerifier is IMPCVerifier {
     ) external view override returns (bool) {
         // Return the configured validation result
         return shouldValidate;
-    }
-
-    function updateMPCSigner(address newSignerAddress) external override {
-        require(msg.sender == owner, "Only owner can update signer");
-        mpcSignerAddress = newSignerAddress;
     }
 }

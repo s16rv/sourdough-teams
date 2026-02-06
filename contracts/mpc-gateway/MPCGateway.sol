@@ -92,7 +92,7 @@ contract MPCGateway is IMPCGateway, Initializable, UUPSUpgradeable, OwnableUpgra
     ) internal returns (bool) {
         MPCGatewayStorage storage $ = _getMPCGatewayStorage();
         // Call Verifier to validate MPC signature
-        bool isValidSignature = verifier.validateMPCSignature(txHash, v, r, s);
+        bool isValidSignature = $.verifier.validateMPCSignature(txHash, v, r, s);
         if (!isValidSignature) {
             return false;
         }
@@ -165,7 +165,7 @@ contract MPCGateway is IMPCGateway, Initializable, UUPSUpgradeable, OwnableUpgra
         );
         if (!isApproved) {
             emit DebugError("TransactionNotApproved");
-            executedCalls[txHash] = false;
+            $.executedCalls[txHash] = false;
             return false;
         }
 
@@ -178,7 +178,7 @@ contract MPCGateway is IMPCGateway, Initializable, UUPSUpgradeable, OwnableUpgra
         );
         if (!result) {
             emit DebugError("CallFailed");
-            executedCalls[txHash] = false;
+            $.executedCalls[txHash] = false;
             return false;
         }
 
