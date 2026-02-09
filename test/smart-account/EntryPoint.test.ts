@@ -715,3 +715,66 @@ describe("EntryPoint Multiple Accounts", function () {
         expect(firstAccount).to.equal(allAccounts[0]);
     });
 });
+
+/**
+ * Tests for Team Grant validation
+ */
+describe("EntryPoint Team Grant", function () {
+    const RECIPIENT_ADDRESS = "0xaa25Aa7a19f9c426E07dee59b12f944f4d9f1DD3";
+
+    // Granter uses MNEMONIC_1, Grantee uses MNEMONIC_2
+    const GRANTER_MNEMONIC =
+        "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+    const GRANTEE_MNEMONIC = "zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo wrong";
+
+    let GRANTER_PUBLIC_KEY_X: string;
+    let GRANTER_PUBLIC_KEY_Y: string;
+    let GRANTEE_PUBLIC_KEY_X: string;
+    let GRANTEE_PUBLIC_KEY_Y: string;
+
+    const SOURCE_ADDRESS = "neutron1chcktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
+
+    let entryPoint: EntryPoint;
+    let owner: HardhatEthersSigner;
+    let mpcGateway: HardhatEthersSigner;
+    let account: Account;
+
+    beforeEach(async function () {
+        [owner, mpcGateway] = await hre.ethers.getSigners();
+
+        // Get public keys
+        const granterPubKey = await getPublicKeyFromMnemonic(GRANTER_MNEMONIC);
+        const granteePubKey = await getPublicKeyFromMnemonic(GRANTEE_MNEMONIC);
+        GRANTER_PUBLIC_KEY_X = granterPubKey.x;
+        GRANTER_PUBLIC_KEY_Y = granterPubKey.y;
+        GRANTEE_PUBLIC_KEY_X = granteePubKey.x;
+        GRANTEE_PUBLIC_KEY_Y = granteePubKey.y;
+
+        const deployed = await deployProxies(owner.address, mpcGateway.address);
+        const accountFactory = deployed.accountFactory;
+        entryPoint = deployed.entryPoint;
+
+        // Create account with granter's public key (granter is account owner)
+        const payload = encodeCreateAccountPayload(1, 1, DEFAULT_SALT, [GRANTER_PUBLIC_KEY_X], [GRANTER_PUBLIC_KEY_Y]);
+
+        await entryPoint.connect(mpcGateway).executePayload("sourceChain", SOURCE_ADDRESS, payload);
+        const accountAddr = await accountFactory.getAccount(SOURCE_ADDRESS);
+
+        const AccountContract = await hre.ethers.getContractFactory("Account");
+        account = AccountContract.attach(accountAddr) as Account;
+
+        await owner.sendTransaction({
+            to: accountAddr,
+            value: parseEther("2.0"),
+        });
+    });
+
+    it("should have funds", async function () {
+        const accountAddress = await account.getAddress();
+        const balance = await hre.ethers.provider.getBalance(accountAddress);
+        expect(balance).to.equal(parseEther("2.0"));
+    });
+
+    // Additional grant tests can be added here once the backend provides sample payloads
+    // For now, this test suite demonstrates the structure
+});

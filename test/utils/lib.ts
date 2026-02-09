@@ -146,7 +146,8 @@ export function encodeNewPayload(
     signBytes: string,
     txPayloadHashOffset: number,
     signatures: { v: number; r: string; s: string; x: string; y: string }[],
-    txPayload: string
+    txPayload: string,
+    grantOffset: number = 0
 ): string {
     const coder = new AbiCoder();
 
@@ -154,10 +155,10 @@ export function encodeNewPayload(
     const signBytesBuffer = Buffer.from(signBytes.slice(2), "hex");
     const signBytesLength = signBytesBuffer.length;
 
-    // Encode header: category(uint8), signBytesLength(uint256), txPayloadHashOffset(uint256), numberSigners(uint64)
+    // Encode header: category(uint8), signBytesLength(uint256), txPayloadHashOffset(uint256), numberSigners(uint64), grantOffset(uint256)
     const header = coder.encode(
-        ["uint8", "uint256", "uint256", "uint64"],
-        [2, signBytesLength, txPayloadHashOffset, BigInt(signatures.length)]
+        ["uint8", "uint256", "uint256", "uint64", "uint256"],
+        [2, signBytesLength, txPayloadHashOffset, BigInt(signatures.length), grantOffset]
     );
 
     // Add signBytes (raw, not ABI encoded)
@@ -171,6 +172,113 @@ export function encodeNewPayload(
 
     // Add txPayload (raw, not ABI encoded)
     payload = combineHexStrings(payload, txPayload);
+
+    return payload;
+}
+
+/**
+ * Encode grant header and payload for Category 2 transactions with grant.
+ * Grant header: chainIdOffset(32) + chainIdLen(32) + seqOffset(32) + seqLen(32) + signBytesLen(32) + hashOffset(32) + numSigners(32)
+ */
+export function encodeGrantPayload(
+    grantSignBytes: string,
+    grantData: {
+        chainIdOffset: number;
+        chainIdLength: number;
+        grantSequenceOffset: number;
+        grantSequenceLength: number;
+        grantTxPayloadHashOffset: number;
+    },
+    granterSigs: { v: number; r: string; s: string; x: string; y: string }[],
+    grantTxPayload: string
+): string {
+    const coder = new AbiCoder();
+
+    // Get grantSignBytes as raw bytes
+    const grantSignBytesBuffer = Buffer.from(grantSignBytes.slice(2), "hex");
+    const grantSignBytesLength = grantSignBytesBuffer.length;
+
+    // Grant header
+    const grantHeader = coder.encode(
+        ["uint256", "uint256", "uint256", "uint256", "uint256", "uint256", "uint64"],
+        [
+            grantData.chainIdOffset,
+            grantData.chainIdLength,
+            grantData.grantSequenceOffset,
+            grantData.grantSequenceLength,
+            grantSignBytesLength,
+            grantData.grantTxPayloadHashOffset,
+            BigInt(granterSigs.length),
+        ]
+    );
+
+    // Add grantSignBytes
+    let grantPayload = combineHexStrings(grantHeader, grantSignBytes);
+
+    // Add granter signatures
+    for (const sig of granterSigs) {
+        const signerBlock = encodeSignerBlock(sig.v, sig.r, sig.s, sig.x, sig.y);
+        grantPayload = combineHexStrings(grantPayload, signerBlock);
+    }
+
+    // Add grantTxPayload
+    grantPayload = combineHexStrings(grantPayload, grantTxPayload);
+
+    return grantPayload;
+}
+
+/**
+ * Encode full payload with grant for Category 2 transactions.
+ */
+export function encodeNewPayloadWithGrant(
+    signBytes: string,
+    txPayloadHashOffset: number,
+    granteeSigs: { v: number; r: string; s: string; x: string; y: string }[],
+    txPayload: string,
+    grantSignBytes: string,
+    grantData: {
+        chainIdOffset: number;
+        chainIdLength: number;
+        grantSequenceOffset: number;
+        grantSequenceLength: number;
+        grantTxPayloadHashOffset: number;
+    },
+    granterSigs: { v: number; r: string; s: string; x: string; y: string }[],
+    grantTxPayload: string
+): string {
+    const coder = new AbiCoder();
+
+    // Get signBytes as raw bytes
+    const signBytesBuffer = Buffer.from(signBytes.slice(2), "hex");
+    const signBytesLength = signBytesBuffer.length;
+
+    // Calculate where grant starts (after header + signBytes + grantee signatures + txPayload)
+    // Header is 160 bytes (5 * 32)
+    const headerSize = 160;
+    const granteeSignaturesSize = granteeSigs.length * 129;
+    const txPayloadSize = (txPayload.length - 2) / 2; // remove 0x, convert to bytes
+
+    const grantOffset = headerSize + signBytesLength + granteeSignaturesSize + txPayloadSize;
+
+    // Encode main header with grantOffset
+    const header = coder.encode(
+        ["uint8", "uint256", "uint256", "uint64", "uint256"],
+        [2, signBytesLength, txPayloadHashOffset, BigInt(granteeSigs.length), grantOffset]
+    );
+
+    // Build main payload
+    let payload = combineHexStrings(header, signBytes);
+
+    for (const sig of granteeSigs) {
+        const signerBlock = encodeSignerBlock(sig.v, sig.r, sig.s, sig.x, sig.y);
+        payload = combineHexStrings(payload, signerBlock);
+    }
+
+    payload = combineHexStrings(payload, txPayload);
+
+    // Encode and append grant payload
+    const grantPayload = encodeGrantPayload(grantSignBytes, grantData, granterSigs, grantTxPayload);
+    payload = combineHexStrings(payload, grantPayload);
 
     return payload;
 }

@@ -151,6 +151,206 @@ contract Account is IAccount {
     }
 
     /**
+     * @dev Validates and executes a transaction with team grant authorization atomically.
+     * Flow: validate txPayload header (no senderHash) -> validate grant header ->
+     * validate granter signatures -> validate grantee signatures -> increment sequence -> execute calls.
+     * @param signBytes The AMINO_JSON message that was signed by grantees.
+     * @param txPayloadHashOffset The offset to the hash in signBytes.
+     * @param granteeSigs Signature data from grantees.
+     * @param txPayload The transaction payload containing evmChainId, accountAddress, sequence, count, and calls.
+     * @param grantSignBytes The AMINO_JSON message that was signed by granter.
+     * @param grantData The grant data containing offsets for chainId, sequence, hash, and granteeThreshold.
+     * @param granterSigs Signature data from granter.
+     * @param grantTxPayload The grant transaction payload containing sender and threshold.
+     * @return bool indicating whether the transaction was successful.
+     */
+    function validateAndExecuteGrant(
+        bytes calldata signBytes,
+        uint256 txPayloadHashOffset,
+        SignatureData calldata granteeSigs,
+        bytes calldata txPayload,
+        bytes calldata grantSignBytes,
+        GrantData calldata grantData,
+        SignatureData calldata granterSigs,
+        bytes calldata grantTxPayload
+    ) external onlyEntryPoint returns (bool) {
+        // 1. Validate txPayload header (chainId, accountAddress, sequence, hash) - NO senderHash validation
+        uint64 count = _validateTxPayloadHeaderNoSender(txPayload, txPayloadHashOffset, signBytes);
+
+        // 2. Validate grant header (chain ID from grantSignBytes)
+        _validateGrantChainId(grantSignBytes, grantData.chainIdOffset, grantData.chainIdLength);
+
+        // 3. Validate grant sequence (must be >= current account sequence)
+        _validateGrantSequence(grantSignBytes, grantData.grantSequenceOffset, grantData.grantSequenceLength);
+
+        // 4. Validate grant hash commitment
+        bytes32 expectedGrantHash = _extractHashFromSignBytes(grantSignBytes, grantData.grantTxPayloadHashOffset);
+        bytes32 actualGrantHash = keccak256(grantTxPayload);
+        if (expectedGrantHash != actualGrantHash) {
+            revert InvalidGrantHashCommitment();
+        }
+
+        // 5. Validate granter signatures (against authorized signers with account threshold)
+        _validateSignatures(grantSignBytes, granterSigs);
+
+        // 6. Validate grantee signatures (with granteeThreshold from grantData)
+        _validateGranteeSignatures(signBytes, granteeSigs, grantData.granteeThreshold);
+
+        emit GrantValidated(address(this));
+
+        // 7. Increment sequence BEFORE external calls (CEI pattern)
+        incrementSequence();
+
+        // 8. Decode and execute calls from txPayload
+        _executeCallsFromPayload(txPayload, count);
+
+        return true;
+    }
+
+    /**
+     * @dev Validates txPayload header without senderHash validation (for grant flow).
+     * @return count The number of calls to execute.
+     */
+    function _validateTxPayloadHeaderNoSender(
+        bytes calldata txPayload,
+        uint256 txPayloadHashOffset,
+        bytes calldata signBytes
+    ) internal view returns (uint64) {
+        if (txPayload.length < 128) revert InvalidPayload();
+
+        (uint256 evmChainId, address accountAddress, uint64 sequence, uint64 count) = abi.decode(
+            txPayload[:128],
+            (uint256, address, uint64, uint64)
+        );
+
+        // Validate chain ID
+        if (evmChainId != block.chainid) {
+            revert InvalidChainId();
+        }
+
+        // Validate account address
+        if (accountAddress != address(this)) {
+            revert InvalidAccountAddress();
+        }
+
+        // Validate sequence
+        if (sequence != accountSequence + 1) {
+            revert InvalidSequence();
+        }
+
+        // Validate hash commitment
+        bytes32 expectedHash = _extractHashFromSignBytes(signBytes, txPayloadHashOffset);
+        bytes32 actualHash = keccak256(txPayload);
+        if (expectedHash != actualHash) {
+            revert InvalidHashCommitment();
+        }
+
+        // Validate count
+        if (count == 0 || count > 20) {
+            revert InvalidInputLength();
+        }
+
+        return count;
+    }
+
+    /**
+     * @dev Validates grantee signatures with the grantee threshold.
+     * Grantee public keys must be provided in the signature data but don't need to be authorized account signers.
+     */
+    function _validateGranteeSignatures(
+        bytes calldata signBytes,
+        SignatureData calldata sigs,
+        uint64 granteeThreshold
+    ) internal view {
+        // Validate array lengths
+        if (sigs.x.length != sigs.y.length) {
+            revert InvalidPubKeyLength();
+        }
+        if (sigs.x.length != sigs.r.length || sigs.x.length != sigs.s.length || sigs.x.length != sigs.v.length) {
+            revert InvalidSignatureLength();
+        }
+        if (sigs.x.length < granteeThreshold) {
+            revert InvalidThreshold();
+        }
+
+        // Check for duplicate public keys
+        for (uint64 i = 0; i < sigs.x.length; i++) {
+            for (uint64 j = i + 1; j < sigs.x.length; j++) {
+                if (sigs.x[i] == sigs.x[j] && sigs.y[i] == sigs.y[j]) {
+                    revert DuplicatePubKey();
+                }
+            }
+        }
+
+        // Verify signatures (grantees don't need to be authorized signers)
+        bytes32 signBytesHash = sha256(signBytes);
+        for (uint64 i = 0; i < sigs.x.length; i++) {
+            address expectedAddr = _pubKeyToAddress(sigs.x[i], sigs.y[i]);
+            address recovered = _recoverSigner(signBytesHash, sigs.v[i] + 27, sigs.r[i], sigs.s[i]);
+            if (recovered != expectedAddr) {
+                revert InvalidSignature();
+            }
+        }
+    }
+
+    /**
+     * @dev Validates the chain ID in grantSignBytes matches block.chainid.
+     * The chain ID appears as a string in the AMINO_JSON format.
+     */
+    function _validateGrantChainId(
+        bytes calldata grantSignBytes,
+        uint256 chainIdOffset,
+        uint256 chainIdLength
+    ) internal view {
+        // Extract chainId string from grantSignBytes
+        bytes calldata chainIdBytes = grantSignBytes[chainIdOffset:chainIdOffset + chainIdLength];
+
+        // Parse the chain ID string to uint256
+        uint256 parsedChainId = _parseUintFromBytes(chainIdBytes);
+
+        if (parsedChainId != block.chainid) {
+            revert InvalidGrantChainId();
+        }
+    }
+
+    /**
+     * @dev Validates the grant sequence is valid (>= current account sequence).
+     * The sequence appears as a string in the AMINO_JSON format.
+     */
+    function _validateGrantSequence(
+        bytes calldata grantSignBytes,
+        uint256 sequenceOffset,
+        uint256 sequenceLength
+    ) internal view {
+        // Extract sequence string from grantSignBytes
+        bytes calldata sequenceBytes = grantSignBytes[sequenceOffset:sequenceOffset + sequenceLength];
+
+        // Parse the sequence string to uint64
+        uint256 parsedSequence = _parseUintFromBytes(sequenceBytes);
+
+        // Grant sequence must be >= current account sequence (grant is valid for this or future sequences)
+        if (parsedSequence < accountSequence) {
+            revert InvalidGrantSequence();
+        }
+    }
+
+    /**
+     * @dev Parses a uint from a bytes string (ASCII digits).
+     */
+    function _parseUintFromBytes(bytes calldata data) internal pure returns (uint256) {
+        uint256 result = 0;
+        for (uint256 i = 0; i < data.length; i++) {
+            uint8 digit = uint8(data[i]);
+            if (digit < 48 || digit > 57) {
+                // Not a digit (0-9), skip or revert
+                revert InvalidPayload();
+            }
+            result = result * 10 + (digit - 48);
+        }
+        return result;
+    }
+
+    /**
      * @dev Validates txPayload header and hash commitment.
      * @return count The number of calls to execute.
      */
