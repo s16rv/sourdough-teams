@@ -185,9 +185,10 @@ contract EntryPoint is IEntryPoint, Initializable, UUPSUpgradeable, OwnableUpgra
                 txPayload = _payload[offset:];
             }
 
-            // Extract target account from txPayload (address is at offset 32, after evmChainId)
-            if (txPayload.length < 64) revert PayloadTooShort();
-            address target = abi.decode(txPayload[32:64], (address));
+            // Extract target account from txPayload
+            // All flows now have: senderHash(32) + evmChainId(32) + accountAddress(32) = address at offset 64
+            if (txPayload.length < 96) revert PayloadTooShort();
+            address target = abi.decode(txPayload[64:96], (address));
 
             if (grantOffset > 0) {
                 // Grant flow: call validateAndExecuteGrant which handles everything

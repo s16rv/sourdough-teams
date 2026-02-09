@@ -139,8 +139,8 @@ contract Account is IAccount {
         // 3. Increment sequence BEFORE external calls (CEI pattern)
         incrementSequence();
 
-        // 4. Decode and execute calls from txPayload
-        _executeCallsFromPayload(txPayload, count);
+        // 4. Decode and execute calls from txPayload (160-byte header: senderHash + chainId + account + sequence + count)
+        _executeCallsFromPayload(txPayload, count, 160);
 
         return true;
     }
@@ -173,58 +173,69 @@ contract Account is IAccount {
         if (grantTxPayload.length < 64) revert InvalidPayload();
         (bytes32 grantTxGranterHash, uint64 granteeThreshold) = abi.decode(grantTxPayload, (bytes32, uint64));
 
-        // 2. Validate granterHash from main section matches grantTxPayload
+        // 2. Validate granterHash from grantTxPayload matches granterHash from main section header
         if (grantData.granterHash != grantTxGranterHash) {
             revert InvalidAuthorization();
         }
 
-        // 3. Validate txPayload header (chainId, accountAddress, sequence, hash) - NO senderHash validation
-        uint64 count = _validateTxPayloadHeaderNoSender(txPayload, txPayloadHashOffset, signBytes);
+        // 3. Validate txPayload header and get senderHash for validation
+        (uint64 count, bytes32 senderHash) = _validateTxPayloadHeaderWithSender(
+            txPayload,
+            txPayloadHashOffset,
+            signBytes
+        );
 
-        // 4. Validate grant header (chain ID from grantSignBytes)
+        // 4. Validate senderHash in txPayload matches granterHash from grant
+        if (senderHash != grantTxGranterHash) {
+            revert InvalidAuthorization();
+        }
+
+        // 5. Validate grant header (chain ID from grantSignBytes)
         _validateGrantChainId(grantSignBytes, grantData.chainIdOffset, grantData.chainIdLength);
 
-        // 5. Validate grant sequence (must be >= current account sequence)
+        // 6. Validate grant sequence (must be >= current account sequence)
         _validateGrantSequence(grantSignBytes, grantData.grantSequenceOffset, grantData.grantSequenceLength);
 
-        // 6. Validate grant hash commitment
+        // 7. Validate grant hash commitment
         bytes32 expectedGrantHash = _extractHashFromSignBytes(grantSignBytes, grantData.grantTxPayloadHashOffset);
         bytes32 actualGrantHash = keccak256(grantTxPayload);
         if (expectedGrantHash != actualGrantHash) {
             revert InvalidGrantHashCommitment();
         }
 
-        // 7. Validate granter signatures (against authorized signers with account threshold)
+        // 8. Validate granter signatures (against authorized signers with account threshold)
         _validateSignatures(grantSignBytes, granterSigs);
 
-        // 8. Validate grantee signatures (with granteeThreshold from grantTxPayload)
+        // 9. Validate grantee signatures (with granteeThreshold from grantTxPayload)
         _validateGranteeSignatures(signBytes, granteeSigs, granteeThreshold);
 
         emit GrantValidated(address(this));
 
-        // 9. Increment sequence BEFORE external calls (CEI pattern)
+        // 10. Increment sequence BEFORE external calls (CEI pattern)
         incrementSequence();
 
-        // 10. Decode and execute calls from txPayload
-        _executeCallsFromPayload(txPayload, count);
+        // 11. Decode and execute calls from txPayload (160-byte header: senderHash + chainId + account + sequence + count)
+        _executeCallsFromPayload(txPayload, count, 160);
 
         return true;
     }
 
     /**
-     * @dev Validates txPayload header without senderHash validation (for grant flow).
+     * @dev Validates txPayload header with senderHash (for grant flow).
+     * txPayload format: senderHash(32) + evmChainId(32) + accountAddress(32) + sequence(32) + count(32) + calls...
      * @return count The number of calls to execute.
+     * @return senderHash The senderHash from txPayload for validation against granterHash.
      */
-    function _validateTxPayloadHeaderNoSender(
+    function _validateTxPayloadHeaderWithSender(
         bytes calldata txPayload,
         uint256 txPayloadHashOffset,
         bytes calldata signBytes
-    ) internal view returns (uint64) {
-        if (txPayload.length < 128) revert InvalidPayload();
+    ) internal view returns (uint64, bytes32) {
+        if (txPayload.length < 160) revert InvalidPayload();
 
-        (uint256 evmChainId, address accountAddress, uint64 sequence, uint64 count) = abi.decode(
-            txPayload[:128],
-            (uint256, address, uint64, uint64)
+        (bytes32 senderHash, uint256 evmChainId, address accountAddress, uint64 sequence, uint64 count) = abi.decode(
+            txPayload[:160],
+            (bytes32, uint256, address, uint64, uint64)
         );
 
         // Validate chain ID
@@ -254,7 +265,7 @@ contract Account is IAccount {
             revert InvalidInputLength();
         }
 
-        return count;
+        return (count, senderHash);
     }
 
     /**
@@ -362,6 +373,7 @@ contract Account is IAccount {
 
     /**
      * @dev Validates txPayload header and hash commitment.
+     * txPayload format: senderHash(32) + evmChainId(32) + accountAddress(32) + sequence(32) + count(32) + calls...
      * @return count The number of calls to execute.
      */
     function _validateTxPayloadHeader(
@@ -369,12 +381,14 @@ contract Account is IAccount {
         uint256 txPayloadHashOffset,
         bytes calldata signBytes
     ) internal view returns (uint64) {
-        if (txPayload.length < 128) revert InvalidPayload();
+        if (txPayload.length < 160) revert InvalidPayload();
 
-        (uint256 evmChainId, address accountAddress, uint64 sequence, uint64 count) = abi.decode(
-            txPayload[:128],
-            (uint256, address, uint64, uint64)
+        // senderHash is first but not validated in normal flow (reserved for future use)
+        (bytes32 _senderHash, uint256 evmChainId, address accountAddress, uint64 sequence, uint64 count) = abi.decode(
+            txPayload[:160],
+            (bytes32, uint256, address, uint64, uint64)
         );
+        _senderHash; // silence unused variable warning
 
         // Validate chain ID
         if (evmChainId != block.chainid) {
@@ -456,9 +470,12 @@ contract Account is IAccount {
 
     /**
      * @dev Decodes and executes calls from txPayload.
+     * @param txPayload The transaction payload.
+     * @param count Number of calls to execute.
+     * @param headerOffset Offset where calls start (128 for normal, 160 for grant with senderHash).
      */
-    function _executeCallsFromPayload(bytes calldata txPayload, uint64 count) internal {
-        uint256 offset = 128; // Start after header
+    function _executeCallsFromPayload(bytes calldata txPayload, uint64 count, uint256 headerOffset) internal {
+        uint256 offset = headerOffset; // Start after header
         for (uint64 i = 0; i < count; i++) {
             if (txPayload.length < offset + 96) revert InvalidPayload();
 

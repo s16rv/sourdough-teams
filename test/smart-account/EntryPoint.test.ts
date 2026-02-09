@@ -17,6 +17,7 @@ import {
 import { generateSignatureWithMnemonic, getPublicKeyFromMnemonic } from "../../scripts/generateSignature";
 
 const TEST_MNEMONIC = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+const TEST_SENDER_COSMOS_ADDRESS = "sourdough139sv320e3ref6lqrmg98k7juy8wcgwlhz3jejp"; // Derived from TEST_MNEMONIC
 const EXPECTED_CHAIN_ID = 31337n; // Hardhat default chain ID
 
 /**
@@ -58,8 +59,9 @@ async function createNewFormatPayload(
     const accountAddress = await account.getAddress();
     const sequence = (await account.accountSequence()) + 1n;
 
-    // 1. Create txPayload with new structure
-    const txPayload = encodeNewTxPayload(EXPECTED_CHAIN_ID, accountAddress, sequence, calls);
+    // 1. Create txPayload with new structure (includes senderHash)
+    const senderHash = keccak256(toUtf8Bytes(TEST_SENDER_COSMOS_ADDRESS));
+    const txPayload = encodeNewTxPayload(senderHash, EXPECTED_CHAIN_ID, accountAddress, sequence, calls);
 
     // 2. Compute hash of txPayload
     const txPayloadHash = computeTxPayloadHash(txPayload);
@@ -381,7 +383,8 @@ describe("EntryPoint Multisig 2 of 2", function () {
         const sequence = (await account.accountSequence()) + 1n;
 
         // Create txPayload
-        const txPayload = encodeNewTxPayload(EXPECTED_CHAIN_ID, accountAddress, sequence, [
+        const senderHash = keccak256(toUtf8Bytes(TEST_SENDER_COSMOS_ADDRESS));
+        const txPayload = encodeNewTxPayload(senderHash, EXPECTED_CHAIN_ID, accountAddress, sequence, [
             { to: RECIPIENT_ADDRESS, value: amountToSend, data: "0x" },
         ]);
 
@@ -490,7 +493,8 @@ describe("EntryPoint Multisig 1 of 2", function () {
         const sequence = (await account.accountSequence()) + 1n;
 
         // Create txPayload
-        const txPayload = encodeNewTxPayload(EXPECTED_CHAIN_ID, accountAddress, sequence, [
+        const senderHash = keccak256(toUtf8Bytes(TEST_SENDER_COSMOS_ADDRESS));
+        const txPayload = encodeNewTxPayload(senderHash, EXPECTED_CHAIN_ID, accountAddress, sequence, [
             { to: RECIPIENT_ADDRESS, value: amountToSend, data: "0x" },
         ]);
 
@@ -578,7 +582,8 @@ describe("EntryPoint Error Paths", function () {
             const wrongSequence = 999n;
 
             // Create txPayload with wrong sequence
-            const txPayload = encodeNewTxPayload(EXPECTED_CHAIN_ID, accountAddress, wrongSequence, [
+            const senderHash = keccak256(toUtf8Bytes(TEST_SENDER_COSMOS_ADDRESS));
+            const txPayload = encodeNewTxPayload(senderHash, EXPECTED_CHAIN_ID, accountAddress, wrongSequence, [
                 { to: owner.address, value: parseEther("0.1"), data: "0x" },
             ]);
 
@@ -608,7 +613,8 @@ describe("EntryPoint Error Paths", function () {
             const sequence = (await account.accountSequence()) + 1n;
 
             // Create txPayload with wrong chainId (use 99999 instead of 31337)
-            const txPayload = encodeNewTxPayload(99999n, accountAddress, sequence, [
+            const senderHash = keccak256(toUtf8Bytes(TEST_SENDER_COSMOS_ADDRESS));
+            const txPayload = encodeNewTxPayload(senderHash, 99999n, accountAddress, sequence, [
                 { to: owner.address, value: parseEther("0.01"), data: "0x" },
             ]);
 
@@ -782,8 +788,11 @@ describe("EntryPoint Team Grant", function () {
         const sequence = (await account.accountSequence()) + 1n;
         const amountToSend = parseEther("0.1");
 
-        // 1. Create txPayload (what grantee signs)
-        const txPayload = encodeNewTxPayload(EXPECTED_CHAIN_ID, accountAddress, sequence, [
+        // 1. Create granterHash (keccak256 of granter cosmos address) - used as senderHash in txPayload
+        const granterHash = keccak256(toUtf8Bytes(GRANTER_COSMOS_ADDRESS));
+
+        // 2. Create txPayload with senderHash (granterHash) - same format as normal flow
+        const txPayload = encodeNewTxPayload(granterHash, EXPECTED_CHAIN_ID, accountAddress, sequence, [
             { to: RECIPIENT_ADDRESS, value: amountToSend, data: "0x" },
         ]);
         const txPayloadHash = computeTxPayloadHash(txPayload);
@@ -795,10 +804,7 @@ describe("EntryPoint Team Grant", function () {
         const signBytesForSigning = Buffer.from(signBytes.slice(2), "hex");
         const granteeSig = await generateSignatureWithMnemonic(GRANTEE_MNEMONIC, signBytesForSigning.toString("hex"));
 
-        // 4. Create granterHash (keccak256 of granter cosmos address)
-        const granterHash = keccak256(toUtf8Bytes(GRANTER_COSMOS_ADDRESS));
-
-        // 5. Create grantTxPayload: granterHash + granteeThreshold
+        // 4. Create grantTxPayload: granterHash + granteeThreshold
         const granteeThreshold = 1;
         const coder = new AbiCoder();
         const grantTxPayload = coder.encode(["bytes32", "uint64"], [granterHash, granteeThreshold]);

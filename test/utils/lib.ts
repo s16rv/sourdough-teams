@@ -39,7 +39,9 @@ export function encodeMultiPayload(items: { dest: string; value: bigint; data: s
 }
 
 /**
- * Encode the new txPayload structure.
+ * Encode the new txPayload structure with senderHash (160-byte header).
+ * Format: senderHash(32) + evmChainId(32) + accountAddress(32) + sequence(32) + count(32) + calls...
+ * @param senderHash The keccak256 hash of the sender cosmos address
  * @param evmChainId The EVM chain ID (e.g., 1 for Ethereum, 137 for Polygon)
  * @param accountAddress The destination smart account address
  * @param sequence The replay protection nonce
@@ -47,6 +49,7 @@ export function encodeMultiPayload(items: { dest: string; value: bigint; data: s
  * @returns The ABI-encoded txPayload
  */
 export function encodeNewTxPayload(
+    senderHash: string,
     evmChainId: bigint,
     accountAddress: string,
     sequence: bigint,
@@ -54,10 +57,52 @@ export function encodeNewTxPayload(
 ): string {
     const coder = new AbiCoder();
 
-    // Encode the header: evmChainId (uint256), accountAddress (address), sequence (uint64), count (uint64)
+    // Encode the header: senderHash (bytes32), evmChainId (uint256), accountAddress (address), sequence (uint64), count (uint64)
     const header = coder.encode(
-        ["uint256", "address", "uint64", "uint64"],
-        [evmChainId, accountAddress, sequence, BigInt(calls.length)]
+        ["bytes32", "uint256", "address", "uint64", "uint64"],
+        [senderHash, evmChainId, accountAddress, sequence, BigInt(calls.length)]
+    );
+
+    // Encode calls: each call is to(32) + value(32) + dataLen(32) + data(variable)
+    let callsPayload = "0x";
+    for (const call of calls) {
+        const dataLen = BigInt((call.data.length - 2) / 2);
+        const callHeader = coder.encode(["address", "uint256", "uint256"], [call.to, call.value, dataLen]);
+        callsPayload = combineHexStrings(callsPayload === "0x" ? "0x" : callsPayload, callHeader);
+        if (call.data !== "0x" && call.data.length > 2) {
+            callsPayload = combineHexStrings(callsPayload, call.data);
+        }
+    }
+
+    if (callsPayload === "0x") {
+        return header;
+    }
+    return combineHexStrings(header, callsPayload);
+}
+
+/**
+ * Encode a txPayload for grant flow with senderHash (128+32=160 byte header for grant).
+ * Format: senderHash(32) + evmChainId(32) + accountAddress(32) + sequence(32) + count(32) + calls...
+ * @param senderHash The keccak256 hash of the sender cosmos address
+ * @param evmChainId The EVM chain ID for verification
+ * @param accountAddress The account address
+ * @param sequence The replay protection nonce
+ * @param calls Array of calls to execute
+ * @returns The ABI-encoded txPayload with senderHash prefix
+ */
+export function encodeGrantTxPayloadWithSender(
+    senderHash: string,
+    evmChainId: bigint,
+    accountAddress: string,
+    sequence: bigint,
+    calls: { to: string; value: bigint; data: string }[]
+): string {
+    const coder = new AbiCoder();
+
+    // Encode the header: senderHash (bytes32), evmChainId (uint256), accountAddress (address), sequence (uint64), count (uint64)
+    const header = coder.encode(
+        ["bytes32", "uint256", "address", "uint64", "uint64"],
+        [senderHash, evmChainId, accountAddress, sequence, BigInt(calls.length)]
     );
 
     // Encode calls: each call is to(32) + value(32) + dataLen(32) + data(variable)
