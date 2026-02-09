@@ -717,15 +717,16 @@ describe("EntryPoint Multiple Accounts", function () {
 });
 
 /**
- * Tests for Team Grant validation
+ * Tests for Team Grant validation (Category 2 with grantOffset)
  */
 describe("EntryPoint Team Grant", function () {
     const RECIPIENT_ADDRESS = "0xaa25Aa7a19f9c426E07dee59b12f944f4d9f1DD3";
 
-    // Granter uses MNEMONIC_1, Grantee uses MNEMONIC_2
+    // Granter uses MNEMONIC_1 (account owner), Grantee uses MNEMONIC_2
     const GRANTER_MNEMONIC =
         "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
     const GRANTEE_MNEMONIC = "zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo wrong";
+    const GRANTER_COSMOS_ADDRESS = "sourdough139sv320e3ref6lqrmg98k7juy8wcgwlhz3jejp";
 
     let GRANTER_PUBLIC_KEY_X: string;
     let GRANTER_PUBLIC_KEY_Y: string;
@@ -738,6 +739,7 @@ describe("EntryPoint Team Grant", function () {
     let owner: HardhatEthersSigner;
     let mpcGateway: HardhatEthersSigner;
     let account: Account;
+    let accountFactory: AccountFactory;
 
     beforeEach(async function () {
         [owner, mpcGateway] = await hre.ethers.getSigners();
@@ -751,7 +753,7 @@ describe("EntryPoint Team Grant", function () {
         GRANTEE_PUBLIC_KEY_Y = granteePubKey.y;
 
         const deployed = await deployProxies(owner.address, mpcGateway.address);
-        const accountFactory = deployed.accountFactory;
+        accountFactory = deployed.accountFactory;
         entryPoint = deployed.entryPoint;
 
         // Create account with granter's public key (granter is account owner)
@@ -775,6 +777,120 @@ describe("EntryPoint Team Grant", function () {
         expect(balance).to.equal(parseEther("2.0"));
     });
 
-    // Additional grant tests can be added here once the backend provides sample payloads
-    // For now, this test suite demonstrates the structure
+    it("should execute grant transaction with grantee signature", async function () {
+        const accountAddress = await account.getAddress();
+        const sequence = (await account.accountSequence()) + 1n;
+        const amountToSend = parseEther("0.1");
+
+        // 1. Create txPayload (what grantee signs)
+        const txPayload = encodeNewTxPayload(EXPECTED_CHAIN_ID, accountAddress, sequence, [
+            { to: RECIPIENT_ADDRESS, value: amountToSend, data: "0x" },
+        ]);
+        const txPayloadHash = computeTxPayloadHash(txPayload);
+
+        // 2. Create signBytes for grantee (contains txPayloadHash)
+        const { signBytes, hashOffset } = createSignBytes(txPayloadHash);
+
+        // 3. Grantee signs signBytes
+        const signBytesForSigning = Buffer.from(signBytes.slice(2), "hex");
+        const granteeSig = await generateSignatureWithMnemonic(GRANTEE_MNEMONIC, signBytesForSigning.toString("hex"));
+
+        // 4. Create granterHash (keccak256 of granter cosmos address)
+        const granterHash = keccak256(toUtf8Bytes(GRANTER_COSMOS_ADDRESS));
+
+        // 5. Create grantTxPayload: granterHash + granteeThreshold
+        const granteeThreshold = 1;
+        const coder = new AbiCoder();
+        const grantTxPayload = coder.encode(["bytes32", "uint64"], [granterHash, granteeThreshold]);
+
+        // 6. Compute grantTxPayloadHash for grant signBytes (contract uses keccak256)
+        const grantTxPayloadHash = keccak256(grantTxPayload);
+
+        // 7. Create grantSignBytes for granter (simplified format)
+        // Format: account_number, chain_id, sequence with embedded grant_payload_hash
+        const grantMessage = JSON.stringify({
+            account_number: "0",
+            chain_id: EXPECTED_CHAIN_ID.toString(),
+            fee: { amount: [], gas: "200000" },
+            memo: "",
+            msgs: [
+                {
+                    type: "sourdough/MsgSetMultisigGmpGrant",
+                    value: {
+                        chain_ids: [EXPECTED_CHAIN_ID.toString()],
+                        grant_payload_hash: grantTxPayloadHash,
+                        grantee_threshold: granteeThreshold.toString(),
+                        granter: GRANTER_COSMOS_ADDRESS,
+                    },
+                },
+            ],
+            sequence: "0",
+        });
+        const grantSignBytes = "0x" + Buffer.from(grantMessage, "utf8").toString("hex");
+
+        // 8. Calculate offsets in grantSignBytes
+        // Find "chain_id":"31337" pattern
+        const chainIdStr = EXPECTED_CHAIN_ID.toString();
+        const chainIdPattern = `"chain_id":"${chainIdStr}"`;
+        const chainIdPatternIdx = grantMessage.indexOf(chainIdPattern);
+        const chainIdOffset = chainIdPatternIdx + '"chain_id":"'.length;
+        const chainIdLength = chainIdStr.length;
+
+        // Find "sequence":"0" pattern
+        const seqPattern = '"sequence":"0"';
+        const seqPatternIdx = grantMessage.lastIndexOf(seqPattern);
+        const seqOffset = seqPatternIdx + '"sequence":"'.length;
+        const seqLength = 1;
+
+        // Find grant_payload_hash
+        const hashPattern = `"grant_payload_hash":"${grantTxPayloadHash}"`;
+        const hashPatternIdx = grantMessage.indexOf(hashPattern);
+        const grantHashOffset = hashPatternIdx + '"grant_payload_hash":"'.length;
+
+        // 9. Granter signs grantSignBytes
+        const grantSignBytesForSigning = Buffer.from(grantSignBytes.slice(2), "hex");
+        const granterSig = await generateSignatureWithMnemonic(
+            GRANTER_MNEMONIC,
+            grantSignBytesForSigning.toString("hex")
+        );
+
+        // 10. Build full payload using helper
+        const { encodeNewPayloadWithGrant } = await import("../utils/lib");
+
+        const fullPayload = encodeNewPayloadWithGrant(
+            signBytes,
+            hashOffset,
+            [{ v: granteeSig.v, r: granteeSig.r, s: granteeSig.s, x: GRANTEE_PUBLIC_KEY_X, y: GRANTEE_PUBLIC_KEY_Y }],
+            granterHash,
+            txPayload,
+            grantSignBytes,
+            {
+                chainIdOffset,
+                chainIdLength,
+                grantSequenceOffset: seqOffset,
+                grantSequenceLength: seqLength,
+                grantTxPayloadHashOffset: grantHashOffset,
+            },
+            [
+                {
+                    v: granterSig.v,
+                    r: granterSig.r,
+                    s: granterSig.s,
+                    x: GRANTER_PUBLIC_KEY_X,
+                    y: GRANTER_PUBLIC_KEY_Y,
+                },
+            ],
+            grantTxPayload
+        );
+
+        // Record initial balance
+        const initialRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
+
+        // Execute
+        await entryPoint.connect(mpcGateway).executePayload("sourceChain", SOURCE_ADDRESS, fullPayload);
+
+        // Verify transfer
+        const finalRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
+        expect(finalRecipientBalance).to.equal(initialRecipientBalance + amountToSend);
+    });
 });
