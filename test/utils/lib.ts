@@ -39,7 +39,9 @@ export function encodeMultiPayload(items: { dest: string; value: bigint; data: s
 }
 
 /**
- * Encode the new txPayload structure.
+ * Encode the new txPayload structure with senderHash (160-byte header).
+ * Format: senderHash(32) + evmChainId(32) + accountAddress(32) + sequence(32) + count(32) + calls...
+ * @param senderHash The keccak256 hash of the sender cosmos address
  * @param evmChainId The EVM chain ID (e.g., 1 for Ethereum, 137 for Polygon)
  * @param accountAddress The destination smart account address
  * @param sequence The replay protection nonce
@@ -47,6 +49,7 @@ export function encodeMultiPayload(items: { dest: string; value: bigint; data: s
  * @returns The ABI-encoded txPayload
  */
 export function encodeNewTxPayload(
+    senderHash: string,
     evmChainId: bigint,
     accountAddress: string,
     sequence: bigint,
@@ -54,10 +57,52 @@ export function encodeNewTxPayload(
 ): string {
     const coder = new AbiCoder();
 
-    // Encode the header: evmChainId (uint256), accountAddress (address), sequence (uint64), count (uint64)
+    // Encode the header: senderHash (bytes32), evmChainId (uint256), accountAddress (address), sequence (uint64), count (uint64)
     const header = coder.encode(
-        ["uint256", "address", "uint64", "uint64"],
-        [evmChainId, accountAddress, sequence, BigInt(calls.length)]
+        ["bytes32", "uint256", "address", "uint64", "uint64"],
+        [senderHash, evmChainId, accountAddress, sequence, BigInt(calls.length)]
+    );
+
+    // Encode calls: each call is to(32) + value(32) + dataLen(32) + data(variable)
+    let callsPayload = "0x";
+    for (const call of calls) {
+        const dataLen = BigInt((call.data.length - 2) / 2);
+        const callHeader = coder.encode(["address", "uint256", "uint256"], [call.to, call.value, dataLen]);
+        callsPayload = combineHexStrings(callsPayload === "0x" ? "0x" : callsPayload, callHeader);
+        if (call.data !== "0x" && call.data.length > 2) {
+            callsPayload = combineHexStrings(callsPayload, call.data);
+        }
+    }
+
+    if (callsPayload === "0x") {
+        return header;
+    }
+    return combineHexStrings(header, callsPayload);
+}
+
+/**
+ * Encode a txPayload for grant flow with senderHash (128+32=160 byte header for grant).
+ * Format: senderHash(32) + evmChainId(32) + accountAddress(32) + sequence(32) + count(32) + calls...
+ * @param senderHash The keccak256 hash of the sender cosmos address
+ * @param evmChainId The EVM chain ID for verification
+ * @param accountAddress The account address
+ * @param sequence The replay protection nonce
+ * @param calls Array of calls to execute
+ * @returns The ABI-encoded txPayload with senderHash prefix
+ */
+export function encodeGrantTxPayloadWithSender(
+    senderHash: string,
+    evmChainId: bigint,
+    accountAddress: string,
+    sequence: bigint,
+    calls: { to: string; value: bigint; data: string }[]
+): string {
+    const coder = new AbiCoder();
+
+    // Encode the header: senderHash (bytes32), evmChainId (uint256), accountAddress (address), sequence (uint64), count (uint64)
+    const header = coder.encode(
+        ["bytes32", "uint256", "address", "uint64", "uint64"],
+        [senderHash, evmChainId, accountAddress, sequence, BigInt(calls.length)]
     );
 
     // Encode calls: each call is to(32) + value(32) + dataLen(32) + data(variable)
@@ -135,6 +180,18 @@ export function encodeRecoverPayload(
 }
 
 /**
+ * Encode grantTxPayload for grant transactions.
+ * Format: granterHash (32 bytes) + granteeThreshold (32 bytes, padded uint64)
+ * @param granterHash The keccak256 hash of the granter's cosmos address
+ * @param granteeThreshold The threshold for grantee signatures
+ * @returns The 64-byte encoded grantTxPayload
+ */
+export function encodeGrantTxPayload(granterHash: string, granteeThreshold: number): string {
+    const coder = new AbiCoder();
+    return coder.encode(["bytes32", "uint64"], [granterHash, granteeThreshold]);
+}
+
+/**
  * Encode the new payload format for Category 2 transactions.
  * @param signBytes The signed message bytes (hex encoded)
  * @param txPayloadHashOffset Offset to the hash in signBytes
@@ -146,7 +203,8 @@ export function encodeNewPayload(
     signBytes: string,
     txPayloadHashOffset: number,
     signatures: { v: number; r: string; s: string; x: string; y: string }[],
-    txPayload: string
+    txPayload: string,
+    grantOffset: number = 0
 ): string {
     const coder = new AbiCoder();
 
@@ -154,10 +212,10 @@ export function encodeNewPayload(
     const signBytesBuffer = Buffer.from(signBytes.slice(2), "hex");
     const signBytesLength = signBytesBuffer.length;
 
-    // Encode header: category(uint8), signBytesLength(uint256), txPayloadHashOffset(uint256), numberSigners(uint64)
+    // Encode header: category(uint8), signBytesLength(uint256), txPayloadHashOffset(uint256), numberSigners(uint64), grantOffset(uint256)
     const header = coder.encode(
-        ["uint8", "uint256", "uint256", "uint64"],
-        [2, signBytesLength, txPayloadHashOffset, BigInt(signatures.length)]
+        ["uint8", "uint256", "uint256", "uint64", "uint256"],
+        [2, signBytesLength, txPayloadHashOffset, BigInt(signatures.length), grantOffset]
     );
 
     // Add signBytes (raw, not ABI encoded)
@@ -171,6 +229,118 @@ export function encodeNewPayload(
 
     // Add txPayload (raw, not ABI encoded)
     payload = combineHexStrings(payload, txPayload);
+
+    return payload;
+}
+
+/**
+ * Encode grant header and payload for Category 2 transactions with grant.
+ * Grant header: chainIdOffset(32) + chainIdLen(32) + seqOffset(32) + seqLen(32) + signBytesLen(32) + hashOffset(32) + numSigners(32)
+ */
+export function encodeGrantPayload(
+    grantSignBytes: string,
+    grantData: {
+        chainIdOffset: number;
+        chainIdLength: number;
+        grantSequenceOffset: number;
+        grantSequenceLength: number;
+        grantTxPayloadHashOffset: number;
+    },
+    granterSigs: { v: number; r: string; s: string; x: string; y: string }[],
+    grantTxPayload: string
+): string {
+    const coder = new AbiCoder();
+
+    // Get grantSignBytes as raw bytes
+    const grantSignBytesBuffer = Buffer.from(grantSignBytes.slice(2), "hex");
+    const grantSignBytesLength = grantSignBytesBuffer.length;
+
+    // Grant header
+    const grantHeader = coder.encode(
+        ["uint256", "uint256", "uint256", "uint256", "uint256", "uint256", "uint64"],
+        [
+            grantData.chainIdOffset,
+            grantData.chainIdLength,
+            grantData.grantSequenceOffset,
+            grantData.grantSequenceLength,
+            grantSignBytesLength,
+            grantData.grantTxPayloadHashOffset,
+            BigInt(granterSigs.length),
+        ]
+    );
+
+    // Add grantSignBytes
+    let grantPayload = combineHexStrings(grantHeader, grantSignBytes);
+
+    // Add granter signatures
+    for (const sig of granterSigs) {
+        const signerBlock = encodeSignerBlock(sig.v, sig.r, sig.s, sig.x, sig.y);
+        grantPayload = combineHexStrings(grantPayload, signerBlock);
+    }
+
+    // Add grantTxPayload
+    grantPayload = combineHexStrings(grantPayload, grantTxPayload);
+
+    return grantPayload;
+}
+
+/**
+ * Encode full payload with grant for Category 2 transactions.
+ * Main section format: header(160) + signBytes + grantee sigs + txPayload
+ * Grant section format: grantHeader(224) + grantSignBytes + granter sigs + grantTxPayload(64)
+ * Note: granterHash is now in grantTxPayload (first 32 bytes), not in main section
+ */
+export function encodeNewPayloadWithGrant(
+    signBytes: string,
+    txPayloadHashOffset: number,
+    granteeSigs: { v: number; r: string; s: string; x: string; y: string }[],
+    txPayload: string,
+    grantSignBytes: string,
+    grantData: {
+        chainIdOffset: number;
+        chainIdLength: number;
+        grantSequenceOffset: number;
+        grantSequenceLength: number;
+        grantTxPayloadHashOffset: number;
+    },
+    granterSigs: { v: number; r: string; s: string; x: string; y: string }[],
+    grantTxPayload: string
+): string {
+    const coder = new AbiCoder();
+
+    // Get signBytes as raw bytes
+    const signBytesBuffer = Buffer.from(signBytes.slice(2), "hex");
+    const signBytesLength = signBytesBuffer.length;
+
+    // Calculate where grant starts (after header + signBytes + grantee signatures + txPayload)
+    // Header is 160 bytes (5 * 32)
+    const headerSize = 160;
+    const granteeSignaturesSize = granteeSigs.length * 129;
+    const txPayloadSize = (txPayload.length - 2) / 2; // remove 0x, convert to bytes
+
+    const grantOffset = headerSize + signBytesLength + granteeSignaturesSize + txPayloadSize;
+
+    // Encode main header with grantOffset
+    const header = coder.encode(
+        ["uint8", "uint256", "uint256", "uint64", "uint256"],
+        [2, signBytesLength, txPayloadHashOffset, BigInt(granteeSigs.length), grantOffset]
+    );
+
+    // Build main payload
+    let payload = combineHexStrings(header, signBytes);
+
+    // Add grantee signatures
+    for (const sig of granteeSigs) {
+        const signerBlock = encodeSignerBlock(sig.v, sig.r, sig.s, sig.x, sig.y);
+        payload = combineHexStrings(payload, signerBlock);
+    }
+
+    // Add txPayload directly after signatures (no granterHash here anymore)
+    payload = combineHexStrings(payload, txPayload);
+
+    // Encode and append grant payload
+    const grantPayload = encodeGrantPayload(grantSignBytes, grantData, granterSigs, grantTxPayload);
+    payload = combineHexStrings(payload, grantPayload);
 
     return payload;
 }

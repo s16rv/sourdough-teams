@@ -17,6 +17,7 @@ import {
 import { generateSignatureWithMnemonic, getPublicKeyFromMnemonic } from "../../scripts/generateSignature";
 
 const TEST_MNEMONIC = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+const TEST_SENDER_COSMOS_ADDRESS = "sourdough139sv320e3ref6lqrmg98k7juy8wcgwlhz3jejp"; // Derived from TEST_MNEMONIC
 const EXPECTED_CHAIN_ID = 31337n; // Hardhat default chain ID
 
 /**
@@ -58,8 +59,9 @@ async function createNewFormatPayload(
     const accountAddress = await account.getAddress();
     const sequence = (await account.accountSequence()) + 1n;
 
-    // 1. Create txPayload with new structure
-    const txPayload = encodeNewTxPayload(EXPECTED_CHAIN_ID, accountAddress, sequence, calls);
+    // 1. Create txPayload with new structure (includes senderHash)
+    const senderHash = keccak256(toUtf8Bytes(TEST_SENDER_COSMOS_ADDRESS));
+    const txPayload = encodeNewTxPayload(senderHash, EXPECTED_CHAIN_ID, accountAddress, sequence, calls);
 
     // 2. Compute hash of txPayload
     const txPayloadHash = computeTxPayloadHash(txPayload);
@@ -381,7 +383,8 @@ describe("EntryPoint Multisig 2 of 2", function () {
         const sequence = (await account.accountSequence()) + 1n;
 
         // Create txPayload
-        const txPayload = encodeNewTxPayload(EXPECTED_CHAIN_ID, accountAddress, sequence, [
+        const senderHash = keccak256(toUtf8Bytes(TEST_SENDER_COSMOS_ADDRESS));
+        const txPayload = encodeNewTxPayload(senderHash, EXPECTED_CHAIN_ID, accountAddress, sequence, [
             { to: RECIPIENT_ADDRESS, value: amountToSend, data: "0x" },
         ]);
 
@@ -490,7 +493,8 @@ describe("EntryPoint Multisig 1 of 2", function () {
         const sequence = (await account.accountSequence()) + 1n;
 
         // Create txPayload
-        const txPayload = encodeNewTxPayload(EXPECTED_CHAIN_ID, accountAddress, sequence, [
+        const senderHash = keccak256(toUtf8Bytes(TEST_SENDER_COSMOS_ADDRESS));
+        const txPayload = encodeNewTxPayload(senderHash, EXPECTED_CHAIN_ID, accountAddress, sequence, [
             { to: RECIPIENT_ADDRESS, value: amountToSend, data: "0x" },
         ]);
 
@@ -578,7 +582,8 @@ describe("EntryPoint Error Paths", function () {
             const wrongSequence = 999n;
 
             // Create txPayload with wrong sequence
-            const txPayload = encodeNewTxPayload(EXPECTED_CHAIN_ID, accountAddress, wrongSequence, [
+            const senderHash = keccak256(toUtf8Bytes(TEST_SENDER_COSMOS_ADDRESS));
+            const txPayload = encodeNewTxPayload(senderHash, EXPECTED_CHAIN_ID, accountAddress, wrongSequence, [
                 { to: owner.address, value: parseEther("0.1"), data: "0x" },
             ]);
 
@@ -608,7 +613,8 @@ describe("EntryPoint Error Paths", function () {
             const sequence = (await account.accountSequence()) + 1n;
 
             // Create txPayload with wrong chainId (use 99999 instead of 31337)
-            const txPayload = encodeNewTxPayload(99999n, accountAddress, sequence, [
+            const senderHash = keccak256(toUtf8Bytes(TEST_SENDER_COSMOS_ADDRESS));
+            const txPayload = encodeNewTxPayload(senderHash, 99999n, accountAddress, sequence, [
                 { to: owner.address, value: parseEther("0.01"), data: "0x" },
             ]);
 
@@ -713,5 +719,183 @@ describe("EntryPoint Multiple Accounts", function () {
         const allAccounts = await accountFactory.getAccounts(SOURCE_ADDRESS);
 
         expect(firstAccount).to.equal(allAccounts[0]);
+    });
+});
+
+/**
+ * Tests for Team Grant validation (Category 2 with grantOffset)
+ */
+describe("EntryPoint Team Grant", function () {
+    const RECIPIENT_ADDRESS = "0xaa25Aa7a19f9c426E07dee59b12f944f4d9f1DD3";
+
+    // Granter uses MNEMONIC_1 (account owner), Grantee uses MNEMONIC_2
+    const GRANTER_MNEMONIC =
+        "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+    const GRANTEE_MNEMONIC = "zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo wrong";
+    const GRANTER_COSMOS_ADDRESS = "sourdough139sv320e3ref6lqrmg98k7juy8wcgwlhz3jejp";
+
+    let GRANTER_PUBLIC_KEY_X: string;
+    let GRANTER_PUBLIC_KEY_Y: string;
+    let GRANTEE_PUBLIC_KEY_X: string;
+    let GRANTEE_PUBLIC_KEY_Y: string;
+
+    const SOURCE_ADDRESS = "neutron1chcktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
+
+    let entryPoint: EntryPoint;
+    let owner: HardhatEthersSigner;
+    let mpcGateway: HardhatEthersSigner;
+    let account: Account;
+    let accountFactory: AccountFactory;
+
+    beforeEach(async function () {
+        [owner, mpcGateway] = await hre.ethers.getSigners();
+
+        // Get public keys
+        const granterPubKey = await getPublicKeyFromMnemonic(GRANTER_MNEMONIC);
+        const granteePubKey = await getPublicKeyFromMnemonic(GRANTEE_MNEMONIC);
+        GRANTER_PUBLIC_KEY_X = granterPubKey.x;
+        GRANTER_PUBLIC_KEY_Y = granterPubKey.y;
+        GRANTEE_PUBLIC_KEY_X = granteePubKey.x;
+        GRANTEE_PUBLIC_KEY_Y = granteePubKey.y;
+
+        const deployed = await deployProxies(owner.address, mpcGateway.address);
+        accountFactory = deployed.accountFactory;
+        entryPoint = deployed.entryPoint;
+
+        // Create account with granter's public key (granter is account owner)
+        const payload = encodeCreateAccountPayload(1, 1, DEFAULT_SALT, [GRANTER_PUBLIC_KEY_X], [GRANTER_PUBLIC_KEY_Y]);
+
+        await entryPoint.connect(mpcGateway).executePayload("sourceChain", SOURCE_ADDRESS, payload);
+        const accountAddr = await accountFactory.getAccount(SOURCE_ADDRESS);
+
+        const AccountContract = await hre.ethers.getContractFactory("Account");
+        account = AccountContract.attach(accountAddr) as Account;
+
+        await owner.sendTransaction({
+            to: accountAddr,
+            value: parseEther("2.0"),
+        });
+    });
+
+    it("should have funds", async function () {
+        const accountAddress = await account.getAddress();
+        const balance = await hre.ethers.provider.getBalance(accountAddress);
+        expect(balance).to.equal(parseEther("2.0"));
+    });
+
+    it("should execute grant transaction with grantee signature", async function () {
+        const accountAddress = await account.getAddress();
+        const sequence = (await account.accountSequence()) + 1n;
+        const amountToSend = parseEther("0.1");
+
+        // 1. Create granterHash (keccak256 of granter cosmos address) - used as senderHash in txPayload
+        const granterHash = keccak256(toUtf8Bytes(GRANTER_COSMOS_ADDRESS));
+
+        // 2. Create txPayload with senderHash (granterHash) - same format as normal flow
+        const txPayload = encodeNewTxPayload(granterHash, EXPECTED_CHAIN_ID, accountAddress, sequence, [
+            { to: RECIPIENT_ADDRESS, value: amountToSend, data: "0x" },
+        ]);
+        const txPayloadHash = computeTxPayloadHash(txPayload);
+
+        // 2. Create signBytes for grantee (contains txPayloadHash)
+        const { signBytes, hashOffset } = createSignBytes(txPayloadHash);
+
+        // 3. Grantee signs signBytes
+        const signBytesForSigning = Buffer.from(signBytes.slice(2), "hex");
+        const granteeSig = await generateSignatureWithMnemonic(GRANTEE_MNEMONIC, signBytesForSigning.toString("hex"));
+
+        // 4. Create grantTxPayload: granterHash + granteeThreshold
+        const granteeThreshold = 1;
+        const coder = new AbiCoder();
+        const grantTxPayload = coder.encode(["bytes32", "uint64"], [granterHash, granteeThreshold]);
+
+        // 6. Compute grantTxPayloadHash for grant signBytes (contract uses keccak256)
+        const grantTxPayloadHash = keccak256(grantTxPayload);
+
+        // 7. Create grantSignBytes for granter (simplified format)
+        // Format: account_number, chain_id, sequence with embedded grant_payload_hash
+        const grantMessage = JSON.stringify({
+            account_number: "0",
+            chain_id: EXPECTED_CHAIN_ID.toString(),
+            fee: { amount: [], gas: "200000" },
+            memo: "",
+            msgs: [
+                {
+                    type: "sourdough/MsgSetMultisigGmpGrant",
+                    value: {
+                        chain_ids: [EXPECTED_CHAIN_ID.toString()],
+                        grant_payload_hash: grantTxPayloadHash,
+                        grantee_threshold: granteeThreshold.toString(),
+                        granter: GRANTER_COSMOS_ADDRESS,
+                    },
+                },
+            ],
+            sequence: "0",
+        });
+        const grantSignBytes = "0x" + Buffer.from(grantMessage, "utf8").toString("hex");
+
+        // 8. Calculate offsets in grantSignBytes
+        // Find "chain_id":"31337" pattern
+        const chainIdStr = EXPECTED_CHAIN_ID.toString();
+        const chainIdPattern = `"chain_id":"${chainIdStr}"`;
+        const chainIdPatternIdx = grantMessage.indexOf(chainIdPattern);
+        const chainIdOffset = chainIdPatternIdx + '"chain_id":"'.length;
+        const chainIdLength = chainIdStr.length;
+
+        // Find "sequence":"0" pattern
+        const seqPattern = '"sequence":"0"';
+        const seqPatternIdx = grantMessage.lastIndexOf(seqPattern);
+        const seqOffset = seqPatternIdx + '"sequence":"'.length;
+        const seqLength = 1;
+
+        // Find grant_payload_hash
+        const hashPattern = `"grant_payload_hash":"${grantTxPayloadHash}"`;
+        const hashPatternIdx = grantMessage.indexOf(hashPattern);
+        const grantHashOffset = hashPatternIdx + '"grant_payload_hash":"'.length;
+
+        // 9. Granter signs grantSignBytes
+        const grantSignBytesForSigning = Buffer.from(grantSignBytes.slice(2), "hex");
+        const granterSig = await generateSignatureWithMnemonic(
+            GRANTER_MNEMONIC,
+            grantSignBytesForSigning.toString("hex")
+        );
+
+        // 10. Build full payload using helper
+        const { encodeNewPayloadWithGrant } = await import("../utils/lib");
+
+        const fullPayload = encodeNewPayloadWithGrant(
+            signBytes,
+            hashOffset,
+            [{ v: granteeSig.v, r: granteeSig.r, s: granteeSig.s, x: GRANTEE_PUBLIC_KEY_X, y: GRANTEE_PUBLIC_KEY_Y }],
+            txPayload,
+            grantSignBytes,
+            {
+                chainIdOffset,
+                chainIdLength,
+                grantSequenceOffset: seqOffset,
+                grantSequenceLength: seqLength,
+                grantTxPayloadHashOffset: grantHashOffset,
+            },
+            [
+                {
+                    v: granterSig.v,
+                    r: granterSig.r,
+                    s: granterSig.s,
+                    x: GRANTER_PUBLIC_KEY_X,
+                    y: GRANTER_PUBLIC_KEY_Y,
+                },
+            ],
+            grantTxPayload
+        );
+
+        // Record initial balance
+        const initialRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
+
+        // Execute
+        await entryPoint.connect(mpcGateway).executePayload("sourceChain", SOURCE_ADDRESS, fullPayload);
+
+        // Verify transfer
+        const finalRecipientBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
+        expect(finalRecipientBalance).to.equal(initialRecipientBalance + amountToSend);
     });
 });

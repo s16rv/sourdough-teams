@@ -17,6 +17,19 @@ interface IAccount {
         bytes32[] x;
         bytes32[] y;
     }
+
+    /**
+     * @dev Struct to pack grant data and reduce stack depth.
+     */
+    struct GrantData {
+        uint256 chainIdOffset;
+        uint256 chainIdLength;
+        uint256 grantSequenceOffset;
+        uint256 grantSequenceLength;
+        uint256 grantTxPayloadHashOffset;
+        uint64 granteeThreshold;
+        bytes32 granterHash;
+    }
     /**
      * @dev Error thrown when the signature is invalid.
      */
@@ -115,6 +128,26 @@ interface IAccount {
     error InvalidAccountAddress();
 
     /**
+     * @dev Error thrown when the grant chain ID doesn't match block.chainid.
+     */
+    error InvalidGrantChainId();
+
+    /**
+     * @dev Error thrown when the grant sequence is invalid.
+     */
+    error InvalidGrantSequence();
+
+    /**
+     * @dev Error thrown when the grant hash commitment verification fails.
+     */
+    error InvalidGrantHashCommitment();
+
+    /**
+     * @dev Event emitted when a grant is validated and executed.
+     */
+    event GrantValidated(address indexed account);
+
+    /**
      * @dev Event emitted when the account is initialized.
      */
     event AccountInitialized();
@@ -126,34 +159,6 @@ interface IAccount {
      * @param data The data sent with the transaction.
      */
     event TransactionExecuted(address indexed dest, uint256 value, bytes data);
-
-    /**
-     * @dev Validates an operation by verifying the provided signatures over signBytes using ecrecover.
-     * @param sourceAddress The address on the source chain where the transaction originated.
-     * @param signBytes The AMINO_JSON message that was signed.
-     * @param txPayloadHashOffset The offset to the hash in signBytes (points to "0x" prefix).
-     * @param v Recovery id array (0-3, will be adjusted to 27-30 for ecrecover).
-     * @param r Part of the signature (r).
-     * @param s Part of the signature (s).
-     * @param x Part of the public key (x).
-     * @param y Part of the public key (y).
-     * @param sequence The sequence number of the transaction.
-     * @param txPayload The transaction payload containing chainId, accountAddress, sequence, and calls.
-     * @return bool indicating whether the signature is valid.
-     * @return string reason for failure (empty if valid).
-     */
-    function validateOperation(
-        string calldata sourceAddress,
-        bytes calldata signBytes,
-        uint256 txPayloadHashOffset,
-        uint8[] memory v,
-        bytes32[] memory r,
-        bytes32[] memory s,
-        bytes32[] memory x,
-        bytes32[] memory y,
-        uint64 sequence,
-        bytes calldata txPayload
-    ) external view returns (bool, string memory);
 
     /**
      * @dev Validates and executes a transaction atomically. This is the main entry point for the normal path.
@@ -169,6 +174,31 @@ interface IAccount {
         uint256 txPayloadHashOffset,
         SignatureData calldata sigs,
         bytes calldata txPayload
+    ) external returns (bool);
+
+    /**
+     * @dev Validates and executes a transaction with team grant authorization atomically.
+     * Flow: validate txPayload header (no senderHash) -> validate grant header ->
+     * validate granter signatures -> validate grantee signatures -> increment sequence -> execute calls.
+     * @param signBytes The AMINO_JSON message that was signed by grantees.
+     * @param txPayloadHashOffset The offset to the hash in signBytes.
+     * @param granteeSigs Signature data from grantees.
+     * @param txPayload The transaction payload containing evmChainId, accountAddress, sequence, count, and calls.
+     * @param grantSignBytes The AMINO_JSON message that was signed by granter.
+     * @param grantData The grant data containing offsets for chainId, sequence, hash, and granteeThreshold.
+     * @param granterSigs Signature data from granter.
+     * @param grantTxPayload The grant transaction payload containing sender and threshold.
+     * @return bool indicating whether the transaction was successful.
+     */
+    function validateAndExecuteGrant(
+        bytes calldata signBytes,
+        uint256 txPayloadHashOffset,
+        SignatureData calldata granteeSigs,
+        bytes calldata txPayload,
+        bytes calldata grantSignBytes,
+        GrantData calldata grantData,
+        SignatureData calldata granterSigs,
+        bytes calldata grantTxPayload
     ) external returns (bool);
 
     /**

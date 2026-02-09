@@ -24,10 +24,10 @@ contract Account is IAccount {
     bytes32 private immutable addrHash;
     uint64 private threshold;
     uint64 public accountSequence;
+    uint64 public grantSequence;
 
     // secp256k1 curve order / 2 for malleability check (EIP-2)
-    uint256 private constant SECP256K1_N_DIV_2 =
-        0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0;
+    uint256 private constant SECP256K1_N_DIV_2 = 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0;
 
     /**
      * @dev Constructor that initializes the contract with the entry point address and signer public keys.
@@ -101,12 +101,7 @@ contract Account is IAccount {
      * @param s Signature s component.
      * @return The recovered address, or address(0) if invalid.
      */
-    function _recoverSigner(
-        bytes32 messageHash,
-        uint8 v,
-        bytes32 r,
-        bytes32 s
-    ) internal pure returns (address) {
+    function _recoverSigner(bytes32 messageHash, uint8 v, bytes32 r, bytes32 s) internal pure returns (address) {
         // Check for signature malleability (EIP-2)
         if (uint256(s) > SECP256K1_N_DIV_2) {
             return address(0);
@@ -118,101 +113,6 @@ contract Account is IAccount {
         }
 
         return ecrecover(messageHash, v, r, s);
-    }
-
-    /**
-     * @dev Validates an operation by verifying the provided signatures over signBytes using ecrecover.
-     * @param sourceAddress The address on the source chain where the transaction originated.
-     * @param signBytes The AMINO_JSON message that was signed.
-     * @param txPayloadHashOffset The offset to the hash in signBytes (points to "0x" prefix).
-     * @param v Recovery id array (0-3, will be adjusted to 27-30 for ecrecover).
-     * @param r Part of the signature (r).
-     * @param s Part of the signature (s).
-     * @param x Part of the public key (x).
-     * @param y Part of the public key (y).
-     * @param sequence The sequence number of the transaction.
-     * @param txPayload The transaction payload containing chainId, accountAddress, sequence, and calls.
-     * @return A boolean indicating whether the signature is valid.
-     * @return A string reason for failure (empty if valid).
-     */
-    function validateOperation(
-        string calldata sourceAddress,
-        bytes calldata signBytes,
-        uint256 txPayloadHashOffset,
-        uint8[] memory v,
-        bytes32[] memory r,
-        bytes32[] memory s,
-        bytes32[] memory x,
-        bytes32[] memory y,
-        uint64 sequence,
-        bytes calldata txPayload
-    ) external view returns (bool, string memory) {
-        // 1. Validate source address
-        if (!compareSourceAddress(sourceAddress)) {
-            return (false, "InvalidSourceAddress");
-        }
-
-        // 2. Validate sequence
-        if (sequence != accountSequence + 1) {
-            return (false, "InvalidSequence");
-        }
-
-        // 3. Extract and verify hash commitment
-        bytes32 expectedHash = _extractHashFromSignBytes(signBytes, txPayloadHashOffset);
-        bytes32 actualHash = keccak256(txPayload);
-        if (expectedHash != actualHash) {
-            return (false, "InvalidHashCommitment");
-        }
-
-        // 4. Validate signature arrays
-        if (x.length != y.length) {
-            return (false, "InvalidPubKeyLength");
-        }
-
-        if (x.length != r.length || x.length != s.length || x.length != v.length) {
-            return (false, "InvalidSignatureLength");
-        }
-
-        if (x.length < threshold) {
-            return (false, "InvalidThreshold");
-        }
-
-        // 5. Check for duplicate public keys
-        for (uint64 i = 0; i < x.length; i++) {
-            for (uint64 j = i + 1; j < x.length; j++) {
-                if (x[i] == x[j] && y[i] == y[j]) {
-                    return (false, "DuplicatePubKey");
-                }
-            }
-        }
-
-        // 6. Validate public keys are authorized
-        for (uint64 i = 0; i < x.length; i++) {
-            bool found = false;
-            for (uint64 j = 0; j < xPubKeys.length; j++) {
-                if (x[i] == xPubKeys[j] && y[i] == yPubKeys[j]) {
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) {
-                return (false, "InvalidPubKey");
-            }
-        }
-
-        // 7. Verify signatures against sha256(signBytes) using ecrecover
-        bytes32 signBytesHash = sha256(signBytes);
-        for (uint64 i = 0; i < x.length; i++) {
-            address expectedAddr = _pubKeyToAddress(x[i], y[i]);
-            // v is 0-3 from MPC, add 27 for ecrecover
-            address recovered = _recoverSigner(signBytesHash, v[i] + 27, r[i], s[i]);
-
-            if (recovered != expectedAddr) {
-                return (false, "InvalidSignature");
-            }
-        }
-
-        return (true, "");
     }
 
     /**
@@ -239,14 +139,241 @@ contract Account is IAccount {
         // 3. Increment sequence BEFORE external calls (CEI pattern)
         incrementSequence();
 
-        // 4. Decode and execute calls from txPayload
-        _executeCallsFromPayload(txPayload, count);
+        // 4. Decode and execute calls from txPayload (160-byte header: senderHash + chainId + account + sequence + count)
+        _executeCallsFromPayload(txPayload, count, 160);
 
         return true;
     }
 
     /**
+     * @dev Validates and executes a transaction with team grant authorization atomically.
+     * Flow: validate txPayload header (no senderHash) -> validate grant header ->
+     * validate granter signatures -> validate grantee signatures -> increment sequence -> execute calls.
+     * @param signBytes The AMINO_JSON message that was signed by grantees.
+     * @param txPayloadHashOffset The offset to the hash in signBytes.
+     * @param granteeSigs Signature data from grantees.
+     * @param txPayload The transaction payload containing evmChainId, accountAddress, sequence, count, and calls.
+     * @param grantSignBytes The AMINO_JSON message that was signed by granter.
+     * @param grantData The grant data containing offsets for chainId, sequence, hash, and granteeThreshold.
+     * @param granterSigs Signature data from granter.
+     * @param grantTxPayload The grant transaction payload containing sender and threshold.
+     * @return bool indicating whether the transaction was successful.
+     */
+    function validateAndExecuteGrant(
+        bytes calldata signBytes,
+        uint256 txPayloadHashOffset,
+        SignatureData calldata granteeSigs,
+        bytes calldata txPayload,
+        bytes calldata grantSignBytes,
+        GrantData calldata grantData,
+        SignatureData calldata granterSigs,
+        bytes calldata grantTxPayload
+    ) external onlyEntryPoint returns (bool) {
+        // 1. Parse grantTxPayload: granterHash (32) + granteeThreshold (32)
+        if (grantTxPayload.length < 64) revert InvalidPayload();
+        (bytes32 grantTxGranterHash, uint64 granteeThreshold) = abi.decode(grantTxPayload, (bytes32, uint64));
+
+        // 2. Validate granterHash from grantTxPayload matches granterHash from main section header
+        if (grantData.granterHash != grantTxGranterHash) {
+            revert InvalidAuthorization();
+        }
+
+        // 3. Validate txPayload header and get senderHash for validation
+        (uint64 count, bytes32 senderHash) = _validateTxPayloadHeaderWithSender(
+            txPayload,
+            txPayloadHashOffset,
+            signBytes
+        );
+
+        // 4. Validate senderHash in txPayload matches granterHash from grant
+        if (senderHash != grantTxGranterHash) {
+            revert InvalidAuthorization();
+        }
+
+        // 5. Validate grant header (chain ID from grantSignBytes)
+        _validateGrantChainId(grantSignBytes, grantData.chainIdOffset, grantData.chainIdLength);
+
+        // 6. Validate grant sequence (must be >= current account sequence)
+        _validateGrantSequence(grantSignBytes, grantData.grantSequenceOffset, grantData.grantSequenceLength);
+
+        // 7. Validate grant hash commitment
+        bytes32 expectedGrantHash = _extractHashFromSignBytes(grantSignBytes, grantData.grantTxPayloadHashOffset);
+        bytes32 actualGrantHash = keccak256(grantTxPayload);
+        if (expectedGrantHash != actualGrantHash) {
+            revert InvalidGrantHashCommitment();
+        }
+
+        // 8. Validate granter signatures (against authorized signers with account threshold)
+        _validateSignatures(grantSignBytes, granterSigs);
+
+        // 9. Validate grantee signatures (with granteeThreshold from grantTxPayload)
+        _validateGranteeSignatures(signBytes, granteeSigs, granteeThreshold);
+
+        emit GrantValidated(address(this));
+
+        // 10. Increment sequence BEFORE external calls (CEI pattern)
+        incrementSequence();
+
+        // 11. Decode and execute calls from txPayload (160-byte header: senderHash + chainId + account + sequence + count)
+        _executeCallsFromPayload(txPayload, count, 160);
+
+        return true;
+    }
+
+    /**
+     * @dev Validates txPayload header with senderHash (for grant flow).
+     * txPayload format: senderHash(32) + evmChainId(32) + accountAddress(32) + sequence(32) + count(32) + calls...
+     * @return count The number of calls to execute.
+     * @return senderHash The senderHash from txPayload for validation against granterHash.
+     */
+    function _validateTxPayloadHeaderWithSender(
+        bytes calldata txPayload,
+        uint256 txPayloadHashOffset,
+        bytes calldata signBytes
+    ) internal view returns (uint64, bytes32) {
+        if (txPayload.length < 160) revert InvalidPayload();
+
+        (bytes32 senderHash, uint256 evmChainId, address accountAddress, uint64 sequence, uint64 count) = abi.decode(
+            txPayload[:160],
+            (bytes32, uint256, address, uint64, uint64)
+        );
+
+        // Validate chain ID
+        if (evmChainId != block.chainid) {
+            revert InvalidChainId();
+        }
+
+        // Validate account address
+        if (accountAddress != address(this)) {
+            revert InvalidAccountAddress();
+        }
+
+        // Validate sequence
+        if (sequence != accountSequence + 1) {
+            revert InvalidSequence();
+        }
+
+        // Validate hash commitment
+        bytes32 expectedHash = _extractHashFromSignBytes(signBytes, txPayloadHashOffset);
+        bytes32 actualHash = keccak256(txPayload);
+        if (expectedHash != actualHash) {
+            revert InvalidHashCommitment();
+        }
+
+        // Validate count
+        if (count == 0 || count > 20) {
+            revert InvalidInputLength();
+        }
+
+        return (count, senderHash);
+    }
+
+    /**
+     * @dev Validates grantee signatures with the grantee threshold.
+     * Grantee public keys must be provided in the signature data but don't need to be authorized account signers.
+     */
+    function _validateGranteeSignatures(
+        bytes calldata signBytes,
+        SignatureData calldata sigs,
+        uint64 granteeThreshold
+    ) internal view {
+        // Validate array lengths
+        if (sigs.x.length != sigs.y.length) {
+            revert InvalidPubKeyLength();
+        }
+        if (sigs.x.length != sigs.r.length || sigs.x.length != sigs.s.length || sigs.x.length != sigs.v.length) {
+            revert InvalidSignatureLength();
+        }
+        if (sigs.x.length < granteeThreshold) {
+            revert InvalidThreshold();
+        }
+
+        // Check for duplicate public keys
+        for (uint64 i = 0; i < sigs.x.length; i++) {
+            for (uint64 j = i + 1; j < sigs.x.length; j++) {
+                if (sigs.x[i] == sigs.x[j] && sigs.y[i] == sigs.y[j]) {
+                    revert DuplicatePubKey();
+                }
+            }
+        }
+
+        // Verify signatures (grantees don't need to be authorized signers)
+        bytes32 signBytesHash = sha256(signBytes);
+        for (uint64 i = 0; i < sigs.x.length; i++) {
+            address expectedAddr = _pubKeyToAddress(sigs.x[i], sigs.y[i]);
+            address recovered = _recoverSigner(signBytesHash, sigs.v[i] + 27, sigs.r[i], sigs.s[i]);
+            if (recovered != expectedAddr) {
+                revert InvalidSignature();
+            }
+        }
+    }
+
+    /**
+     * @dev Validates the chain ID in grantSignBytes matches block.chainid.
+     * The chain ID appears as a string in the AMINO_JSON format.
+     */
+    function _validateGrantChainId(
+        bytes calldata grantSignBytes,
+        uint256 chainIdOffset,
+        uint256 chainIdLength
+    ) internal view {
+        // Extract chainId string from grantSignBytes
+        bytes calldata chainIdBytes = grantSignBytes[chainIdOffset:chainIdOffset + chainIdLength];
+
+        // Parse the chain ID string to uint256
+        uint256 parsedChainId = _parseUintFromBytes(chainIdBytes);
+
+        if (parsedChainId != block.chainid) {
+            revert InvalidGrantChainId();
+        }
+    }
+
+    /**
+     * @dev Validates the grant sequence is valid (>= current grant sequence).
+     * Updates grantSequence if the new sequence is higher.
+     * The sequence appears as a string in the AMINO_JSON format.
+     */
+    function _validateGrantSequence(
+        bytes calldata grantSignBytes,
+        uint256 sequenceOffset,
+        uint256 sequenceLength
+    ) internal {
+        // Extract sequence string from grantSignBytes
+        bytes calldata sequenceBytes = grantSignBytes[sequenceOffset:sequenceOffset + sequenceLength];
+
+        // Parse the sequence string to uint64
+        uint256 parsedSequence = _parseUintFromBytes(sequenceBytes);
+
+        // Grant sequence must be >= current account sequence (grant is valid for this or future sequences)
+        if (parsedSequence < grantSequence) {
+            revert InvalidGrantSequence();
+        }
+
+        // Update grant sequence if grant is valid for future sequences
+        if (parsedSequence > grantSequence) {
+            grantSequence = uint64(parsedSequence);
+        }
+    }
+
+    /**
+     * @dev Parses a uint from a bytes string (ASCII digits).
+     */
+    function _parseUintFromBytes(bytes calldata data) internal pure returns (uint256) {
+        uint256 result = 0;
+        for (uint256 i = 0; i < data.length; i++) {
+            uint8 digit = uint8(data[i]);
+            if (digit < 48 || digit > 57) {
+                // Not a digit (0-9), skip or revert
+                revert InvalidPayload();
+            }
+            result = result * 10 + (digit - 48);
+        }
+        return result;
+    }
+
+    /**
      * @dev Validates txPayload header and hash commitment.
+     * txPayload format: senderHash(32) + evmChainId(32) + accountAddress(32) + sequence(32) + count(32) + calls...
      * @return count The number of calls to execute.
      */
     function _validateTxPayloadHeader(
@@ -254,12 +381,14 @@ contract Account is IAccount {
         uint256 txPayloadHashOffset,
         bytes calldata signBytes
     ) internal view returns (uint64) {
-        if (txPayload.length < 128) revert InvalidPayload();
+        if (txPayload.length < 160) revert InvalidPayload();
 
-        (uint256 evmChainId, address accountAddress, uint64 sequence, uint64 count) = abi.decode(
-            txPayload[:128],
-            (uint256, address, uint64, uint64)
+        // senderHash is first but not validated in normal flow (reserved for future use)
+        (bytes32 _senderHash, uint256 evmChainId, address accountAddress, uint64 sequence, uint64 count) = abi.decode(
+            txPayload[:160],
+            (bytes32, uint256, address, uint64, uint64)
         );
+        _senderHash; // silence unused variable warning
 
         // Validate chain ID
         if (evmChainId != block.chainid) {
@@ -294,10 +423,7 @@ contract Account is IAccount {
     /**
      * @dev Validates signature arrays and verifies signatures.
      */
-    function _validateSignatures(
-        bytes calldata signBytes,
-        SignatureData calldata sigs
-    ) internal view {
+    function _validateSignatures(bytes calldata signBytes, SignatureData calldata sigs) internal view {
         // Validate array lengths
         if (sigs.x.length != sigs.y.length) {
             revert InvalidPubKeyLength();
@@ -344,9 +470,12 @@ contract Account is IAccount {
 
     /**
      * @dev Decodes and executes calls from txPayload.
+     * @param txPayload The transaction payload.
+     * @param count Number of calls to execute.
+     * @param headerOffset Offset where calls start (128 for normal, 160 for grant with senderHash).
      */
-    function _executeCallsFromPayload(bytes calldata txPayload, uint64 count) internal {
-        uint256 offset = 128; // Start after header
+    function _executeCallsFromPayload(bytes calldata txPayload, uint64 count, uint256 headerOffset) internal {
+        uint256 offset = headerOffset; // Start after header
         for (uint64 i = 0; i < count; i++) {
             if (txPayload.length < offset + 96) revert InvalidPayload();
 
