@@ -24,6 +24,7 @@ contract Account is IAccount {
     bytes32 private immutable addrHash;
     uint64 private threshold;
     uint64 public accountSequence;
+    uint64 public grantSequence;
 
     // secp256k1 curve order / 2 for malleability check (EIP-2)
     uint256 private constant SECP256K1_N_DIV_2 = 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0;
@@ -317,14 +318,15 @@ contract Account is IAccount {
     }
 
     /**
-     * @dev Validates the grant sequence is valid (>= current account sequence).
+     * @dev Validates the grant sequence is valid (>= current grant sequence).
+     * Updates grantSequence if the new sequence is higher.
      * The sequence appears as a string in the AMINO_JSON format.
      */
     function _validateGrantSequence(
         bytes calldata grantSignBytes,
         uint256 sequenceOffset,
         uint256 sequenceLength
-    ) internal view {
+    ) internal {
         // Extract sequence string from grantSignBytes
         bytes calldata sequenceBytes = grantSignBytes[sequenceOffset:sequenceOffset + sequenceLength];
 
@@ -332,8 +334,13 @@ contract Account is IAccount {
         uint256 parsedSequence = _parseUintFromBytes(sequenceBytes);
 
         // Grant sequence must be >= current account sequence (grant is valid for this or future sequences)
-        if (parsedSequence < accountSequence) {
+        if (parsedSequence < grantSequence) {
             revert InvalidGrantSequence();
+        }
+
+        // Update grant sequence if grant is valid for future sequences
+        if (parsedSequence > grantSequence) {
+            grantSequence = uint64(parsedSequence);
         }
     }
 

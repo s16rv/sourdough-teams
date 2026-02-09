@@ -851,3 +851,130 @@ describe("Account Sequence Overflow", function () {
         });
     });
 });
+
+/**
+ * Account Grant tests - validateAndExecuteGrant and grantSequence
+ */
+describe("Account Grant", function () {
+    const RECIPIENT_ADDRESS = "0xaa25Aa7a19f9c426E07dee59b12f944f4d9f1DD3";
+    const GRANTER_COSMOS_ADDRESS = "sourdough139sv320e3ref6lqrmg98k7juy8wcgwlhz3jejp";
+
+    let PUBLIC_KEY_X: string[];
+    let PUBLIC_KEY_Y: string[];
+
+    const SOURCE_ADDRESS = "neutron1chcktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
+    const SOURCE_ADDRESS_HASH = keccak256(toUtf8Bytes(SOURCE_ADDRESS));
+
+    let account: Account;
+    let entryPoint: HardhatEthersSigner;
+    let stranger: HardhatEthersSigner;
+
+    beforeEach(async function () {
+        [entryPoint, stranger] = await hre.ethers.getSigners();
+
+        const pubKey = await getPublicKeyFromMnemonic(TEST_MNEMONIC);
+        PUBLIC_KEY_X = [pubKey.x];
+        PUBLIC_KEY_Y = [pubKey.y];
+
+        const AccountContract = await hre.ethers.getContractFactory("Account");
+        account = await AccountContract.deploy(entryPoint.address, PUBLIC_KEY_X, PUBLIC_KEY_Y, SOURCE_ADDRESS_HASH, 1);
+        await account.waitForDeployment();
+
+        await entryPoint.sendTransaction({
+            to: await account.getAddress(),
+            value: parseEther("2.0"),
+        });
+    });
+
+    describe("grantSequence tracking", function () {
+        it("should initialize grantSequence to 0", async function () {
+            expect(await account.grantSequence()).to.equal(0);
+        });
+
+        it("should have accountSequence start at 0", async function () {
+            expect(await account.accountSequence()).to.equal(0);
+        });
+    });
+
+    describe("validateAndExecuteGrant access control", function () {
+        it("should revert with NotEntryPoint when called by stranger", async function () {
+            const abiCoder = new AbiCoder();
+            const granterHash = keccak256(toUtf8Bytes(GRANTER_COSMOS_ADDRESS));
+            const grantTxPayload = abiCoder.encode(["bytes32", "uint64"], [granterHash, 1]);
+
+            await expect(
+                account.connect(stranger).validateAndExecuteGrant(
+                    "0x00", // signBytes
+                    0, // txPayloadHashOffset
+                    { v: [], r: [], s: [], x: [], y: [] }, // granteeSigs
+                    "0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000", // txPayload (128 bytes min)
+                    "0x00", // grantSignBytes
+                    {
+                        chainIdOffset: 0,
+                        chainIdLength: 1,
+                        grantSequenceOffset: 0,
+                        grantSequenceLength: 1,
+                        grantTxPayloadHashOffset: 0,
+                        granteeThreshold: 1,
+                        granterHash: granterHash,
+                    },
+                    { v: [], r: [], s: [], x: [], y: [] }, // granterSigs
+                    grantTxPayload
+                )
+            ).to.be.revertedWithCustomError(account, "NotEntryPoint");
+        });
+    });
+
+    describe("validateAndExecuteGrant validation", function () {
+        it("should revert with InvalidPayload when grantTxPayload is too short", async function () {
+            await expect(
+                account.connect(entryPoint).validateAndExecuteGrant(
+                    "0x00", // signBytes
+                    0, // txPayloadHashOffset
+                    { v: [], r: [], s: [], x: [], y: [] },
+                    "0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+                    "0x00",
+                    {
+                        chainIdOffset: 0,
+                        chainIdLength: 1,
+                        grantSequenceOffset: 0,
+                        grantSequenceLength: 1,
+                        grantTxPayloadHashOffset: 0,
+                        granteeThreshold: 1,
+                        granterHash: "0x0000000000000000000000000000000000000000000000000000000000000000",
+                    },
+                    { v: [], r: [], s: [], x: [], y: [] },
+                    "0x00" // Too short grantTxPayload (must be at least 64 bytes)
+                )
+            ).to.be.revertedWithCustomError(account, "InvalidPayload");
+        });
+
+        it("should revert with InvalidAuthorization when granterHash mismatch", async function () {
+            const abiCoder = new AbiCoder();
+            const wrongGranterHash = keccak256(toUtf8Bytes("wrong_granter"));
+            const grantTxPayload = abiCoder.encode(["bytes32", "uint64"], [wrongGranterHash, 1]);
+            const differentHash = keccak256(toUtf8Bytes("different_hash"));
+
+            await expect(
+                account.connect(entryPoint).validateAndExecuteGrant(
+                    "0x00",
+                    0,
+                    { v: [], r: [], s: [], x: [], y: [] },
+                    "0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+                    "0x00",
+                    {
+                        chainIdOffset: 0,
+                        chainIdLength: 1,
+                        grantSequenceOffset: 0,
+                        grantSequenceLength: 1,
+                        grantTxPayloadHashOffset: 0,
+                        granteeThreshold: 1,
+                        granterHash: differentHash, // Different from grantTxPayload
+                    },
+                    { v: [], r: [], s: [], x: [], y: [] },
+                    grantTxPayload
+                )
+            ).to.be.revertedWithCustomError(account, "InvalidAuthorization");
+        });
+    });
+});
