@@ -135,6 +135,18 @@ export function encodeRecoverPayload(
 }
 
 /**
+ * Encode grantTxPayload for grant transactions.
+ * Format: granterHash (32 bytes) + granteeThreshold (32 bytes, padded uint64)
+ * @param granterHash The keccak256 hash of the granter's cosmos address
+ * @param granteeThreshold The threshold for grantee signatures
+ * @returns The 64-byte encoded grantTxPayload
+ */
+export function encodeGrantTxPayload(granterHash: string, granteeThreshold: number): string {
+    const coder = new AbiCoder();
+    return coder.encode(["bytes32", "uint64"], [granterHash, granteeThreshold]);
+}
+
+/**
  * Encode the new payload format for Category 2 transactions.
  * @param signBytes The signed message bytes (hex encoded)
  * @param txPayloadHashOffset Offset to the hash in signBytes
@@ -229,11 +241,14 @@ export function encodeGrantPayload(
 
 /**
  * Encode full payload with grant for Category 2 transactions.
+ * Main section format: header(160) + signBytes + grantee sigs + granterHash(32) + txPayload
+ * Grant section format: grantHeader(224) + grantSignBytes + granter sigs + grantTxPayload(64)
  */
 export function encodeNewPayloadWithGrant(
     signBytes: string,
     txPayloadHashOffset: number,
     granteeSigs: { v: number; r: string; s: string; x: string; y: string }[],
+    granterHash: string, // Added: keccak256(granterCosmosAddress)
     txPayload: string,
     grantSignBytes: string,
     grantData: {
@@ -252,13 +267,14 @@ export function encodeNewPayloadWithGrant(
     const signBytesBuffer = Buffer.from(signBytes.slice(2), "hex");
     const signBytesLength = signBytesBuffer.length;
 
-    // Calculate where grant starts (after header + signBytes + grantee signatures + txPayload)
+    // Calculate where grant starts (after header + signBytes + grantee signatures + granterHash + txPayload)
     // Header is 160 bytes (5 * 32)
     const headerSize = 160;
     const granteeSignaturesSize = granteeSigs.length * 129;
+    const granterHashSize = 32; // granterHash is 32 bytes
     const txPayloadSize = (txPayload.length - 2) / 2; // remove 0x, convert to bytes
 
-    const grantOffset = headerSize + signBytesLength + granteeSignaturesSize + txPayloadSize;
+    const grantOffset = headerSize + signBytesLength + granteeSignaturesSize + granterHashSize + txPayloadSize;
 
     // Encode main header with grantOffset
     const header = coder.encode(
@@ -269,11 +285,16 @@ export function encodeNewPayloadWithGrant(
     // Build main payload
     let payload = combineHexStrings(header, signBytes);
 
+    // Add grantee signatures
     for (const sig of granteeSigs) {
         const signerBlock = encodeSignerBlock(sig.v, sig.r, sig.s, sig.x, sig.y);
         payload = combineHexStrings(payload, signerBlock);
     }
 
+    // Add granterHash (32 bytes) - this comes BEFORE txPayload
+    payload = combineHexStrings(payload, granterHash);
+
+    // Add txPayload
     payload = combineHexStrings(payload, txPayload);
 
     // Encode and append grant payload

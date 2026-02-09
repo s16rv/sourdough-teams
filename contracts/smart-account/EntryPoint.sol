@@ -45,11 +45,7 @@ contract EntryPoint is IEntryPoint, Initializable, UUPSUpgradeable, OwnableUpgra
      * @param _owner Address of the owner
      * @param _mpcGateway Address of the MPCGateway contract
      */
-    function initialize(
-        address _accountFactory,
-        address _owner,
-        address _mpcGateway
-    ) public initializer {
+    function initialize(address _accountFactory, address _owner, address _mpcGateway) public initializer {
         if (_accountFactory == address(0)) revert ZeroAddress();
         if (_owner == address(0)) revert ZeroAddress();
 
@@ -126,11 +122,7 @@ contract EntryPoint is IEntryPoint, Initializable, UUPSUpgradeable, OwnableUpgra
      * @param _sourceAddress The address on the source chain where the transaction originated.
      * @param _payload The encoded GMP (General Message Passing) message sent from the source chain.
      */
-    function _execute(
-        string calldata _sourceChain,
-        string calldata _sourceAddress,
-        bytes calldata _payload
-    ) internal {
+    function _execute(string calldata _sourceChain, string calldata _sourceAddress, bytes calldata _payload) internal {
         uint8 category = abi.decode(_payload[:SLOT_SIZE], (uint8));
 
         if (category == 1) {
@@ -185,6 +177,13 @@ contract EntryPoint is IEntryPoint, Initializable, UUPSUpgradeable, OwnableUpgra
 
             offset += numberSigners * SIGNER_WITH_SIG_SIZE;
 
+            // For grant flow, there's a granterHash (32 bytes) between signatures and txPayload
+            bytes32 granterHash;
+            if (grantOffset > 0) {
+                granterHash = bytes32(_payload[offset:offset + SLOT_SIZE]);
+                offset += SLOT_SIZE;
+            }
+
             // Extract txPayload - ends at grantOffset if grant exists, otherwise to end of payload
             bytes calldata txPayload;
             if (grantOffset > 0) {
@@ -199,7 +198,16 @@ contract EntryPoint is IEntryPoint, Initializable, UUPSUpgradeable, OwnableUpgra
 
             if (grantOffset > 0) {
                 // Grant flow: call validateAndExecuteGrant which handles everything
-                _executeWithGrant(_payload, grantOffset, target, signBytes, txPayloadHashOffset, sigs, txPayload);
+                _executeWithGrant(
+                    _payload,
+                    grantOffset,
+                    target,
+                    signBytes,
+                    txPayloadHashOffset,
+                    sigs,
+                    txPayload,
+                    granterHash
+                );
             } else {
                 // Normal flow: call validateAndExecute
                 try
@@ -230,6 +238,7 @@ contract EntryPoint is IEntryPoint, Initializable, UUPSUpgradeable, OwnableUpgra
      * @param txPayloadHashOffset The offset to hash in signBytes.
      * @param granteeSigs Signature data from grantees.
      * @param txPayload The transaction payload.
+     * @param granterHash The keccak256 hash of the granter's cosmos address.
      */
     function _executeWithGrant(
         bytes calldata _payload,
@@ -238,7 +247,8 @@ contract EntryPoint is IEntryPoint, Initializable, UUPSUpgradeable, OwnableUpgra
         bytes calldata signBytes,
         uint256 txPayloadHashOffset,
         IAccount.SignatureData memory granteeSigs,
-        bytes calldata txPayload
+        bytes calldata txPayload,
+        bytes32 granterHash
     ) internal {
         // Grant Header: chainIdOffset(32) + chainIdLen(32) + seqOffset(32) + seqLen(32) + signBytesLen(32) + hashOffset(32) + numSigners(32)
         (
@@ -289,6 +299,7 @@ contract EntryPoint is IEntryPoint, Initializable, UUPSUpgradeable, OwnableUpgra
         grantData.grantSequenceOffset = grantSequenceOffset;
         grantData.grantSequenceLength = grantSequenceLength;
         grantData.grantTxPayloadHashOffset = grantTxPayloadHashOffset;
+        grantData.granterHash = granterHash;
 
         // Call validateAndExecuteGrant on the Account
         // This handles: validate txPayload header, validate grant, validate granter sigs, validate grantee sigs, increment, execute
@@ -332,14 +343,7 @@ contract EntryPoint is IEntryPoint, Initializable, UUPSUpgradeable, OwnableUpgra
         bytes32 salt
     ) internal returns (address) {
         EntryPointStorage storage $ = _getEntryPointStorage();
-        address accountAddress = $.accountFactory.createAccount(
-            address(this),
-            x,
-            y,
-            threshold,
-            sourceAddress,
-            salt
-        );
+        address accountAddress = $.accountFactory.createAccount(address(this), x, y, threshold, sourceAddress, salt);
 
         emit AccountCreated(accountAddress);
         return accountAddress;

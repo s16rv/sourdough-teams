@@ -28,6 +28,7 @@ interface IAccount {
         uint256 grantSequenceLength;
         uint256 grantTxPayloadHashOffset;
         uint64 granteeThreshold;
+        bytes32 granterHash;
     }
     /**
      * @dev Error thrown when the signature is invalid.

@@ -26,8 +26,7 @@ contract Account is IAccount {
     uint64 public accountSequence;
 
     // secp256k1 curve order / 2 for malleability check (EIP-2)
-    uint256 private constant SECP256K1_N_DIV_2 =
-        0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0;
+    uint256 private constant SECP256K1_N_DIV_2 = 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0;
 
     /**
      * @dev Constructor that initializes the contract with the entry point address and signer public keys.
@@ -101,12 +100,7 @@ contract Account is IAccount {
      * @param s Signature s component.
      * @return The recovered address, or address(0) if invalid.
      */
-    function _recoverSigner(
-        bytes32 messageHash,
-        uint8 v,
-        bytes32 r,
-        bytes32 s
-    ) internal pure returns (address) {
+    function _recoverSigner(bytes32 messageHash, uint8 v, bytes32 r, bytes32 s) internal pure returns (address) {
         // Check for signature malleability (EIP-2)
         if (uint256(s) > SECP256K1_N_DIV_2) {
             return address(0);
@@ -174,34 +168,43 @@ contract Account is IAccount {
         SignatureData calldata granterSigs,
         bytes calldata grantTxPayload
     ) external onlyEntryPoint returns (bool) {
-        // 1. Validate txPayload header (chainId, accountAddress, sequence, hash) - NO senderHash validation
+        // 1. Parse grantTxPayload: granterHash (32) + granteeThreshold (32)
+        if (grantTxPayload.length < 64) revert InvalidPayload();
+        (bytes32 grantTxGranterHash, uint64 granteeThreshold) = abi.decode(grantTxPayload, (bytes32, uint64));
+
+        // 2. Validate granterHash from main section matches grantTxPayload
+        if (grantData.granterHash != grantTxGranterHash) {
+            revert InvalidAuthorization();
+        }
+
+        // 3. Validate txPayload header (chainId, accountAddress, sequence, hash) - NO senderHash validation
         uint64 count = _validateTxPayloadHeaderNoSender(txPayload, txPayloadHashOffset, signBytes);
 
-        // 2. Validate grant header (chain ID from grantSignBytes)
+        // 4. Validate grant header (chain ID from grantSignBytes)
         _validateGrantChainId(grantSignBytes, grantData.chainIdOffset, grantData.chainIdLength);
 
-        // 3. Validate grant sequence (must be >= current account sequence)
+        // 5. Validate grant sequence (must be >= current account sequence)
         _validateGrantSequence(grantSignBytes, grantData.grantSequenceOffset, grantData.grantSequenceLength);
 
-        // 4. Validate grant hash commitment
+        // 6. Validate grant hash commitment
         bytes32 expectedGrantHash = _extractHashFromSignBytes(grantSignBytes, grantData.grantTxPayloadHashOffset);
         bytes32 actualGrantHash = keccak256(grantTxPayload);
         if (expectedGrantHash != actualGrantHash) {
             revert InvalidGrantHashCommitment();
         }
 
-        // 5. Validate granter signatures (against authorized signers with account threshold)
+        // 7. Validate granter signatures (against authorized signers with account threshold)
         _validateSignatures(grantSignBytes, granterSigs);
 
-        // 6. Validate grantee signatures (with granteeThreshold from grantData)
-        _validateGranteeSignatures(signBytes, granteeSigs, grantData.granteeThreshold);
+        // 8. Validate grantee signatures (with granteeThreshold from grantTxPayload)
+        _validateGranteeSignatures(signBytes, granteeSigs, granteeThreshold);
 
         emit GrantValidated(address(this));
 
-        // 7. Increment sequence BEFORE external calls (CEI pattern)
+        // 9. Increment sequence BEFORE external calls (CEI pattern)
         incrementSequence();
 
-        // 8. Decode and execute calls from txPayload
+        // 10. Decode and execute calls from txPayload
         _executeCallsFromPayload(txPayload, count);
 
         return true;
@@ -399,10 +402,7 @@ contract Account is IAccount {
     /**
      * @dev Validates signature arrays and verifies signatures.
      */
-    function _validateSignatures(
-        bytes calldata signBytes,
-        SignatureData calldata sigs
-    ) internal view {
+    function _validateSignatures(bytes calldata signBytes, SignatureData calldata sigs) internal view {
         // Validate array lengths
         if (sigs.x.length != sigs.y.length) {
             revert InvalidPubKeyLength();
