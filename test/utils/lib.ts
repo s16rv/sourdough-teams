@@ -241,14 +241,14 @@ export function encodeGrantPayload(
 
 /**
  * Encode full payload with grant for Category 2 transactions.
- * Main section format: header(160) + signBytes + grantee sigs + granterHash(32) + txPayload
+ * Main section format: header(160) + signBytes + grantee sigs + txPayload
  * Grant section format: grantHeader(224) + grantSignBytes + granter sigs + grantTxPayload(64)
+ * Note: granterHash is now in grantTxPayload (first 32 bytes), not in main section
  */
 export function encodeNewPayloadWithGrant(
     signBytes: string,
     txPayloadHashOffset: number,
     granteeSigs: { v: number; r: string; s: string; x: string; y: string }[],
-    granterHash: string, // Added: keccak256(granterCosmosAddress)
     txPayload: string,
     grantSignBytes: string,
     grantData: {
@@ -267,14 +267,13 @@ export function encodeNewPayloadWithGrant(
     const signBytesBuffer = Buffer.from(signBytes.slice(2), "hex");
     const signBytesLength = signBytesBuffer.length;
 
-    // Calculate where grant starts (after header + signBytes + grantee signatures + granterHash + txPayload)
+    // Calculate where grant starts (after header + signBytes + grantee signatures + txPayload)
     // Header is 160 bytes (5 * 32)
     const headerSize = 160;
     const granteeSignaturesSize = granteeSigs.length * 129;
-    const granterHashSize = 32; // granterHash is 32 bytes
     const txPayloadSize = (txPayload.length - 2) / 2; // remove 0x, convert to bytes
 
-    const grantOffset = headerSize + signBytesLength + granteeSignaturesSize + granterHashSize + txPayloadSize;
+    const grantOffset = headerSize + signBytesLength + granteeSignaturesSize + txPayloadSize;
 
     // Encode main header with grantOffset
     const header = coder.encode(
@@ -291,10 +290,7 @@ export function encodeNewPayloadWithGrant(
         payload = combineHexStrings(payload, signerBlock);
     }
 
-    // Add granterHash (32 bytes) - this comes BEFORE txPayload
-    payload = combineHexStrings(payload, granterHash);
-
-    // Add txPayload
+    // Add txPayload directly after signatures (no granterHash here anymore)
     payload = combineHexStrings(payload, txPayload);
 
     // Encode and append grant payload

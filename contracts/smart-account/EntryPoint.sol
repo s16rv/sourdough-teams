@@ -177,13 +177,6 @@ contract EntryPoint is IEntryPoint, Initializable, UUPSUpgradeable, OwnableUpgra
 
             offset += numberSigners * SIGNER_WITH_SIG_SIZE;
 
-            // For grant flow, there's a granterHash (32 bytes) between signatures and txPayload
-            bytes32 granterHash;
-            if (grantOffset > 0) {
-                granterHash = bytes32(_payload[offset:offset + SLOT_SIZE]);
-                offset += SLOT_SIZE;
-            }
-
             // Extract txPayload - ends at grantOffset if grant exists, otherwise to end of payload
             bytes calldata txPayload;
             if (grantOffset > 0) {
@@ -198,16 +191,7 @@ contract EntryPoint is IEntryPoint, Initializable, UUPSUpgradeable, OwnableUpgra
 
             if (grantOffset > 0) {
                 // Grant flow: call validateAndExecuteGrant which handles everything
-                _executeWithGrant(
-                    _payload,
-                    grantOffset,
-                    target,
-                    signBytes,
-                    txPayloadHashOffset,
-                    sigs,
-                    txPayload,
-                    granterHash
-                );
+                _executeWithGrant(_payload, grantOffset, target, signBytes, txPayloadHashOffset, sigs, txPayload);
             } else {
                 // Normal flow: call validateAndExecute
                 try
@@ -238,7 +222,6 @@ contract EntryPoint is IEntryPoint, Initializable, UUPSUpgradeable, OwnableUpgra
      * @param txPayloadHashOffset The offset to hash in signBytes.
      * @param granteeSigs Signature data from grantees.
      * @param txPayload The transaction payload.
-     * @param granterHash The keccak256 hash of the granter's cosmos address.
      */
     function _executeWithGrant(
         bytes calldata _payload,
@@ -247,8 +230,7 @@ contract EntryPoint is IEntryPoint, Initializable, UUPSUpgradeable, OwnableUpgra
         bytes calldata signBytes,
         uint256 txPayloadHashOffset,
         IAccount.SignatureData memory granteeSigs,
-        bytes calldata txPayload,
-        bytes32 granterHash
+        bytes calldata txPayload
     ) internal {
         // Grant Header: chainIdOffset(32) + chainIdLen(32) + seqOffset(32) + seqLen(32) + signBytesLen(32) + hashOffset(32) + numSigners(32)
         (
@@ -289,8 +271,12 @@ contract EntryPoint is IEntryPoint, Initializable, UUPSUpgradeable, OwnableUpgra
 
         offset += grantNumberSigners * SIGNER_WITH_SIG_SIZE;
 
-        // Remaining is grantTxPayload
+        // Remaining is grantTxPayload (granterHash + granteeThreshold)
         bytes calldata grantTxPayload = _payload[offset:];
+
+        // Extract granterHash from grantTxPayload (first 32 bytes)
+        if (grantTxPayload.length < 64) revert PayloadTooShort();
+        bytes32 granterHash = bytes32(grantTxPayload[0:32]);
 
         // Build GrantData struct
         IAccount.GrantData memory grantData;

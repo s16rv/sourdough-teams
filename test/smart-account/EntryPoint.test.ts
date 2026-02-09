@@ -861,7 +861,6 @@ describe("EntryPoint Team Grant", function () {
             signBytes,
             hashOffset,
             [{ v: granteeSig.v, r: granteeSig.r, s: granteeSig.s, x: GRANTEE_PUBLIC_KEY_X, y: GRANTEE_PUBLIC_KEY_Y }],
-            granterHash,
             txPayload,
             grantSignBytes,
             {
