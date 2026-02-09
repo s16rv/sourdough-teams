@@ -978,3 +978,580 @@ describe("Account Grant", function () {
         });
     });
 });
+
+/**
+ * Account recoverTransaction comprehensive tests
+ */
+describe("Account recoverTransaction", function () {
+    const RECIPIENT_ADDRESS = "0xaa25Aa7a19f9c426E07dee59b12f944f4d9f1DD3";
+    const SOURCE_ADDRESS = "neutron1chcktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
+    const SOURCE_ADDRESS_HASH = keccak256(toUtf8Bytes(SOURCE_ADDRESS));
+
+    let PUBLIC_KEY_X: string[];
+    let PUBLIC_KEY_Y: string[];
+
+    let account: Account;
+    let owner: HardhatEthersSigner;
+
+    beforeEach(async function () {
+        [owner] = await hre.ethers.getSigners();
+
+        const pubKey = await getPublicKeyFromMnemonic(TEST_MNEMONIC);
+        PUBLIC_KEY_X = [pubKey.x];
+        PUBLIC_KEY_Y = [pubKey.y];
+
+        const AccountContract = await hre.ethers.getContractFactory("Account");
+        account = await AccountContract.deploy(owner.address, PUBLIC_KEY_X, PUBLIC_KEY_Y, SOURCE_ADDRESS_HASH, 1);
+        await account.waitForDeployment();
+
+        await owner.sendTransaction({
+            to: await account.getAddress(),
+            value: parseEther("5.0"),
+        });
+    });
+
+    it("should execute recoverTransaction successfully", async function () {
+        const initialBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
+        const txPayload = encodeRecoverTxPayload(EXPECTED_CHAIN_ID, 1n, RECIPIENT_ADDRESS, parseEther("0.1"), "0x");
+        const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayload.slice(2));
+
+        await account.recoverTransaction([sig.v], [sig.r], [sig.s], PUBLIC_KEY_X, PUBLIC_KEY_Y, txPayload);
+
+        const finalBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
+        expect(finalBalance).to.equal(initialBalance + parseEther("0.1"));
+    });
+
+    it("should increment sequence after recoverTransaction", async function () {
+        expect(await account.accountSequence()).to.equal(0);
+
+        const txPayload = encodeRecoverTxPayload(EXPECTED_CHAIN_ID, 1n, RECIPIENT_ADDRESS, parseEther("0.01"), "0x");
+        const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayload.slice(2));
+
+        await account.recoverTransaction([sig.v], [sig.r], [sig.s], PUBLIC_KEY_X, PUBLIC_KEY_Y, txPayload);
+
+        expect(await account.accountSequence()).to.equal(1);
+    });
+
+    it("should revert with InvalidChainId for wrong chain", async function () {
+        const wrongChainId = 999n;
+        const txPayload = encodeRecoverTxPayload(wrongChainId, 1n, RECIPIENT_ADDRESS, parseEther("0.01"), "0x");
+        const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayload.slice(2));
+
+        await expect(
+            account.recoverTransaction([sig.v], [sig.r], [sig.s], PUBLIC_KEY_X, PUBLIC_KEY_Y, txPayload)
+        ).to.be.revertedWithCustomError(account, "InvalidChainId");
+    });
+
+    it("should revert with InvalidSequence for wrong sequence", async function () {
+        const txPayload = encodeRecoverTxPayload(EXPECTED_CHAIN_ID, 5n, RECIPIENT_ADDRESS, parseEther("0.01"), "0x");
+        const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayload.slice(2));
+
+        await expect(
+            account.recoverTransaction([sig.v], [sig.r], [sig.s], PUBLIC_KEY_X, PUBLIC_KEY_Y, txPayload)
+        ).to.be.revertedWithCustomError(account, "InvalidSequence");
+    });
+
+    it("should revert with InvalidSignature for wrong signature", async function () {
+        const txPayload = encodeRecoverTxPayload(EXPECTED_CHAIN_ID, 1n, RECIPIENT_ADDRESS, parseEther("0.01"), "0x");
+        // Sign different data
+        const wrongSig = await generateSignatureWithMnemonic(TEST_MNEMONIC, "deadbeef");
+
+        await expect(
+            account.recoverTransaction([wrongSig.v], [wrongSig.r], [wrongSig.s], PUBLIC_KEY_X, PUBLIC_KEY_Y, txPayload)
+        ).to.be.revertedWithCustomError(account, "InvalidSignature");
+    });
+
+    it("should execute with call data", async function () {
+        // Deploy a simple contract to call
+        const MyTokenFactory = await hre.ethers.getContractFactory("MyToken");
+        const token = await MyTokenFactory.deploy("TestToken", "TTK", 18);
+        await token.waitForDeployment();
+
+        const accountAddress = await account.getAddress();
+
+        // Mint some tokens to account
+        await token.mint(accountAddress, parseEther("100"));
+        expect(await token.balanceOf(accountAddress)).to.equal(parseEther("100"));
+
+        // Create transfer calldata
+        const transferData = token.interface.encodeFunctionData("transfer", [RECIPIENT_ADDRESS, parseEther("10")]);
+
+        const txPayload = encodeRecoverTxPayload(EXPECTED_CHAIN_ID, 1n, await token.getAddress(), 0n, transferData);
+        const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayload.slice(2));
+
+        await account.recoverTransaction([sig.v], [sig.r], [sig.s], PUBLIC_KEY_X, PUBLIC_KEY_Y, txPayload);
+
+        expect(await token.balanceOf(RECIPIENT_ADDRESS)).to.equal(parseEther("10"));
+    });
+});
+
+/**
+ * Account signature validation edge cases
+ */
+describe("Account Signature Edge Cases", function () {
+    const RECIPIENT_ADDRESS = "0xaa25Aa7a19f9c426E07dee59b12f944f4d9f1DD3";
+    const SOURCE_ADDRESS = "neutron1chcktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
+    const SOURCE_ADDRESS_HASH = keccak256(toUtf8Bytes(SOURCE_ADDRESS));
+
+    let PUBLIC_KEY_X: string[];
+    let PUBLIC_KEY_Y: string[];
+
+    let account: Account;
+    let owner: HardhatEthersSigner;
+
+    beforeEach(async function () {
+        [owner] = await hre.ethers.getSigners();
+
+        const pubKey = await getPublicKeyFromMnemonic(TEST_MNEMONIC);
+        PUBLIC_KEY_X = [pubKey.x];
+        PUBLIC_KEY_Y = [pubKey.y];
+
+        const AccountContract = await hre.ethers.getContractFactory("Account");
+        account = await AccountContract.deploy(owner.address, PUBLIC_KEY_X, PUBLIC_KEY_Y, SOURCE_ADDRESS_HASH, 1);
+        await account.waitForDeployment();
+
+        await owner.sendTransaction({
+            to: await account.getAddress(),
+            value: parseEther("2.0"),
+        });
+    });
+
+    it("should revert with InvalidInputLength when x and y lengths differ", async function () {
+        const txPayload = encodeRecoverTxPayload(EXPECTED_CHAIN_ID, 1n, RECIPIENT_ADDRESS, parseEther("0.01"), "0x");
+        const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayload.slice(2));
+
+        await expect(
+            account.recoverTransaction(
+                [sig.v],
+                [sig.r],
+                [sig.s],
+                [PUBLIC_KEY_X[0], PUBLIC_KEY_X[0]], // 2 x values
+                [PUBLIC_KEY_Y[0]], // 1 y value
+                txPayload
+            )
+        ).to.be.revertedWithCustomError(account, "InvalidInputLength");
+    });
+
+    it("should revert with InvalidInputLength when sig lengths mismatch", async function () {
+        const txPayload = encodeRecoverTxPayload(EXPECTED_CHAIN_ID, 1n, RECIPIENT_ADDRESS, parseEther("0.01"), "0x");
+        const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayload.slice(2));
+
+        await expect(
+            account.recoverTransaction(
+                [sig.v, sig.v], // 2 v values
+                [sig.r], // 1 r value
+                [sig.s],
+                PUBLIC_KEY_X,
+                PUBLIC_KEY_Y,
+                txPayload
+            )
+        ).to.be.revertedWithCustomError(account, "InvalidInputLength");
+    });
+
+    it("should revert with InvalidThreshold when not enough signers", async function () {
+        // Deploy account with threshold 2 but only 1 signer
+        const AccountContract = await hre.ethers.getContractFactory("Account");
+        const account2 = await AccountContract.deploy(
+            owner.address,
+            PUBLIC_KEY_X,
+            PUBLIC_KEY_Y,
+            SOURCE_ADDRESS_HASH,
+            2
+        );
+        await account2.waitForDeployment();
+
+        await owner.sendTransaction({
+            to: await account2.getAddress(),
+            value: parseEther("1.0"),
+        });
+
+        const txPayload = encodeRecoverTxPayload(EXPECTED_CHAIN_ID, 1n, RECIPIENT_ADDRESS, parseEther("0.01"), "0x");
+        const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayload.slice(2));
+
+        await expect(
+            account2.recoverTransaction([sig.v], [sig.r], [sig.s], PUBLIC_KEY_X, PUBLIC_KEY_Y, txPayload)
+        ).to.be.revertedWithCustomError(account2, "InvalidThreshold");
+    });
+
+    it("should revert with InvalidPubKey when unauthorized key used", async function () {
+        // Use a different mnemonic to generate an unauthorized key
+        const UNAUTHORIZED_MNEMONIC = "zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo wrong";
+        const unauthorizedPubKey = await getPublicKeyFromMnemonic(UNAUTHORIZED_MNEMONIC);
+
+        const txPayload = encodeRecoverTxPayload(EXPECTED_CHAIN_ID, 1n, RECIPIENT_ADDRESS, parseEther("0.01"), "0x");
+        const sig = await generateSignatureWithMnemonic(UNAUTHORIZED_MNEMONIC, txPayload.slice(2));
+
+        await expect(
+            account.recoverTransaction(
+                [sig.v],
+                [sig.r],
+                [sig.s],
+                [unauthorizedPubKey.x],
+                [unauthorizedPubKey.y],
+                txPayload
+            )
+        ).to.be.revertedWithCustomError(account, "InvalidPubKey");
+    });
+});
+
+/**
+ * Account receive ETH tests
+ */
+describe("Account Receive ETH", function () {
+    const SOURCE_ADDRESS = "neutron1chcktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
+    const SOURCE_ADDRESS_HASH = keccak256(toUtf8Bytes(SOURCE_ADDRESS));
+
+    let account: Account;
+    let owner: HardhatEthersSigner;
+    let sender: HardhatEthersSigner;
+
+    beforeEach(async function () {
+        [owner, sender] = await hre.ethers.getSigners();
+
+        const pubKey = await getPublicKeyFromMnemonic(TEST_MNEMONIC);
+
+        const AccountContract = await hre.ethers.getContractFactory("Account");
+        account = await AccountContract.deploy(owner.address, [pubKey.x], [pubKey.y], SOURCE_ADDRESS_HASH, 1);
+        await account.waitForDeployment();
+    });
+
+    it("should receive ETH via direct transfer", async function () {
+        const accountAddress = await account.getAddress();
+        const amountToSend = parseEther("1.0");
+
+        await sender.sendTransaction({
+            to: accountAddress,
+            value: amountToSend,
+        });
+
+        const balance = await hre.ethers.provider.getBalance(accountAddress);
+        expect(balance).to.equal(amountToSend);
+    });
+
+    it("should receive ETH multiple times", async function () {
+        const accountAddress = await account.getAddress();
+
+        await sender.sendTransaction({ to: accountAddress, value: parseEther("0.5") });
+        await sender.sendTransaction({ to: accountAddress, value: parseEther("0.3") });
+        await sender.sendTransaction({ to: accountAddress, value: parseEther("0.2") });
+
+        const balance = await hre.ethers.provider.getBalance(accountAddress);
+        expect(balance).to.equal(parseEther("1.0"));
+    });
+});
+
+/**
+ * Account getters tests
+ */
+describe("Account Getters", function () {
+    const SOURCE_ADDRESS = "neutron1chcktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
+    const SOURCE_ADDRESS_HASH = keccak256(toUtf8Bytes(SOURCE_ADDRESS));
+
+    let account: Account;
+    let owner: HardhatEthersSigner;
+    let PUBLIC_KEY_X: string[];
+    let PUBLIC_KEY_Y: string[];
+
+    beforeEach(async function () {
+        [owner] = await hre.ethers.getSigners();
+
+        const pubKey = await getPublicKeyFromMnemonic(TEST_MNEMONIC);
+        PUBLIC_KEY_X = [pubKey.x];
+        PUBLIC_KEY_Y = [pubKey.y];
+
+        const AccountContract = await hre.ethers.getContractFactory("Account");
+        account = await AccountContract.deploy(owner.address, PUBLIC_KEY_X, PUBLIC_KEY_Y, SOURCE_ADDRESS_HASH, 1);
+        await account.waitForDeployment();
+    });
+
+    it("should return correct x public key via getX", async function () {
+        const xKeys = await account.getX();
+        expect(xKeys.length).to.equal(1);
+        expect(xKeys[0]).to.equal(PUBLIC_KEY_X[0]);
+    });
+
+    it("should return correct y public key via getY", async function () {
+        const yKeys = await account.getY();
+        expect(yKeys.length).to.equal(1);
+        expect(yKeys[0]).to.equal(PUBLIC_KEY_Y[0]);
+    });
+
+    it("should return correct grantSequence", async function () {
+        const seq = await account.grantSequence();
+        expect(seq).to.equal(0);
+    });
+
+    it("should return correct accountSequence", async function () {
+        const seq = await account.accountSequence();
+        expect(seq).to.equal(0);
+    });
+});
+
+/**
+ * Account validateAndExecute tests (via EntryPoint)
+ */
+describe("Account validateAndExecute via EntryPoint", function () {
+    const RECIPIENT_ADDRESS = "0xaa25Aa7a19f9c426E07dee59b12f944f4d9f1DD3";
+    const SOURCE_ADDRESS = "neutron1chcktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
+    const SOURCE_ADDRESS_HASH = keccak256(toUtf8Bytes(SOURCE_ADDRESS));
+
+    let PUBLIC_KEY_X: string[];
+    let PUBLIC_KEY_Y: string[];
+
+    let account: Account;
+    let entryPoint: HardhatEthersSigner;
+
+    beforeEach(async function () {
+        [entryPoint] = await hre.ethers.getSigners();
+
+        const pubKey = await getPublicKeyFromMnemonic(TEST_MNEMONIC);
+        PUBLIC_KEY_X = [pubKey.x];
+        PUBLIC_KEY_Y = [pubKey.y];
+
+        const AccountContract = await hre.ethers.getContractFactory("Account");
+        account = await AccountContract.deploy(entryPoint.address, PUBLIC_KEY_X, PUBLIC_KEY_Y, SOURCE_ADDRESS_HASH, 1);
+        await account.waitForDeployment();
+
+        await entryPoint.sendTransaction({
+            to: await account.getAddress(),
+            value: parseEther("5.0"),
+        });
+    });
+
+    it("should execute validateAndExecute successfully with valid params", async function () {
+        const accountAddress = await account.getAddress();
+        const sequence = 1n;
+
+        const params = await createValidateParams(
+            accountAddress,
+            sequence,
+            [{ to: RECIPIENT_ADDRESS, value: parseEther("0.1"), data: "0x" }],
+            PUBLIC_KEY_X,
+            PUBLIC_KEY_Y
+        );
+
+        const initialBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
+
+        await account
+            .connect(entryPoint)
+            .validateAndExecute(
+                params.signBytes,
+                params.txPayloadHashOffset,
+                { v: params.v, r: params.r, s: params.s, x: params.x, y: params.y },
+                params.txPayload
+            );
+
+        const finalBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
+        expect(finalBalance).to.equal(initialBalance + parseEther("0.1"));
+    });
+
+    it("should increment sequence after validateAndExecute", async function () {
+        expect(await account.accountSequence()).to.equal(0);
+
+        const accountAddress = await account.getAddress();
+        const params = await createValidateParams(
+            accountAddress,
+            1n,
+            [{ to: RECIPIENT_ADDRESS, value: parseEther("0.01"), data: "0x" }],
+            PUBLIC_KEY_X,
+            PUBLIC_KEY_Y
+        );
+
+        await account
+            .connect(entryPoint)
+            .validateAndExecute(
+                params.signBytes,
+                params.txPayloadHashOffset,
+                { v: params.v, r: params.r, s: params.s, x: params.x, y: params.y },
+                params.txPayload
+            );
+
+        expect(await account.accountSequence()).to.equal(1);
+    });
+
+    it("should execute multiple calls in single validateAndExecute", async function () {
+        const accountAddress = await account.getAddress();
+        // Use all lowercase to avoid checksum issues
+        const recipient2 = "0x1234567890123456789012345678901234567890";
+
+        const params = await createValidateParams(
+            accountAddress,
+            1n,
+            [
+                { to: RECIPIENT_ADDRESS, value: parseEther("0.05"), data: "0x" },
+                { to: recipient2, value: parseEther("0.03"), data: "0x" },
+            ],
+            PUBLIC_KEY_X,
+            PUBLIC_KEY_Y
+        );
+
+        const initial1 = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
+        const initial2 = await hre.ethers.provider.getBalance(recipient2);
+
+        await account
+            .connect(entryPoint)
+            .validateAndExecute(
+                params.signBytes,
+                params.txPayloadHashOffset,
+                { v: params.v, r: params.r, s: params.s, x: params.x, y: params.y },
+                params.txPayload
+            );
+
+        expect(await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS)).to.equal(initial1 + parseEther("0.05"));
+        expect(await hre.ethers.provider.getBalance(recipient2)).to.equal(initial2 + parseEther("0.03"));
+    });
+
+    it("should revert with NotEntryPoint when called by non-entrypoint", async function () {
+        const [, stranger] = await hre.ethers.getSigners();
+        const accountAddress = await account.getAddress();
+
+        const params = await createValidateParams(
+            accountAddress,
+            1n,
+            [{ to: RECIPIENT_ADDRESS, value: parseEther("0.01"), data: "0x" }],
+            PUBLIC_KEY_X,
+            PUBLIC_KEY_Y
+        );
+
+        await expect(
+            account
+                .connect(stranger)
+                .validateAndExecute(
+                    params.signBytes,
+                    params.txPayloadHashOffset,
+                    { v: params.v, r: params.r, s: params.s, x: params.x, y: params.y },
+                    params.txPayload
+                )
+        ).to.be.revertedWithCustomError(account, "NotEntryPoint");
+    });
+
+    it("should revert with InvalidChainId for wrong chain in payload", async function () {
+        const accountAddress = await account.getAddress();
+        const wrongChainId = 999n;
+
+        // Manually create payload with wrong chain ID
+        const txPayload = encodeNewTxPayload(wrongChainId, accountAddress, 1n, [
+            { to: RECIPIENT_ADDRESS, value: parseEther("0.01"), data: "0x" },
+        ]);
+        const txPayloadHash = computeTxPayloadHash(txPayload);
+        const { signBytes, hashOffset } = createSignBytes(txPayloadHash);
+        const signBytesForSigning = Buffer.from(signBytes.slice(2), "hex");
+        const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, signBytesForSigning.toString("hex"));
+
+        await expect(
+            account
+                .connect(entryPoint)
+                .validateAndExecute(
+                    signBytes,
+                    hashOffset,
+                    { v: [sig.v], r: [sig.r], s: [sig.s], x: PUBLIC_KEY_X, y: PUBLIC_KEY_Y },
+                    txPayload
+                )
+        ).to.be.revertedWithCustomError(account, "InvalidChainId");
+    });
+
+    it("should revert with InvalidAccountAddress for wrong account in payload", async function () {
+        const wrongAddress = "0x0000000000000000000000000000000000000001";
+
+        const txPayload = encodeNewTxPayload(EXPECTED_CHAIN_ID, wrongAddress, 1n, [
+            { to: RECIPIENT_ADDRESS, value: parseEther("0.01"), data: "0x" },
+        ]);
+        const txPayloadHash = computeTxPayloadHash(txPayload);
+        const { signBytes, hashOffset } = createSignBytes(txPayloadHash);
+        const signBytesForSigning = Buffer.from(signBytes.slice(2), "hex");
+        const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, signBytesForSigning.toString("hex"));
+
+        await expect(
+            account
+                .connect(entryPoint)
+                .validateAndExecute(
+                    signBytes,
+                    hashOffset,
+                    { v: [sig.v], r: [sig.r], s: [sig.s], x: PUBLIC_KEY_X, y: PUBLIC_KEY_Y },
+                    txPayload
+                )
+        ).to.be.revertedWithCustomError(account, "InvalidAccountAddress");
+    });
+
+    it("should revert with InvalidSequence for wrong sequence", async function () {
+        const accountAddress = await account.getAddress();
+
+        const params = await createValidateParams(
+            accountAddress,
+            5n,
+            [
+                // Wrong sequence
+                { to: RECIPIENT_ADDRESS, value: parseEther("0.01"), data: "0x" },
+            ],
+            PUBLIC_KEY_X,
+            PUBLIC_KEY_Y
+        );
+
+        await expect(
+            account
+                .connect(entryPoint)
+                .validateAndExecute(
+                    params.signBytes,
+                    params.txPayloadHashOffset,
+                    { v: params.v, r: params.r, s: params.s, x: params.x, y: params.y },
+                    params.txPayload
+                )
+        ).to.be.revertedWithCustomError(account, "InvalidSequence");
+    });
+});
+
+/**
+ * Account _recoverSigner edge cases
+ */
+describe("Account Signature Recovery Edge Cases", function () {
+    const RECIPIENT_ADDRESS = "0xaa25Aa7a19f9c426E07dee59b12f944f4d9f1DD3";
+    const SOURCE_ADDRESS = "neutron1chcktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
+    const SOURCE_ADDRESS_HASH = keccak256(toUtf8Bytes(SOURCE_ADDRESS));
+
+    let PUBLIC_KEY_X: string[];
+    let PUBLIC_KEY_Y: string[];
+
+    let account: Account;
+    let owner: HardhatEthersSigner;
+
+    beforeEach(async function () {
+        [owner] = await hre.ethers.getSigners();
+
+        const pubKey = await getPublicKeyFromMnemonic(TEST_MNEMONIC);
+        PUBLIC_KEY_X = [pubKey.x];
+        PUBLIC_KEY_Y = [pubKey.y];
+
+        const AccountContract = await hre.ethers.getContractFactory("Account");
+        account = await AccountContract.deploy(owner.address, PUBLIC_KEY_X, PUBLIC_KEY_Y, SOURCE_ADDRESS_HASH, 1);
+        await account.waitForDeployment();
+
+        await owner.sendTransaction({
+            to: await account.getAddress(),
+            value: parseEther("2.0"),
+        });
+    });
+
+    it("should revert for high s value (malleability)", async function () {
+        const txPayload = encodeRecoverTxPayload(EXPECTED_CHAIN_ID, 1n, RECIPIENT_ADDRESS, parseEther("0.01"), "0x");
+        const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayload.slice(2));
+
+        // Create a high s value (above curve order / 2)
+        const highS = "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A1";
+
+        await expect(
+            account.recoverTransaction([sig.v], [sig.r], [highS], PUBLIC_KEY_X, PUBLIC_KEY_Y, txPayload)
+        ).to.be.revertedWithCustomError(account, "InvalidSignature");
+    });
+
+    it("should execute with valid low s value", async function () {
+        const txPayload = encodeRecoverTxPayload(EXPECTED_CHAIN_ID, 1n, RECIPIENT_ADDRESS, parseEther("0.01"), "0x");
+        const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayload.slice(2));
+
+        const initialBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
+
+        await account.recoverTransaction([sig.v], [sig.r], [sig.s], PUBLIC_KEY_X, PUBLIC_KEY_Y, txPayload);
+
+        const finalBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
+        expect(finalBalance).to.equal(initialBalance + parseEther("0.01"));
+    });
+});
