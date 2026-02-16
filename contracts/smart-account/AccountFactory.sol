@@ -6,6 +6,7 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "./interfaces/IAccountFactory.sol";
 import "./account/Account.sol";
+import "../routing-railgun/RoutingRailgun.sol";
 
 contract AccountFactory is IAccountFactory, Initializable, UUPSUpgradeable, OwnableUpgradeable {
     /// @custom:storage-location erc7201:sourdough.storage.AccountFactory
@@ -149,6 +150,63 @@ contract AccountFactory is IAccountFactory, Initializable, UUPSUpgradeable, Owna
         if (accountAddress == address(0)) revert FailedDeployAccount();
 
         return accountAddress;
+    }
+
+    /**
+     * @dev Creates a new RoutingRailgun account using CREATE2 for deterministic addresses.
+     * @param routingKeyAddress The EOA address bonded to this routing account.
+     * @param railgunAddress The address of the Railgun contract.
+     * @param salt A salt value for CREATE2 deployment.
+     * @return routingAccountAddress The address of the newly created RoutingRailgun contract.
+     */
+    function createRoutingRailgunAccount(
+        address routingKeyAddress,
+        address railgunAddress,
+        bytes32 salt
+    ) external onlyEntryPoint returns (address) {
+        bytes32 create2Salt = keccak256(abi.encodePacked(routingKeyAddress, salt));
+
+        address routingAddr = _deployRoutingRailgun(routingKeyAddress, railgunAddress, create2Salt);
+
+        return routingAddr;
+    }
+
+    /**
+     * @dev Deploys a RoutingRailgun contract using CREATE2.
+     * @param routingKeyAddress The EOA address bonded to this routing account.
+     * @param railgunAddress The address of the Railgun contract.
+     * @param create2Salt The salt for CREATE2 deployment.
+     * @return routingAccountAddress The address of the newly deployed RoutingRailgun contract.
+     */
+    function _deployRoutingRailgun(
+        address routingKeyAddress,
+        address railgunAddress,
+        bytes32 create2Salt
+    ) internal returns (address) {
+        AccountFactoryStorage storage $ = _getAccountFactoryStorage();
+
+        bytes memory bytecode = abi.encodePacked(
+            type(RoutingRailgun).creationCode,
+            abi.encode(routingKeyAddress, railgunAddress, $.entryPoint)
+        );
+
+        // Compute the expected address before deployment
+        bytes32 bytecodeHash = keccak256(bytecode);
+        address expectedAddress = address(
+            uint160(uint256(keccak256(abi.encodePacked(bytes1(0xff), address(this), create2Salt, bytecodeHash))))
+        );
+
+        // Check if account already exists at this address
+        if (expectedAddress.code.length > 0) revert AccountAlreadyExists();
+
+        address routingAddress;
+        assembly {
+            routingAddress := create2(0, add(bytecode, 0x20), mload(bytecode), create2Salt)
+        }
+
+        if (routingAddress == address(0)) revert FailedDeployAccount();
+
+        return routingAddress;
     }
 
     /**

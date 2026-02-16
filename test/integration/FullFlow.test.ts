@@ -1,6 +1,6 @@
 import hre, { upgrades } from "hardhat";
 import { expect } from "chai";
-import { AbiCoder, parseEther, sha256 } from "ethers";
+import { AbiCoder, keccak256, parseEther, sha256, toUtf8Bytes } from "ethers";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 
 import { Account, AccountFactory, EntryPoint, MPCGateway, MPCVerifier } from "../../typechain-types";
@@ -29,6 +29,8 @@ describe("Integration: Full Flow", function () {
     const SOURCE_ADDRESS = "neutron1chcktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
     const DESTINATION_CHAIN = "ethereum";
     const CHAIN_ID = 31337n; // Hardhat default chain ID for txPayload
+    const TEST_SENDER_COSMOS_ADDRESS = "sourdough139sv320e3ref6lqrmg98k7juy8wcgwlhz3jejp";
+    const SENDER_HASH = keccak256(toUtf8Bytes(TEST_SENDER_COSMOS_ADDRESS));
 
     let mpcGateway: MPCGateway;
     let mpcVerifier: MPCVerifier;
@@ -69,7 +71,7 @@ describe("Integration: Full Flow", function () {
         signerPubKeyY: string
     ): Promise<string> {
         // 1. Encode txPayload with chainId, accountAddress, sequence, calls
-        const txPayload = encodeNewTxPayload(CHAIN_ID, accountAddress, sequence, calls);
+        const txPayload = encodeNewTxPayload(SENDER_HASH, CHAIN_ID, accountAddress, sequence, calls);
 
         // 2. Compute hash of txPayload
         const txPayloadHash = computeTxPayloadHash(txPayload);

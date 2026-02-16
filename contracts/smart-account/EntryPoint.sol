@@ -7,6 +7,7 @@ import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "./interfaces/IEntryPoint.sol";
 import "./interfaces/IAccount.sol";
 import "./interfaces/IAccountFactory.sol";
+import "../routing-railgun/interfaces/IRoutingRailgun.sol";
 
 // Payload parsing constants
 uint64 constant SLOT_SIZE = 32; // Size of an ABI-encoded slot
@@ -208,6 +209,34 @@ contract EntryPoint is IEntryPoint, Initializable, UUPSUpgradeable, OwnableUpgra
                     revert TransactionFailed();
                 }
             }
+        } else if (category == 3) {
+            // Category 3: Create RoutingRailgun account
+            // Payload: category(32) + routingKeyAddress(32) + railgunAddress(32) + salt(32)
+            (address routingKeyAddr, address railgunAddr, bytes32 salt) = abi.decode(
+                _payload[SLOT_SIZE:SLOT_SIZE + 96],
+                (address, address, bytes32)
+            );
+
+            _createRoutingAccount(routingKeyAddr, railgunAddr, salt);
+        } else if (category == 4) {
+            // Category 4: Execute on RoutingRailgun account
+            // Payload: category(32) + target(32) + signatureLen(32) + signature(signatureLen) + opsPayload(remaining)
+            if (_payload.length < SLOT_SIZE + 64) revert PayloadTooShort();
+
+            address target = abi.decode(_payload[SLOT_SIZE:SLOT_SIZE + 32], (address));
+            uint256 signatureLen = abi.decode(_payload[SLOT_SIZE + 32:SLOT_SIZE + 64], (uint256));
+
+            uint256 sigStart = SLOT_SIZE + 64;
+            bytes calldata signature = _payload[sigStart:sigStart + signatureLen];
+            bytes calldata opsPayload = _payload[sigStart + signatureLen:];
+
+            try IRoutingRailgun(target).handleOps(opsPayload, signature) {
+                emit TransactionHandled(target, 0);
+            } catch Error(string memory reason) {
+                revert TransactionError(reason);
+            } catch {
+                revert TransactionFailed();
+            }
         }
 
         emit Executed(_sourceChain, _sourceAddress);
@@ -334,6 +363,25 @@ contract EntryPoint is IEntryPoint, Initializable, UUPSUpgradeable, OwnableUpgra
 
         emit AccountCreated(accountAddress);
         return accountAddress;
+    }
+
+    /**
+     * @dev Creates a new RoutingRailgun account by calling the AccountFactory.
+     * @param routingKeyAddress The EOA address bonded to this routing account.
+     * @param railgunAddress The address of the Railgun contract.
+     * @param salt A salt value for CREATE2 deployment.
+     * @return routingAccountAddress The address of the newly created RoutingRailgun account.
+     */
+    function _createRoutingAccount(
+        address routingKeyAddress,
+        address railgunAddress,
+        bytes32 salt
+    ) internal returns (address) {
+        EntryPointStorage storage $ = _getEntryPointStorage();
+        address routingAddr = $.accountFactory.createRoutingRailgunAccount(routingKeyAddress, railgunAddress, salt);
+
+        emit RoutingAccountCreated(routingAddr, routingKeyAddress);
+        return routingAddr;
     }
 
     /**

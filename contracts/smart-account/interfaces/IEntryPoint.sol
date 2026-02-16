@@ -70,6 +70,13 @@ interface IEntryPoint {
     event AccountCreated(address indexed accountAddress);
 
     /**
+     * @dev Event emitted when a routing account is created.
+     * @param routingAccountAddress The address of the newly created routing account.
+     * @param routingKeyAddress The bonded routing key address.
+     */
+    event RoutingAccountCreated(address indexed routingAccountAddress, address indexed routingKeyAddress);
+
+    /**
      * @dev Event emitted when a transaction is successfully executed.
      * @param target The target account address.
      * @param sequence The sequence number of the transaction.

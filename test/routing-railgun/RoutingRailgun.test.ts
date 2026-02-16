@@ -1,682 +1,391 @@
 import hre from "hardhat";
 import { expect } from "chai";
-import { parseEther } from "ethers";
+import { AbiCoder, keccak256, sha256, parseEther, Wallet, SigningKey } from "ethers";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
+import { deployAccountFactoryAndEntryPoint } from "../utils/deployHelpers";
+import { combineHexStrings } from "../utils/lib";
+import { RoutingRailgun, EntryPoint, AccountFactory } from "../../typechain-types";
 
-import { RoutingRailgun, RoutingRailgunFactory } from "../../typechain-types";
+const HARDHAT_CHAIN_ID = 31337n;
 
-function extractRoutingAddress(receipt: any, factory: any): string {
-    if (!receipt) throw new Error("ReceiptNull");
-    for (const log of receipt.logs) {
-        try {
-            const parsed = factory.interface.parseLog(log);
-            if (parsed && parsed.name === "RoutingRailgunCreated") {
-                return parsed.args.contractAddress as string;
-            }
-        } catch {}
+/**
+ * Encode a RoutingRailgun operations payload.
+ * Header: chainId(32) + accountAddress(32) + sequence(32) + count(32)
+ * Body: count * [target(32) + value(32) + dataLen(32) + data(padded to 32)]
+ */
+function encodeOpsPayload(
+    chainId: bigint,
+    accountAddress: string,
+    sequence: bigint,
+    calls: { target: string; value: bigint; data: string }[]
+): string {
+    const coder = new AbiCoder();
+    const header = coder.encode(
+        ["uint256", "address", "uint256", "uint256"],
+        [chainId, accountAddress, sequence, BigInt(calls.length)]
+    );
+
+    let payload = header;
+    for (const call of calls) {
+        const dataBytes = call.data === "0x" ? "0x" : call.data;
+        const dataLen = dataBytes === "0x" ? 0n : BigInt((dataBytes.length - 2) / 2);
+        const callHeader = coder.encode(["address", "uint256", "uint256"], [call.target, call.value, dataLen]);
+        payload = combineHexStrings(payload, callHeader);
+        if (dataLen > 0n) {
+            // Pad data to 32-byte boundary
+            const rawData = dataBytes.slice(2);
+            const paddedLen = Math.ceil(rawData.length / 64) * 64;
+            const paddedData = rawData.padEnd(paddedLen, "0");
+            payload = combineHexStrings(payload, "0x" + paddedData);
+        }
     }
-    throw new Error("EventNotFound");
+
+    return payload;
+}
+
+/**
+ * Sign a payload using the RoutingRailgun signature scheme:
+ * sha256('{"tx_hash":"0x' + hex(keccak256(payload)) + '"}')
+ */
+function signRoutingPayload(payload: string, privateKey: string): string {
+    const payloadHash = keccak256(payload);
+    // Remove 0x prefix for the hex representation in JSON
+    const hexHash = payloadHash.slice(2);
+    const jsonMessage = `{"tx_hash":"0x${hexHash}"}`;
+    const messageHash = sha256(Buffer.from(jsonMessage, "utf8"));
+
+    const signingKey = new SigningKey(privateKey);
+    const sig = signingKey.sign(messageHash);
+
+    // Pack as r(32) + s(32) + v(1)
+    const r = sig.r.slice(2);
+    const s = sig.s.slice(2);
+    const v = (sig.v - 27).toString(16).padStart(2, "0");
+    return "0x" + r + s + v;
+}
+
+/**
+ * Encode a Category 3 payload for creating a RoutingRailgun account.
+ * Payload: category(32) + routingKeyAddress(32) + railgunAddress(32) + salt(32)
+ */
+function encodeCategory3Payload(routingKeyAddress: string, railgunAddress: string, salt: string): string {
+    const coder = new AbiCoder();
+    return coder.encode(["uint8", "address", "address", "bytes32"], [3, routingKeyAddress, railgunAddress, salt]);
+}
+
+/**
+ * Encode a Category 4 payload for executing on a RoutingRailgun account.
+ * Payload: category(32) + target(32) + signatureLen(32) + signature(signatureLen) + opsPayload(remaining)
+ */
+function encodeCategory4Payload(target: string, signature: string, opsPayload: string): string {
+    const coder = new AbiCoder();
+    const sigBytes = Buffer.from(signature.slice(2), "hex");
+    const header = coder.encode(["uint8", "address", "uint256"], [4, target, sigBytes.length]);
+    let payload = combineHexStrings(header, signature);
+    payload = combineHexStrings(payload, opsPayload);
+    return payload;
 }
 
 describe("RoutingRailgun", function () {
-    it("receives ETH and shields via controller", async function () {
-        const [controller, user, recipient] = await hre.ethers.getSigners();
-
-        const MockRailgunFactory = await hre.ethers.getContractFactory("MockRailgun");
-        const mockRailgun = await MockRailgunFactory.deploy();
-        await mockRailgun.waitForDeployment();
-
-        const RoutingRailgunFactory = await hre.ethers.getContractFactory("RoutingRailgunFactory");
-        const factory = await RoutingRailgunFactory.connect(controller).deploy();
-        await factory.waitForDeployment();
-
-        const rrAddr = await factory.connect(controller).createRoutingRailgun(await mockRailgun.getAddress());
-        const createReceipt = await rrAddr.wait();
-        const routingAddress = extractRoutingAddress(createReceipt, factory);
-
-        const routing = await hre.ethers.getContractAt("RoutingRailgun", routingAddress, user);
-
-        await expect(user.sendTransaction({ to: routingAddress, value: hre.ethers.parseEther("1") })).to.not.be
-            .reverted;
-
-        const commitments = [hre.ethers.keccak256(hre.ethers.toUtf8Bytes("c1"))];
-        const encryptedNotes = [hre.ethers.toUtf8Bytes("n1")];
-
-        await expect(
-            routing
-                .connect(controller)
-                .executeRailgunCall(
-                    await mockRailgun.getAddress(),
-                    hre.ethers.parseEther("1"),
-                    mockRailgun.interface.encodeFunctionData("shield", [commitments, encryptedNotes])
-                )
-        ).to.not.be.reverted;
-
-        // Fund router with ETH for refund
-        await user.sendTransaction({ to: routingAddress, value: hre.ethers.parseEther("0.5") });
-
-        await expect(
-            routing.connect(controller).refund(hre.ethers.ZeroAddress, controller.address, hre.ethers.parseEther("0.5"))
-        ).to.emit(routing, "RefundedETH");
-
-        const lastAmount = await mockRailgun.lastAmount();
-        expect(lastAmount).to.equal(hre.ethers.parseEther("1"));
-    });
-
-    it("refunds by controller", async function () {
-        const [controller, user, recipient] = await hre.ethers.getSigners();
-
-        const MockRailgunFactory = await hre.ethers.getContractFactory("MockRailgun");
-        const mockRailgun = await MockRailgunFactory.deploy();
-        await mockRailgun.waitForDeployment();
-
-        const RoutingRailgunFactory = await hre.ethers.getContractFactory("RoutingRailgunFactory");
-        const factory = await RoutingRailgunFactory.connect(controller).deploy();
-        await factory.waitForDeployment();
-
-        const rrAddr = await factory.connect(controller).createRoutingRailgun(recipient.address);
-        const createReceipt2 = await rrAddr.wait();
-        const routingAddress = extractRoutingAddress(createReceipt2, factory);
-
-        const routing = await hre.ethers.getContractAt("RoutingRailgun", routingAddress, user);
-
-        await user.sendTransaction({ to: routingAddress, value: hre.ethers.parseEther("0.5") });
-
-        // ownerAddress is controller, refund goes to ownerAddress
-        const before = await hre.ethers.provider.getBalance(controller.address);
-        const tx = await routing
-            .connect(controller)
-            .refund(hre.ethers.ZeroAddress, controller.address, hre.ethers.parseEther("0.5"));
-        const refundReceipt = await tx.wait();
-        const after = await hre.ethers.provider.getBalance(controller.address);
-        const effectiveGasPrice = refundReceipt?.effectiveGasPrice ?? 0n;
-        const gasPrice = tx.gasPrice ?? effectiveGasPrice;
-        const gasUsed = refundReceipt?.gasUsed ?? 0n;
-        const gasCost = gasUsed * gasPrice;
-        expect(after - before + gasCost).to.equal(hre.ethers.parseEther("0.5"));
-    });
-
-    it("shields ERC20 and refunds ERC20", async function () {
-        const [controller, user, recipient] = await hre.ethers.getSigners();
-
-        const TokenFactory = await hre.ethers.getContractFactory("MyToken");
-        const token = await TokenFactory.deploy("Test", "TST", 18);
-        await token.waitForDeployment();
-
-        const MockRailgunFactory = await hre.ethers.getContractFactory("MockRailgun");
-        const mockRailgun = await MockRailgunFactory.deploy();
-        await mockRailgun.waitForDeployment();
-
-        const RoutingRailgunFactory = await hre.ethers.getContractFactory("RoutingRailgunFactory");
-        const factory = await RoutingRailgunFactory.connect(controller).deploy();
-        await factory.waitForDeployment();
-
-        const rrAddrTx = await factory.connect(controller).createRoutingRailgun(await mockRailgun.getAddress());
-        const createReceipt3 = await rrAddrTx.wait();
-        const routingAddress = extractRoutingAddress(createReceipt3, factory);
-
-        const routing = await hre.ethers.getContractAt("RoutingRailgun", routingAddress, controller);
-
-        await token.connect(controller).mint(user.address, hre.ethers.parseEther("10"));
-        await token.connect(user).approve(routingAddress, hre.ethers.parseEther("2"));
-
-        const commitments = [hre.ethers.keccak256(hre.ethers.toUtf8Bytes("c1"))];
-        const encryptedNotes = [hre.ethers.toUtf8Bytes("n1")];
-
-        await expect(
-            routing
-                .connect(controller)
-                .approveToken(await token.getAddress(), await mockRailgun.getAddress(), hre.ethers.parseEther("2"))
-        ).to.emit(routing, "TokenApproved");
-
-        await expect(
-            routing
-                .connect(controller)
-                .executeRailgunCall(
-                    await mockRailgun.getAddress(),
-                    0,
-                    mockRailgun.interface.encodeFunctionData("shieldERC20", [
-                        await token.getAddress(),
-                        hre.ethers.parseEther("2"),
-                        commitments,
-                        encryptedNotes,
-                    ])
-                )
-        ).to.not.be.reverted;
-
-        const lastAmount = await mockRailgun.lastAmount();
-        expect(lastAmount).to.equal(hre.ethers.parseEther("2"));
-
-        await token.connect(user).transfer(routingAddress, hre.ethers.parseEther("1"));
-        const beforeBal = await token.balanceOf(controller.address);
-        await expect(
-            routing.connect(controller).refund(await token.getAddress(), controller.address, hre.ethers.parseEther("1"))
-        ).to.emit(routing, "RefundedToken");
-        const afterBal = await token.balanceOf(controller.address);
-        expect(afterBal - beforeBal).to.equal(hre.ethers.parseEther("1"));
-    });
-});
-
-/**
- * Security and edge case tests for RoutingRailgun
- * Covers: access control, error paths, and branch coverage gaps
- */
-describe("RoutingRailgun Security", function () {
-    let routingRailgun: RoutingRailgun;
-    let routingRailgunFactory: RoutingRailgunFactory;
+    let entryPoint: EntryPoint;
+    let accountFactory: AccountFactory;
+    let owner: HardhatEthersSigner;
+    let mpcGateway: HardhatEthersSigner;
+    let user: HardhatEthersSigner;
+    let routingKeyWallet: Wallet;
     let mockRailgun: any;
     let mockToken: any;
-    let controller: HardhatEthersSigner;
-    let attacker: HardhatEthersSigner;
-    let recipient: HardhatEthersSigner;
 
     beforeEach(async function () {
-        [controller, attacker, recipient] = await hre.ethers.getSigners();
+        [owner, mpcGateway, user] = await hre.ethers.getSigners();
 
-        // Deploy mock Railgun
+        // Deploy infrastructure
+        const deployed = await deployAccountFactoryAndEntryPoint(owner.address, mpcGateway.address);
+        entryPoint = deployed.entryPoint;
+        accountFactory = deployed.accountFactory;
+
+        // Create a routing key wallet (EOA that will sign operations)
+        routingKeyWallet = Wallet.createRandom();
+
+        // Deploy MockRailgun
         const MockRailgunFactory = await hre.ethers.getContractFactory("MockRailgun");
         mockRailgun = await MockRailgunFactory.deploy();
         await mockRailgun.waitForDeployment();
 
-        // Deploy RoutingRailgunFactory
-        const RoutingRailgunFactoryContract = await hre.ethers.getContractFactory("RoutingRailgunFactory");
-        routingRailgunFactory = await RoutingRailgunFactoryContract.deploy();
-        await routingRailgunFactory.waitForDeployment();
-
-        // Create a RoutingRailgun instance (controller calls, so controller becomes the controller)
-        const tx = await routingRailgunFactory.connect(controller).createRoutingRailgun(mockRailgun.target);
-        const receipt = await tx.wait();
-        const event = receipt?.logs.find((log: any) => {
-            try {
-                return routingRailgunFactory.interface.parseLog(log)?.name === "RoutingRailgunCreated";
-            } catch {
-                return false;
-            }
-        });
-        const parsedEvent = routingRailgunFactory.interface.parseLog(event as any);
-        const routingRailgunAddress = parsedEvent?.args.contractAddress;
-
-        routingRailgun = await hre.ethers.getContractAt("RoutingRailgun", routingRailgunAddress);
-
-        // Deploy mock token
+        // Deploy MockToken
         const MyTokenFactory = await hre.ethers.getContractFactory("MyToken");
-        mockToken = await MyTokenFactory.deploy("Mock Token", "MTK", 18);
+        mockToken = await MyTokenFactory.deploy("Test Token", "TST", 18);
         await mockToken.waitForDeployment();
-
-        // Fund the RoutingRailgun contract
-        await controller.sendTransaction({
-            to: routingRailgunAddress,
-            value: parseEther("5.0"),
-        });
-
-        // Mint tokens to RoutingRailgun
-        await mockToken.mint(routingRailgunAddress, parseEther("1000"));
     });
 
-    describe("Access Control (onlyController)", function () {
-        it("Should reject approveToken from non-controller", async function () {
-            await expect(
-                routingRailgun.connect(attacker).approveToken(mockToken.target, mockRailgun.target, parseEther("100"))
-            ).to.be.revertedWithCustomError(routingRailgun, "NotController");
+    describe("Category 3: Account Creation", function () {
+        it("should create a RoutingRailgun account via EntryPoint", async function () {
+            const salt = hre.ethers.id("test-salt-1");
+            const payload = encodeCategory3Payload(routingKeyWallet.address, await mockRailgun.getAddress(), salt);
+
+            const tx = await entryPoint.connect(mpcGateway).executePayload("cosmos", "cosmos1abc", payload);
+            const receipt = await tx.wait();
+
+            // Check RoutingAccountCreated event
+            const routingEvent = receipt?.logs.find((log: any) => {
+                try {
+                    const parsed = entryPoint.interface.parseLog(log);
+                    return parsed?.name === "RoutingAccountCreated";
+                } catch {
+                    return false;
+                }
+            });
+            expect(routingEvent).to.not.be.undefined;
+
+            const parsed = entryPoint.interface.parseLog(routingEvent as any);
+            const routingAddr = parsed?.args.routingAccountAddress;
+            expect(routingAddr).to.not.equal(hre.ethers.ZeroAddress);
+
+            // Verify the deployed contract has correct immutables
+            const routing = await hre.ethers.getContractAt("RoutingRailgun", routingAddr);
+            expect(await routing.routingKeyAddress()).to.equal(routingKeyWallet.address);
+            expect(await routing.railgunAddress()).to.equal(await mockRailgun.getAddress());
+            expect(await routing.entryPoint()).to.equal(await entryPoint.getAddress());
+            expect(await routing.nonce()).to.equal(0);
         });
 
-        it("Should reject executeRailgunCall from non-controller", async function () {
-            await expect(
-                routingRailgun.connect(attacker).executeRailgunCall(mockRailgun.target, 0, "0x")
-            ).to.be.revertedWithCustomError(routingRailgun, "NotController");
+        it("should create deterministic addresses via CREATE2", async function () {
+            const salt = hre.ethers.id("deterministic-salt");
+
+            // Create first account
+            const payload1 = encodeCategory3Payload(routingKeyWallet.address, await mockRailgun.getAddress(), salt);
+
+            const tx1 = await entryPoint.connect(mpcGateway).executePayload("cosmos", "cosmos1abc", payload1);
+            const receipt1 = await tx1.wait();
+            const event1 = receipt1?.logs.find((log: any) => {
+                try {
+                    return entryPoint.interface.parseLog(log)?.name === "RoutingAccountCreated";
+                } catch {
+                    return false;
+                }
+            });
+            const addr1 = entryPoint.interface.parseLog(event1 as any)?.args.routingAccountAddress;
+
+            // Second creation with same params should revert (AccountAlreadyExists)
+            await expect(entryPoint.connect(mpcGateway).executePayload("cosmos", "cosmos1abc", payload1)).to.be
+                .reverted;
+
+            // Different salt should produce different address
+            const salt2 = hre.ethers.id("different-salt");
+            const payload2 = encodeCategory3Payload(routingKeyWallet.address, await mockRailgun.getAddress(), salt2);
+            const tx2 = await entryPoint.connect(mpcGateway).executePayload("cosmos", "cosmos1abc", payload2);
+            const receipt2 = await tx2.wait();
+            const event2 = receipt2?.logs.find((log: any) => {
+                try {
+                    return entryPoint.interface.parseLog(log)?.name === "RoutingAccountCreated";
+                } catch {
+                    return false;
+                }
+            });
+            const addr2 = entryPoint.interface.parseLog(event2 as any)?.args.routingAccountAddress;
+
+            expect(addr1).to.not.equal(addr2);
+        });
+    });
+
+    describe("Category 4: Operation Execution", function () {
+        let routingAddr: string;
+        let routing: RoutingRailgun;
+
+        beforeEach(async function () {
+            // Create a routing account first
+            const salt = hre.ethers.id("ops-test-salt");
+            const payload = encodeCategory3Payload(routingKeyWallet.address, await mockRailgun.getAddress(), salt);
+            const tx = await entryPoint.connect(mpcGateway).executePayload("cosmos", "cosmos1abc", payload);
+            const receipt = await tx.wait();
+            const event = receipt?.logs.find((log: any) => {
+                try {
+                    return entryPoint.interface.parseLog(log)?.name === "RoutingAccountCreated";
+                } catch {
+                    return false;
+                }
+            });
+            routingAddr = entryPoint.interface.parseLog(event as any)?.args.routingAccountAddress;
+            routing = await hre.ethers.getContractAt("RoutingRailgun", routingAddr);
+
+            // Fund the routing account with ETH and tokens
+            await owner.sendTransaction({ to: routingAddr, value: parseEther("5") });
+            await mockToken.mint(routingAddr, parseEther("1000"));
         });
 
-        it("Should reject refund from non-controller", async function () {
-            await expect(
-                routingRailgun.connect(attacker).refund(hre.ethers.ZeroAddress, attacker.address, parseEther("1"))
-            ).to.be.revertedWithCustomError(routingRailgun, "NotController");
+        it("should execute a single ETH call via handleOps", async function () {
+            const railgunAddr = await mockRailgun.getAddress();
+            const commitments = [hre.ethers.keccak256(hre.ethers.toUtf8Bytes("c1"))];
+            const encryptedNotes = [hre.ethers.toUtf8Bytes("n1")];
+            const shieldData = mockRailgun.interface.encodeFunctionData("shield", [commitments, encryptedNotes]);
+
+            const opsPayload = encodeOpsPayload(HARDHAT_CHAIN_ID, routingAddr, 0n, [
+                { target: railgunAddr, value: parseEther("1"), data: shieldData },
+            ]);
+
+            const signature = signRoutingPayload(opsPayload, routingKeyWallet.privateKey);
+            const cat4Payload = encodeCategory4Payload(routingAddr, signature, opsPayload);
+
+            await expect(entryPoint.connect(mpcGateway).executePayload("cosmos", "cosmos1abc", cat4Payload)).to.emit(
+                entryPoint,
+                "TransactionHandled"
+            );
+
+            // Verify the shield was called
+            const lastAmount = await mockRailgun.lastAmount();
+            expect(lastAmount).to.equal(parseEther("1"));
+
+            // Verify nonce incremented
+            expect(await routing.nonce()).to.equal(1);
         });
 
-        it("Should allow controller to call approveToken", async function () {
-            await expect(
-                routingRailgun.connect(controller).approveToken(mockToken.target, mockRailgun.target, parseEther("100"))
-            ).to.emit(routingRailgun, "TokenApproved");
+        it("should execute approve + shield ERC20 multicall", async function () {
+            const railgunAddr = await mockRailgun.getAddress();
+            const tokenAddr = await mockToken.getAddress();
+            const amount = parseEther("100");
+
+            // Build approve calldata
+            const approveData = mockToken.interface.encodeFunctionData("approve", [railgunAddr, amount]);
+
+            // Build shield ERC20 calldata
+            const commitments = [hre.ethers.keccak256(hre.ethers.toUtf8Bytes("c1"))];
+            const encryptedNotes = [hre.ethers.toUtf8Bytes("n1")];
+            const shieldData = mockRailgun.interface.encodeFunctionData("shieldERC20", [
+                tokenAddr,
+                amount,
+                commitments,
+                encryptedNotes,
+            ]);
+
+            const opsPayload = encodeOpsPayload(HARDHAT_CHAIN_ID, routingAddr, 0n, [
+                { target: tokenAddr, value: 0n, data: approveData },
+                { target: railgunAddr, value: 0n, data: shieldData },
+            ]);
+
+            const signature = signRoutingPayload(opsPayload, routingKeyWallet.privateKey);
+            const cat4Payload = encodeCategory4Payload(routingAddr, signature, opsPayload);
+
+            await expect(entryPoint.connect(mpcGateway).executePayload("cosmos", "cosmos1abc", cat4Payload)).to.emit(
+                entryPoint,
+                "TransactionHandled"
+            );
+
+            // Verify the shieldERC20 was called
+            expect(await mockRailgun.lastAmount()).to.equal(amount);
+            expect(await mockRailgun.lastToken()).to.equal(tokenAddr);
+
+            // Verify nonce incremented
+            expect(await routing.nonce()).to.equal(1);
         });
 
-        it("Should allow controller to call executeRailgunCall", async function () {
-            // MockRailgun has a fallback that accepts calls
-            await expect(routingRailgun.connect(controller).executeRailgunCall(mockRailgun.target, 0, "0x")).to.emit(
-                routingRailgun,
-                "CallSuccess"
+        it("should reject invalid signature", async function () {
+            const opsPayload = encodeOpsPayload(HARDHAT_CHAIN_ID, routingAddr, 0n, []);
+
+            // Sign with a different key
+            const wrongWallet = Wallet.createRandom();
+            const signature = signRoutingPayload(opsPayload, wrongWallet.privateKey);
+            const cat4Payload = encodeCategory4Payload(routingAddr, signature, opsPayload);
+
+            await expect(entryPoint.connect(mpcGateway).executePayload("cosmos", "cosmos1abc", cat4Payload)).to.be
+                .reverted;
+        });
+
+        it("should reject replay (wrong nonce)", async function () {
+            // Execute first operation (nonce 0)
+            const opsPayload1 = encodeOpsPayload(HARDHAT_CHAIN_ID, routingAddr, 0n, []);
+            const sig1 = signRoutingPayload(opsPayload1, routingKeyWallet.privateKey);
+            const cat4Payload1 = encodeCategory4Payload(routingAddr, sig1, opsPayload1);
+            await entryPoint.connect(mpcGateway).executePayload("cosmos", "cosmos1abc", cat4Payload1);
+
+            // Try to replay the same nonce (0) - should fail
+            await expect(entryPoint.connect(mpcGateway).executePayload("cosmos", "cosmos1abc", cat4Payload1)).to.be
+                .reverted;
+        });
+
+        it("should reject wrong chain ID", async function () {
+            const wrongChainId = 999n;
+            const opsPayload = encodeOpsPayload(wrongChainId, routingAddr, 0n, []);
+            const signature = signRoutingPayload(opsPayload, routingKeyWallet.privateKey);
+            const cat4Payload = encodeCategory4Payload(routingAddr, signature, opsPayload);
+
+            await expect(entryPoint.connect(mpcGateway).executePayload("cosmos", "cosmos1abc", cat4Payload)).to.be
+                .reverted;
+        });
+
+        it("should reject wrong account address", async function () {
+            const wrongAddr = user.address;
+            const opsPayload = encodeOpsPayload(HARDHAT_CHAIN_ID, wrongAddr, 0n, []);
+            const signature = signRoutingPayload(opsPayload, routingKeyWallet.privateKey);
+            const cat4Payload = encodeCategory4Payload(routingAddr, signature, opsPayload);
+
+            await expect(entryPoint.connect(mpcGateway).executePayload("cosmos", "cosmos1abc", cat4Payload)).to.be
+                .reverted;
+        });
+
+        it("should increment nonce sequentially", async function () {
+            for (let i = 0; i < 3; i++) {
+                const opsPayload = encodeOpsPayload(HARDHAT_CHAIN_ID, routingAddr, BigInt(i), []);
+                const sig = signRoutingPayload(opsPayload, routingKeyWallet.privateKey);
+                const cat4Payload = encodeCategory4Payload(routingAddr, sig, opsPayload);
+                await entryPoint.connect(mpcGateway).executePayload("cosmos", "cosmos1abc", cat4Payload);
+            }
+            expect(await routing.nonce()).to.equal(3);
+        });
+    });
+
+    describe("Access Control", function () {
+        let routingAddr: string;
+
+        beforeEach(async function () {
+            const salt = hre.ethers.id("access-test");
+            const payload = encodeCategory3Payload(routingKeyWallet.address, await mockRailgun.getAddress(), salt);
+            const tx = await entryPoint.connect(mpcGateway).executePayload("cosmos", "cosmos1abc", payload);
+            const receipt = await tx.wait();
+            const event = receipt?.logs.find((log: any) => {
+                try {
+                    return entryPoint.interface.parseLog(log)?.name === "RoutingAccountCreated";
+                } catch {
+                    return false;
+                }
+            });
+            routingAddr = entryPoint.interface.parseLog(event as any)?.args.routingAccountAddress;
+        });
+
+        it("should reject handleOps from non-EntryPoint", async function () {
+            const routing = await hre.ethers.getContractAt("RoutingRailgun", routingAddr);
+            await expect(routing.connect(user).handleOps("0x", "0x")).to.be.revertedWithCustomError(
+                routing,
+                "NotEntryPoint"
             );
         });
 
-        it("Should allow controller to call refund (ETH)", async function () {
+        it("should reject executePayload from non-MPCGateway", async function () {
+            const payload = encodeCategory3Payload(routingKeyWallet.address, user.address, hre.ethers.ZeroHash);
             await expect(
-                routingRailgun.connect(controller).refund(hre.ethers.ZeroAddress, recipient.address, parseEther("1"))
-            ).to.emit(routingRailgun, "RefundedETH");
-        });
-
-        it("Should allow controller to call refund (token)", async function () {
-            await expect(
-                routingRailgun.connect(controller).refund(mockToken.target, recipient.address, parseEther("100"))
-            ).to.emit(routingRailgun, "RefundedToken");
-        });
-    });
-
-    describe("Error Paths", function () {
-        it("Should revert executeRailgunCall with InvalidRecipient if not railgunAddress", async function () {
-            // Try to call a different address than railgunAddress
-            await expect(
-                routingRailgun.connect(controller).executeRailgunCall(attacker.address, 0, "0x")
-            ).to.be.revertedWithCustomError(routingRailgun, "InvalidRecipient");
-        });
-
-        it("Should revert executeRailgunCall with CallFailed if call fails", async function () {
-            // Configure MockRailgun to fail
-            await mockRailgun.setShouldFail(true);
-
-            await expect(
-                routingRailgun.connect(controller).executeRailgunCall(mockRailgun.target, 0, "0x")
-            ).to.be.revertedWithCustomError(routingRailgun, "CallFailed");
-        });
-
-        it("Should revert refund ETH with InsufficientETHBalance", async function () {
-            // Try to refund more ETH than available
-            const balance = await hre.ethers.provider.getBalance(await routingRailgun.getAddress());
-
-            await expect(
-                routingRailgun
-                    .connect(controller)
-                    .refund(hre.ethers.ZeroAddress, recipient.address, balance + parseEther("1"))
-            ).to.be.revertedWithCustomError(routingRailgun, "InsufficientETHBalance");
-        });
-
-        it("Should revert refund token with TransferFailed if transfer fails", async function () {
-            // Try to transfer more tokens than available
-            const tokenBalance = await mockToken.balanceOf(await routingRailgun.getAddress());
-
-            // This will fail because RoutingRailgun doesn't have enough tokens
-            // Note: Standard ERC20 reverts, but the test checks the path
-            await expect(
-                routingRailgun
-                    .connect(controller)
-                    .refund(mockToken.target, recipient.address, tokenBalance + parseEther("1"))
-            ).to.be.reverted; // ERC20 will revert before our custom error
+                entryPoint.connect(user).executePayload("cosmos", "cosmos1abc", payload)
+            ).to.be.revertedWithCustomError(entryPoint, "NotMPCGateway");
         });
     });
 
     describe("ETH Handling", function () {
-        it("Should receive ETH and emit FundsReceived", async function () {
-            const amount = parseEther("1.0");
-
-            await expect(
-                attacker.sendTransaction({
-                    to: await routingRailgun.getAddress(),
-                    value: amount,
-                })
-            )
-                .to.emit(routingRailgun, "FundsReceived")
-                .withArgs(attacker.address, amount);
-        });
-    });
-
-    describe("State Queries", function () {
-        it("Should return correct controller", async function () {
-            expect(await routingRailgun.controller()).to.equal(controller.address);
-        });
-
-        it("Should return correct railgunAddress", async function () {
-            expect(await routingRailgun.railgunAddress()).to.equal(mockRailgun.target);
-        });
-    });
-});
-
-/**
- * Reentrancy tests for RoutingRailgun
- *
- * Analysis: RoutingRailgun has two potential reentrancy points:
- * 1. refund() - sends ETH via .call{value: amount}("")
- * 2. executeRailgunCall() - calls external contract via .call{value: value}(data)
- *
- * However, both functions have `onlyController` modifier, which should prevent
- * external attackers from re-entering since they are not the controller.
- *
- * These tests verify whether the access control provides sufficient protection.
- */
-describe("RoutingRailgun Reentrancy", function () {
-    let routingRailgun: RoutingRailgun;
-    let routingRailgunFactory: RoutingRailgunFactory;
-    let controller: HardhatEthersSigner;
-    let attacker: HardhatEthersSigner;
-
-    beforeEach(async function () {
-        [controller, attacker] = await hre.ethers.getSigners();
-
-        // Deploy RoutingRailgunFactory
-        const RoutingRailgunFactoryContract = await hre.ethers.getContractFactory("RoutingRailgunFactory");
-        routingRailgunFactory = await RoutingRailgunFactoryContract.deploy();
-        await routingRailgunFactory.waitForDeployment();
-    });
-
-    describe("Refund Reentrancy", function () {
-        it("PROTECTED: Reentrancy during refund fails due to onlyController", async function () {
-            // Deploy a malicious Railgun that will be used as railgunAddress
-            const MaliciousRailgunFactory = await hre.ethers.getContractFactory("RoutingRailgunReentrancyAttacker");
-            const maliciousReceiver = await MaliciousRailgunFactory.deploy();
-            await maliciousReceiver.waitForDeployment();
-
-            // Controller creates RoutingRailgun with malicious contract as railgun address
-            const tx = await routingRailgunFactory.connect(controller).createRoutingRailgun(maliciousReceiver.target);
+        it("should receive ETH and emit FundsReceived", async function () {
+            const salt = hre.ethers.id("eth-test");
+            const payload = encodeCategory3Payload(routingKeyWallet.address, await mockRailgun.getAddress(), salt);
+            const tx = await entryPoint.connect(mpcGateway).executePayload("cosmos", "cosmos1abc", payload);
             const receipt = await tx.wait();
             const event = receipt?.logs.find((log: any) => {
                 try {
-                    return routingRailgunFactory.interface.parseLog(log)?.name === "RoutingRailgunCreated";
+                    return entryPoint.interface.parseLog(log)?.name === "RoutingAccountCreated";
                 } catch {
                     return false;
                 }
             });
-            const parsedEvent = routingRailgunFactory.interface.parseLog(event as any);
-            const routingRailgunAddress = parsedEvent?.args.contractAddress;
+            const routingAddr = entryPoint.interface.parseLog(event as any)?.args.routingAccountAddress;
+            const routing = await hre.ethers.getContractAt("RoutingRailgun", routingAddr);
 
-            routingRailgun = await hre.ethers.getContractAt("RoutingRailgun", routingRailgunAddress);
-
-            // Fund the RoutingRailgun with 5 ETH
-            await controller.sendTransaction({
-                to: routingRailgunAddress,
-                value: parseEther("5.0"),
-            });
-
-            // Configure attacker to attempt reentrancy on refund
-            await maliciousReceiver.setTarget(routingRailgunAddress);
-            await maliciousReceiver.setAttackType(1); // 1 = attack refund
-
-            const initialBalance = await hre.ethers.provider.getBalance(routingRailgunAddress);
-            expect(initialBalance).to.equal(parseEther("5.0"));
-
-            // Controller calls refund to send 1 ETH to malicious receiver
-            // Malicious receiver will try to re-enter refund() in its receive()
-            // But it should fail because malicious receiver is NOT the controller
-            await routingRailgun
-                .connect(controller)
-                .refund(hre.ethers.ZeroAddress, maliciousReceiver.target, parseEther("1.0"));
-
-            // Check: Only 1 ETH was sent, not drained
-            const finalBalance = await hre.ethers.provider.getBalance(routingRailgunAddress);
-            expect(finalBalance).to.equal(parseEther("4.0"));
-
-            // Check: Attacker's reentrancy attempt failed
-            const attackAttempts = await maliciousReceiver.attackCount();
-            expect(attackAttempts).to.equal(1); // Only the initial receive, reentry failed
-
-            console.log("Reentrancy attempt blocked by onlyController modifier");
-        });
-
-        it("PROTECTED: Malicious token cannot re-enter during token refund", async function () {
-            // Deploy malicious ERC20 that tries to re-enter on transfer
-            const MaliciousTokenFactory = await hre.ethers.getContractFactory("ReentrantToken");
-            const maliciousToken = await MaliciousTokenFactory.deploy();
-            await maliciousToken.waitForDeployment();
-
-            // Create RoutingRailgun
-            const tx = await routingRailgunFactory.connect(controller).createRoutingRailgun(controller.address);
-            const receipt = await tx.wait();
-            const event = receipt?.logs.find((log: any) => {
-                try {
-                    return routingRailgunFactory.interface.parseLog(log)?.name === "RoutingRailgunCreated";
-                } catch {
-                    return false;
-                }
-            });
-            const parsedEvent = routingRailgunFactory.interface.parseLog(event as any);
-            const routingRailgunAddress = parsedEvent?.args.contractAddress;
-
-            routingRailgun = await hre.ethers.getContractAt("RoutingRailgun", routingRailgunAddress);
-
-            // Fund RoutingRailgun with malicious tokens
-            await maliciousToken.mint(routingRailgunAddress, parseEther("100"));
-
-            // Configure malicious token to attack this RoutingRailgun
-            await maliciousToken.setTarget(routingRailgunAddress);
-
-            const initialBalance = await maliciousToken.balanceOf(routingRailgunAddress);
-            expect(initialBalance).to.equal(parseEther("100"));
-
-            // Refund should work - malicious token's reentrancy attempt should fail
-            await routingRailgun.connect(controller).refund(maliciousToken.target, attacker.address, parseEther("10"));
-
-            // Only 10 tokens transferred, not drained
-            const finalBalance = await maliciousToken.balanceOf(routingRailgunAddress);
-            expect(finalBalance).to.equal(parseEther("90"));
-
-            console.log("Token reentrancy blocked by onlyController modifier");
-        });
-    });
-
-    describe("ExecuteRailgunCall Reentrancy", function () {
-        it("PROTECTED: Malicious Railgun cannot re-enter during executeRailgunCall", async function () {
-            // Deploy malicious Railgun that tries to re-enter
-            const MaliciousRailgunFactory = await hre.ethers.getContractFactory("RoutingRailgunReentrancyAttacker");
-            const maliciousRailgun = await MaliciousRailgunFactory.deploy();
-            await maliciousRailgun.waitForDeployment();
-
-            // Create RoutingRailgun with malicious Railgun as the railgunAddress
-            const tx = await routingRailgunFactory.connect(controller).createRoutingRailgun(maliciousRailgun.target);
-            const receipt = await tx.wait();
-            const event = receipt?.logs.find((log: any) => {
-                try {
-                    return routingRailgunFactory.interface.parseLog(log)?.name === "RoutingRailgunCreated";
-                } catch {
-                    return false;
-                }
-            });
-            const parsedEvent = routingRailgunFactory.interface.parseLog(event as any);
-            const routingRailgunAddress = parsedEvent?.args.contractAddress;
-
-            routingRailgun = await hre.ethers.getContractAt("RoutingRailgun", routingRailgunAddress);
-
-            // Fund RoutingRailgun
-            await controller.sendTransaction({
-                to: routingRailgunAddress,
-                value: parseEther("5.0"),
-            });
-
-            // Configure malicious Railgun to attack
-            await maliciousRailgun.setTarget(routingRailgunAddress);
-            await maliciousRailgun.setAttackType(2); // 2 = attack executeRailgunCall
-
-            const initialBalance = await hre.ethers.provider.getBalance(routingRailgunAddress);
-
-            // Execute call to malicious Railgun with 1 ETH
-            // Malicious Railgun will try to re-enter via executeRailgunCall
-            await routingRailgun
-                .connect(controller)
-                .executeRailgunCall(maliciousRailgun.target, parseEther("1.0"), "0x");
-
-            // Only 1 ETH was sent
-            const finalBalance = await hre.ethers.provider.getBalance(routingRailgunAddress);
-            expect(finalBalance).to.equal(parseEther("4.0"));
-
-            console.log("ExecuteRailgunCall reentrancy blocked by onlyController modifier");
-        });
-    });
-
-    describe("Edge Case: Controller is Malicious", function () {
-        it("INFO: If controller itself is malicious, it could drain via multiple calls", async function () {
-            /**
-             * This is NOT a reentrancy vulnerability per se, but documents that
-             * if the controller (Account) is compromised or malicious, it can
-             * drain all funds by simply calling refund() multiple times.
-             *
-             * This is expected behavior - the controller is SUPPOSED to have
-             * full control over the RoutingRailgun.
-             */
-
-            // Create RoutingRailgun with controller as railgun address (for simplicity)
-            const tx = await routingRailgunFactory.connect(controller).createRoutingRailgun(controller.address);
-            const receipt = await tx.wait();
-            const event = receipt?.logs.find((log: any) => {
-                try {
-                    return routingRailgunFactory.interface.parseLog(log)?.name === "RoutingRailgunCreated";
-                } catch {
-                    return false;
-                }
-            });
-            const parsedEvent = routingRailgunFactory.interface.parseLog(event as any);
-            const routingRailgunAddress = parsedEvent?.args.contractAddress;
-
-            routingRailgun = await hre.ethers.getContractAt("RoutingRailgun", routingRailgunAddress);
-
-            // Fund it
-            await controller.sendTransaction({
-                to: routingRailgunAddress,
-                value: parseEther("5.0"),
-            });
-
-            // Controller can drain via multiple refund calls (expected behavior)
-            await routingRailgun
-                .connect(controller)
-                .refund(hre.ethers.ZeroAddress, controller.address, parseEther("1.0"));
-            await routingRailgun
-                .connect(controller)
-                .refund(hre.ethers.ZeroAddress, controller.address, parseEther("1.0"));
-            await routingRailgun
-                .connect(controller)
-                .refund(hre.ethers.ZeroAddress, controller.address, parseEther("1.0"));
-
-            const finalBalance = await hre.ethers.provider.getBalance(routingRailgunAddress);
-            expect(finalBalance).to.equal(parseEther("2.0"));
-
-            console.log("Controller has full authority (by design)");
-        });
-    });
-});
-
-/**
- * ERC20 Edge Case Tests for RoutingRailgun
- *
- * Tests behavior with non-standard ERC20 tokens:
- * - Tokens that return false instead of reverting
- * - Tokens that don't return a value (USDT-like)
- * - Fee-on-transfer tokens
- *
- * Note: RoutingRailgun does NOT use SafeERC20, which is a known issue in TODO.md
- */
-describe("RoutingRailgun ERC20 Edge Cases", function () {
-    let routingRailgun: RoutingRailgun;
-    let routingRailgunFactory: RoutingRailgunFactory;
-    let controller: HardhatEthersSigner;
-    let recipient: HardhatEthersSigner;
-
-    beforeEach(async function () {
-        [controller, recipient] = await hre.ethers.getSigners();
-
-        const RoutingRailgunFactoryContract = await hre.ethers.getContractFactory("RoutingRailgunFactory");
-        routingRailgunFactory = await RoutingRailgunFactoryContract.deploy();
-        await routingRailgunFactory.waitForDeployment();
-
-        const tx = await routingRailgunFactory.connect(controller).createRoutingRailgun(controller.address);
-        const receipt = await tx.wait();
-        const event = receipt?.logs.find((log: any) => {
-            try {
-                return routingRailgunFactory.interface.parseLog(log)?.name === "RoutingRailgunCreated";
-            } catch {
-                return false;
-            }
-        });
-        const parsedEvent = routingRailgunFactory.interface.parseLog(event as any);
-        const routingRailgunAddress = parsedEvent?.args.contractAddress;
-
-        routingRailgun = await hre.ethers.getContractAt("RoutingRailgun", routingRailgunAddress);
-    });
-
-    describe("Tokens That Return False", function () {
-        it("FIXED: Token returning false on transfer is caught by SafeERC20", async function () {
-            // Deploy token that returns false instead of reverting
-            const FalseReturningTokenFactory = await hre.ethers.getContractFactory("FalseReturningToken");
-            const badToken = await FalseReturningTokenFactory.deploy();
-            await badToken.waitForDeployment();
-
-            // Mint tokens to RoutingRailgun
-            await badToken.mint(await routingRailgun.getAddress(), parseEther("100"));
-
-            // Configure token to return false on transfer
-            await badToken.setShouldFail(true);
-
-            // SafeERC20 catches the false return and reverts with SafeERC20FailedOperation
-            await expect(
-                routingRailgun.connect(controller).refund(badToken.target, recipient.address, parseEther("10"))
-            ).to.be.reverted;
-
-            console.log("Token returning false correctly caught by SafeERC20");
-        });
-
-        it("Should succeed when token returns true", async function () {
-            const FalseReturningTokenFactory = await hre.ethers.getContractFactory("FalseReturningToken");
-            const goodToken = await FalseReturningTokenFactory.deploy();
-            await goodToken.waitForDeployment();
-
-            await goodToken.mint(await routingRailgun.getAddress(), parseEther("100"));
-            await goodToken.setShouldFail(false);
-
-            await routingRailgun.connect(controller).refund(goodToken.target, recipient.address, parseEther("10"));
-
-            expect(await goodToken.balanceOf(recipient.address)).to.equal(parseEther("10"));
-        });
-    });
-
-    describe("Tokens That Don't Return Value (USDT-like)", function () {
-        it("FIXED: No-return token works with SafeERC20", async function () {
-            // Deploy token that doesn't return a value (like USDT)
-            const NoReturnTokenFactory = await hre.ethers.getContractFactory("NoReturnToken");
-            const noReturnToken = await NoReturnTokenFactory.deploy();
-            await noReturnToken.waitForDeployment();
-
-            await noReturnToken.mint(await routingRailgun.getAddress(), parseEther("100"));
-
-            // SafeERC20 handles tokens that don't return a value
-            await routingRailgun.connect(controller).refund(noReturnToken.target, recipient.address, parseEther("10"));
-
-            // Verify the transfer succeeded
-            expect(await noReturnToken.balanceOf(recipient.address)).to.equal(parseEther("10"));
-
-            console.log("USDT-like token works correctly with SafeERC20");
-        });
-    });
-
-    describe("Fee-on-Transfer Tokens", function () {
-        it("INFO: Fee-on-transfer token results in less received than expected", async function () {
-            // Deploy fee-on-transfer token (10% fee)
-            const FeeTokenFactory = await hre.ethers.getContractFactory("FeeOnTransferToken");
-            const feeToken = await FeeTokenFactory.deploy();
-            await feeToken.waitForDeployment();
-
-            await feeToken.mint(await routingRailgun.getAddress(), parseEther("100"));
-
-            const recipientBalanceBefore = await feeToken.balanceOf(recipient.address);
-
-            // Transfer 10 tokens, but recipient gets only 9 (10% fee)
-            await routingRailgun.connect(controller).refund(feeToken.target, recipient.address, parseEther("10"));
-
-            const recipientBalanceAfter = await feeToken.balanceOf(recipient.address);
-            const received = recipientBalanceAfter - recipientBalanceBefore;
-
-            // Recipient receives less than requested amount
-            expect(received).to.equal(parseEther("9")); // 10 - 10% fee = 9
-
-            console.log("Fee-on-transfer: Requested 10, received 9 (10% fee taken)");
-        });
-    });
-
-    describe("Approval Edge Cases", function () {
-        it("FIXED: Token returning false on approve is caught by SafeERC20", async function () {
-            const FalseReturningTokenFactory = await hre.ethers.getContractFactory("FalseReturningToken");
-            const badToken = await FalseReturningTokenFactory.deploy();
-            await badToken.waitForDeployment();
-
-            await badToken.setApprovalShouldFail(true);
-
-            // SafeERC20 forceApprove catches the false return and reverts
-            await expect(
-                routingRailgun.connect(controller).approveToken(badToken.target, recipient.address, parseEther("100"))
-            ).to.be.reverted;
-
-            console.log("Token returning false on approve correctly caught by SafeERC20");
+            await expect(user.sendTransaction({ to: routingAddr, value: parseEther("1") }))
+                .to.emit(routing, "FundsReceived")
+                .withArgs(user.address, parseEther("1"));
         });
     });
 });

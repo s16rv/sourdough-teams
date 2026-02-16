@@ -69,6 +69,19 @@ interface IAccountFactory {
     ) external returns (address);
 
     /**
+     * @dev Creates a new RoutingRailgun account using CREATE2 for deterministic addresses.
+     * @param routingKeyAddress The EOA address bonded to this routing account.
+     * @param railgunAddress The address of the Railgun contract.
+     * @param salt A salt value for CREATE2 deployment.
+     * @return routingAccountAddress The address of the newly created RoutingRailgun contract.
+     */
+    function createRoutingRailgunAccount(
+        address routingKeyAddress,
+        address railgunAddress,
+        bytes32 salt
+    ) external returns (address);
+
+    /**
      * @dev Computes the address of an account contract to be deployed using CREATE2, without actually deploying it.
      * @param entryPoint The address of the entry point contract.
      * @param x The x part of the public key.
