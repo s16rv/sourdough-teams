@@ -125,4 +125,33 @@ describe("MPCVerifier", function () {
             expect(isOldValid).to.equal(false);
         });
     });
+
+    describe("Signature Edge Cases", function () {
+        it("Should reject high s value (malleability)", async function () {
+            const highS = "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A1";
+            const isValid = await mpcVerifier.validateMPCSignature(payloadHash, signatureV, signatureR, highS);
+            expect(isValid).to.equal(false);
+        });
+
+        it("Should reject invalid v value (not 0 or 1, resulting in not 27 or 28)", async function () {
+            // v=2 + 27 = 29, which is invalid for ecrecover
+            const isValid = await mpcVerifier.validateMPCSignature(payloadHash, 2, signatureR, signatureS);
+            expect(isValid).to.equal(false);
+        });
+
+        it("Should reject v=3 (resulting in 30, not 27 or 28)", async function () {
+            // v=3 + 27 = 30, which is invalid
+            const isValid = await mpcVerifier.validateMPCSignature(payloadHash, 3, signatureR, signatureS);
+            expect(isValid).to.equal(false);
+        });
+    });
+
+    describe("Constructor Validation", function () {
+        it("Should revert with ZeroAddress when owner is address(0)", async function () {
+            const MPCVerifierFactory = await hre.ethers.getContractFactory("MPCVerifier");
+            await expect(
+                MPCVerifierFactory.deploy(ethers.ZeroAddress, publicKeyX, publicKeyY)
+            ).to.be.revertedWithCustomError(MPCVerifierFactory, "ZeroAddress");
+        });
+    });
 });

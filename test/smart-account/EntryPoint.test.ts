@@ -899,3 +899,93 @@ describe("EntryPoint Team Grant", function () {
         expect(finalRecipientBalance).to.equal(initialRecipientBalance + amountToSend);
     });
 });
+
+/**
+ * Tests for EntryPoint branch coverage
+ */
+describe("EntryPoint Branch Coverage", function () {
+    const SOURCE_ADDRESS = "neutron1chcktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
+
+    let entryPoint: EntryPoint;
+    let accountFactory: AccountFactory;
+    let owner: HardhatEthersSigner;
+    let mpcGateway: HardhatEthersSigner;
+
+    let publicKeyX: string[];
+    let publicKeyY: string[];
+
+    beforeEach(async function () {
+        [owner, mpcGateway] = await hre.ethers.getSigners();
+
+        const pubKey = await getPublicKeyFromMnemonic(TEST_MNEMONIC);
+        publicKeyX = [pubKey.x];
+        publicKeyY = [pubKey.y];
+
+        const deployed = await deployProxies(owner.address, mpcGateway.address);
+        accountFactory = deployed.accountFactory;
+        entryPoint = deployed.entryPoint;
+    });
+
+    it("should silently pass through unsupported category (category 0)", async function () {
+        const coder = new AbiCoder();
+        // Category 0 - not handled, should just emit Executed
+        const payload = coder.encode(["uint8"], [0]);
+
+        // Should not revert - just falls through and emits Executed
+        await expect(entryPoint.connect(mpcGateway).executePayload("sourceChain", SOURCE_ADDRESS, payload)).to.emit(
+            entryPoint,
+            "Executed"
+        );
+    });
+
+    it("should silently pass through unsupported category (category 3)", async function () {
+        const coder = new AbiCoder();
+        const payload = coder.encode(["uint8"], [3]);
+
+        await expect(entryPoint.connect(mpcGateway).executePayload("sourceChain", SOURCE_ADDRESS, payload)).to.emit(
+            entryPoint,
+            "Executed"
+        );
+    });
+
+    it("should revert with PayloadTooShort when category 2 txPayload is too short", async function () {
+        const coder = new AbiCoder();
+
+        // Create category 2 header with signBytesLength, hashOffset, numSigners, grantOffset
+        const header = coder.encode(["uint8", "uint256", "uint256", "uint64", "uint256"], [2, 10, 0, 0, 0]);
+
+        // signBytes of 10 bytes, no signatures, but txPayload is empty (< 96 bytes)
+        const signBytes = "0x" + "00".repeat(10);
+        const payload = combineHexStrings(header, signBytes);
+
+        await expect(
+            entryPoint.connect(mpcGateway).executePayload("sourceChain", SOURCE_ADDRESS, payload)
+        ).to.be.revertedWithCustomError(entryPoint, "PayloadTooShort");
+    });
+
+    it("should emit AccountCreated on account creation", async function () {
+        const createPayload = encodeCreateAccountPayload(1, 1, DEFAULT_SALT, publicKeyX, publicKeyY);
+
+        await expect(
+            entryPoint.connect(mpcGateway).executePayload("sourceChain", SOURCE_ADDRESS, createPayload)
+        ).to.emit(entryPoint, "AccountCreated");
+    });
+
+    it("should return accountFactory address", async function () {
+        const factoryAddr = await entryPoint.accountFactory();
+        expect(factoryAddr).to.equal(await accountFactory.getAddress());
+    });
+
+    it("should return mpcGateway address", async function () {
+        const gatewayAddr = await entryPoint.mpcGateway();
+        expect(gatewayAddr).to.equal(mpcGateway.address);
+    });
+
+    it("should emit MPCGatewayUpdated when setting mpcGateway", async function () {
+        const [, , newGateway] = await hre.ethers.getSigners();
+        await expect(entryPoint.connect(owner).setMPCGateway(newGateway.address)).to.emit(
+            entryPoint,
+            "MPCGatewayUpdated"
+        );
+    });
+});
