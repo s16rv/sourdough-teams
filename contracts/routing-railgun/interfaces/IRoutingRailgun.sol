@@ -10,70 +10,53 @@ interface IRoutingRailgun {
     event FundsReceived(address indexed sender, uint256 amount);
 
     /**
-     * @dev Emitted when ETH is refunded.
-     * @param to The address receiving the refund.
-     * @param amount The amount of ETH refunded.
-     */
-    event RefundedETH(address indexed to, uint256 amount);
-
-    /**
-     * @dev Emitted when ERC20 tokens are refunded.
-     * @param token The address of the token being refunded.
-     * @param to The address receiving the refund.
-     * @param amount The amount of tokens refunded.
-     */
-    event RefundedToken(address indexed token, address indexed to, uint256 amount);
-
-    /**
-     * @dev Emitted when a Railgun call is successfully executed.
-     * @param to The address called (should be the Railgun contract).
+     * @dev Emitted when a call is successfully executed.
+     * @param target The address called.
      * @param value The amount of ETH sent with the call.
      * @param data The calldata sent with the call.
      */
-    event CallSuccess(address indexed to, uint256 value, bytes data);
+    event CallExecuted(address indexed target, uint256 value, bytes data);
 
     /**
-     * @dev Emitted when a token approval is successful.
-     * @param token The address of the token approved.
-     * @param to The address of the spender.
-     * @param amount The amount approved.
+     * @dev Emitted when operations are successfully handled.
+     * @param nonce The nonce used for this operation.
      */
-    event TokenApproved(address indexed token, address indexed to, uint256 amount);
+    event OpsHandled(uint256 indexed nonce);
 
     /**
-     * @dev Error thrown when the caller is not the controller.
+     * @dev Error thrown when the caller is not the EntryPoint.
      */
-    error NotController();
+    error NotEntryPoint();
 
     /**
-     * @dev Error thrown when the contract has insufficient ETH balance for a refund.
+     * @dev Error thrown when the signature is invalid.
      */
-    error InsufficientETHBalance();
+    error InvalidSignature();
 
     /**
-     * @dev Error thrown when an ETH transfer fails.
+     * @dev Error thrown when the nonce doesn't match.
      */
-    error ETHTransferFailed();
+    error InvalidNonce();
 
     /**
-     * @dev Error thrown when a call to the Railgun contract fails.
+     * @dev Error thrown when the chain ID doesn't match.
      */
-    error CallFailed();
+    error InvalidChainId();
 
     /**
-     * @dev Error thrown when the recipient is invalid (not the Railgun address).
+     * @dev Error thrown when the account address doesn't match.
      */
-    error InvalidRecipient();
+    error InvalidAccountAddress();
 
     /**
-     * @dev Error thrown when a token approval fails.
+     * @dev Error thrown when a call within the multicall fails.
      */
-    error ApprovalFailed();
+    error CallFailed(uint256 index);
 
     /**
-     * @dev Error thrown when a token transfer fails.
+     * @dev Error thrown when the payload is too short to parse.
      */
-    error TransferFailed();
+    error PayloadTooShort();
 
     /**
      * @dev Returns the address of the Railgun contract.
@@ -82,32 +65,22 @@ interface IRoutingRailgun {
     function railgunAddress() external view returns (address);
 
     /**
-     * @dev Returns the address of the controller.
-     * @return The address of the controller.
+     * @dev Returns the bonded routing key address (EOA that signs operations).
+     * @return The address of the routing key.
      */
-    function controller() external view returns (address);
+    function routingKeyAddress() external view returns (address);
 
     /**
-     * @dev Approves the Railgun contract to spend tokens.
-     * @param token The address of the token to approve.
-     * @param to The address of the spender.
-     * @param amount The amount of tokens to approve.
+     * @dev Returns the current nonce for replay protection.
+     * @return The current nonce.
      */
-    function approveToken(address token, address to, uint256 amount) external;
+    function nonce() external view returns (uint256);
 
     /**
-     * @dev Executes a call to the Railgun contract.
-     * @param to The address of the contract to call.
-     * @param value The amount of Ether to send with the call.
-     * @param data The calldata to send.
+     * @dev Handles operations signed by the routing key.
+     * Verifies signature, checks nonce, parses payload, and executes calls atomically.
+     * @param payload The encoded operations payload (chainId + address + sequence + count + calls).
+     * @param signature The ECDSA signature over sha256(json({"tx_hash": hex(keccak256(payload))})).
      */
-    function executeRailgunCall(address to, uint256 value, bytes calldata data) external;
-
-    /**
-     * @dev Refunds tokens or Ether to a specified address.
-     * @param token The address of the token to refund (address(0) for Ether).
-     * @param to The address to receive the refund.
-     * @param amount The amount to refund.
-     */
-    function refund(address token, address to, uint256 amount) external;
+    function handleOps(bytes calldata payload, bytes calldata signature) external;
 }

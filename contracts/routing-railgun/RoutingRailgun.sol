@@ -1,32 +1,39 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./interfaces/IRoutingRailgun.sol";
 
-contract RoutingRailgun is IRoutingRailgun, ReentrancyGuard {
-    using SafeERC20 for IERC20;
-    address public railgunAddress;
-    address public controller;
+// Payload layout constants
+uint64 constant ROUTING_HEADER_SIZE = 128; // chainId(32) + accountAddress(32) + sequence(32) + count(32)
+uint64 constant CALL_HEADER_SIZE = 96; // target(32) + value(32) + dataLen(32)
+
+contract RoutingRailgun is IRoutingRailgun {
+    address public immutable railgunAddress;
+    address public immutable routingKeyAddress;
+    address public immutable entryPoint;
+    uint256 public nonce;
+
+    // Hex lookup table for _toHex conversion
+    bytes16 private constant HEX_DIGITS = "0123456789abcdef";
 
     /**
-     * @dev Modifier to restrict access to the controller.
+     * @dev Modifier to restrict access to the EntryPoint.
      */
-    modifier onlyController() {
-        if (msg.sender != controller) revert NotController();
+    modifier onlyEntryPoint() {
+        if (msg.sender != entryPoint) revert NotEntryPoint();
         _;
     }
 
     /**
-     * @dev Initializes the contract with the controller and Railgun address.
-     * @param controller_ The address of the controller.
+     * @dev Initializes the contract with the routing key, Railgun address, and EntryPoint.
+     * @param routingKeyAddress_ The EOA address bonded to this routing account.
      * @param railgunAddress_ The address of the Railgun contract.
+     * @param entryPoint_ The address of the EntryPoint contract.
      */
-    constructor(address controller_, address railgunAddress_) {
-        controller = controller_;
+    constructor(address routingKeyAddress_, address railgunAddress_, address entryPoint_) {
+        routingKeyAddress = routingKeyAddress_;
         railgunAddress = railgunAddress_;
+        entryPoint = entryPoint_;
     }
 
     /**
@@ -37,46 +44,108 @@ contract RoutingRailgun is IRoutingRailgun, ReentrancyGuard {
     }
 
     /**
-     * @dev Approves the Railgun contract to spend tokens.
-     * @param token The address of the token to approve.
-     * @param to The address of the spender (usually the Railgun contract).
-     * @param amount The amount of tokens to approve.
+     * @dev Handles operations signed by the routing key.
+     * Verifies the ECDSA signature, validates the nonce and header, then executes calls atomically.
+     *
+     * Signature scheme: sha256(json({"tx_hash":"0x<hex(keccak256(payload))>"}))
+     * This matches the Cosmos AMINO_JSON signing convention used by the Sourdough protocol.
+     *
+     * Payload layout:
+     *   Header: chainId(32) + accountAddress(32) + sequence(32) + count(32) = 128 bytes
+     *   Body:   count * [target(32) + value(32) + dataLen(32) + data(padded)]
+     *
+     * @param payload The encoded operations payload.
+     * @param signature The 65-byte ECDSA signature (r(32) + s(32) + v(1)).
      */
-    function approveToken(address token, address to, uint256 amount) external onlyController {
-        IERC20(token).forceApprove(to, amount);
-        emit TokenApproved(token, to, amount);
+    function handleOps(bytes calldata payload, bytes calldata signature) external onlyEntryPoint {
+        // 1. Verify signature
+        _verifySignature(payload, signature);
+
+        // 2. Parse and validate header
+        if (payload.length < ROUTING_HEADER_SIZE) revert PayloadTooShort();
+
+        (uint256 chainId, address accountAddress, uint256 sequence, uint256 count) = abi.decode(
+            payload[:ROUTING_HEADER_SIZE],
+            (uint256, address, uint256, uint256)
+        );
+
+        if (chainId != block.chainid) revert InvalidChainId();
+        if (accountAddress != address(this)) revert InvalidAccountAddress();
+        if (sequence != nonce) revert InvalidNonce();
+
+        // 3. Increment nonce before external calls (CEI pattern)
+        nonce = sequence + 1;
+
+        // 4. Execute calls
+        uint256 offset = ROUTING_HEADER_SIZE;
+        for (uint256 i = 0; i < count; i++) {
+            if (payload.length < offset + CALL_HEADER_SIZE) revert PayloadTooShort();
+
+            (address target, uint256 value, uint256 dataLen) = abi.decode(
+                payload[offset:offset + CALL_HEADER_SIZE],
+                (address, uint256, uint256)
+            );
+            offset += CALL_HEADER_SIZE;
+
+            bytes calldata data = payload[offset:offset + dataLen];
+            offset += dataLen;
+            // Align to 32-byte boundary
+            if (dataLen % 32 != 0) {
+                offset += 32 - (dataLen % 32);
+            }
+
+            (bool success, ) = target.call{value: value}(data);
+            if (!success) revert CallFailed(i);
+
+            emit CallExecuted(target, value, data);
+        }
+
+        emit OpsHandled(sequence);
     }
 
     /**
-     * @dev Executes a call to the Railgun contract.
-     * @param to The address of the contract to call (must be the Railgun address).
-     * @param value The amount of Ether to send with the call.
-     * @param data The calldata to send.
+     * @dev Verifies the ECDSA signature over the payload.
+     * Reconstructs: sha256('{"tx_hash":"0x' + hex(keccak256(payload)) + '"}')
+     * Then recovers the signer and checks it matches routingKeyAddress.
+     * @param payload The operations payload to verify.
+     * @param signature The 65-byte ECDSA signature (r + s + v).
      */
-    function executeRailgunCall(address to, uint256 value, bytes calldata data) external onlyController nonReentrant {
-        if (to != railgunAddress) revert InvalidRecipient();
-        (bool success, ) = to.call{value: value}(data);
-        if (!success) {
-            revert CallFailed();
+    function _verifySignature(bytes calldata payload, bytes calldata signature) internal view {
+        if (signature.length != 65) revert InvalidSignature();
+
+        // Construct the signed message: sha256(json({"tx_hash":"0x<hex(keccak256(payload))>"}))
+        bytes32 payloadHash = keccak256(payload);
+        bytes memory hexHash = _toHex(payloadHash);
+
+        // Build JSON: {"tx_hash":"0x..."}
+        bytes memory jsonMessage = abi.encodePacked('{"tx_hash":"0x', hexHash, '"}');
+        bytes32 messageHash = sha256(jsonMessage);
+
+        // Extract signature components
+        bytes32 r = bytes32(signature[0:32]);
+        bytes32 s = bytes32(signature[32:64]);
+        uint8 v = uint8(signature[64]);
+
+        // Normalize v value (support both 0/1 and 27/28)
+        if (v < 27) {
+            v += 27;
         }
-        emit CallSuccess(to, value, data);
+
+        address recovered = ecrecover(messageHash, v, r, s);
+        if (recovered == address(0) || recovered != routingKeyAddress) revert InvalidSignature();
     }
 
     /**
-     * @dev Refunds tokens or Ether to a specified address.
-     * @param token The address of the token to refund (address(0) for Ether).
-     * @param to The address to receive the refund.
-     * @param amount The amount to refund.
+     * @dev Converts a bytes32 value to its lowercase hexadecimal string representation.
+     * @param data The bytes32 value to convert.
+     * @return The hex string (64 characters, no 0x prefix).
      */
-    function refund(address token, address to, uint256 amount) external onlyController nonReentrant {
-        if (token == address(0)) {
-            if (address(this).balance < amount) revert InsufficientETHBalance();
-            (bool success, ) = payable(to).call{value: amount}("");
-            if (!success) revert ETHTransferFailed();
-            emit RefundedETH(to, amount);
-        } else {
-            IERC20(token).safeTransfer(to, amount);
-            emit RefundedToken(token, to, amount);
+    function _toHex(bytes32 data) internal pure returns (bytes memory) {
+        bytes memory result = new bytes(64);
+        for (uint256 i = 0; i < 32; i++) {
+            result[i * 2] = HEX_DIGITS[uint8(data[i]) >> 4];
+            result[i * 2 + 1] = HEX_DIGITS[uint8(data[i]) & 0x0f];
         }
+        return result;
     }
 }

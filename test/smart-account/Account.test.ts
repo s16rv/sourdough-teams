@@ -9,6 +9,8 @@ import { combineHexStrings, encodeNewTxPayload, computeTxPayloadHash, createSign
 
 const TEST_MNEMONIC = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
 const EXPECTED_CHAIN_ID = 31337n; // Hardhat default chain ID
+const TEST_SENDER_COSMOS_ADDRESS = "sourdough139sv320e3ref6lqrmg98k7juy8wcgwlhz3jejp";
+const SENDER_HASH = keccak256(toUtf8Bytes(TEST_SENDER_COSMOS_ADDRESS));
 
 /**
  * Helper to encode the txPayload for recoverTransaction.
@@ -40,7 +42,7 @@ async function createValidateParams(
     mnemonic: string = TEST_MNEMONIC
 ) {
     // 1. Create txPayload
-    const txPayload = encodeNewTxPayload(EXPECTED_CHAIN_ID, accountAddress, sequence, calls);
+    const txPayload = encodeNewTxPayload(SENDER_HASH, EXPECTED_CHAIN_ID, accountAddress, sequence, calls);
 
     // 2. Compute hash of txPayload
     const txPayloadHash = computeTxPayloadHash(txPayload);
@@ -117,7 +119,7 @@ describe("Account", function () {
         // validateAndExecute requires being called by EntryPoint
         // We test this by trying to call directly from a stranger
         const sequence = 1n;
-        const txPayload = encodeNewTxPayload(EXPECTED_CHAIN_ID, await account.getAddress(), sequence, [
+        const txPayload = encodeNewTxPayload(SENDER_HASH, EXPECTED_CHAIN_ID, await account.getAddress(), sequence, [
             { to: RECIPIENT_ADDRESS, value: parseEther("0.001"), data: "0x" },
         ]);
         const txPayloadHash = computeTxPayloadHash(txPayload);
@@ -1430,7 +1432,7 @@ describe("Account validateAndExecute via EntryPoint", function () {
         const wrongChainId = 999n;
 
         // Manually create payload with wrong chain ID
-        const txPayload = encodeNewTxPayload(wrongChainId, accountAddress, 1n, [
+        const txPayload = encodeNewTxPayload(SENDER_HASH, wrongChainId, accountAddress, 1n, [
             { to: RECIPIENT_ADDRESS, value: parseEther("0.01"), data: "0x" },
         ]);
         const txPayloadHash = computeTxPayloadHash(txPayload);
@@ -1453,7 +1455,7 @@ describe("Account validateAndExecute via EntryPoint", function () {
     it("should revert with InvalidAccountAddress for wrong account in payload", async function () {
         const wrongAddress = "0x0000000000000000000000000000000000000001";
 
-        const txPayload = encodeNewTxPayload(EXPECTED_CHAIN_ID, wrongAddress, 1n, [
+        const txPayload = encodeNewTxPayload(SENDER_HASH, EXPECTED_CHAIN_ID, wrongAddress, 1n, [
             { to: RECIPIENT_ADDRESS, value: parseEther("0.01"), data: "0x" },
         ]);
         const txPayloadHash = computeTxPayloadHash(txPayload);
