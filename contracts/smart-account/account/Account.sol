@@ -169,9 +169,18 @@ contract Account is IAccount {
         SignatureData calldata granterSigs,
         bytes calldata grantTxPayload
     ) external onlyEntryPoint returns (bool) {
-        // 1. Parse grantTxPayload: granterHash (32) + granteeThreshold (32)
-        if (grantTxPayload.length < 64) revert InvalidPayload();
-        (bytes32 grantTxGranterHash, uint64 granteeThreshold) = abi.decode(grantTxPayload, (bytes32, uint64));
+        // 1. Parse grantTxPayload: granterHash (32) + granteeThreshold (32) + numberGranteePubkeys (32)
+        if (grantTxPayload.length < 96) revert InvalidPayload();
+        
+        (bytes32 grantTxGranterHash, uint64 granteeThreshold, uint64 numberGranteePubkeys) = abi.decode(
+            grantTxPayload,
+            (bytes32, uint64, uint64)
+        );
+
+        // Validate payload length
+        if (grantTxPayload.length != 96 + uint256(numberGranteePubkeys) * 64) {
+            revert InvalidPayload();
+        }
 
         // 2. Validate granterHash from grantTxPayload matches granterHash from main section header
         if (grantData.granterHash != grantTxGranterHash) {
@@ -206,8 +215,8 @@ contract Account is IAccount {
         // 8. Validate granter signatures (against authorized signers with account threshold)
         _validateSignatures(grantSignBytes, granterSigs);
 
-        // 9. Validate grantee signatures (with granteeThreshold from grantTxPayload)
-        _validateGranteeSignatures(signBytes, granteeSigs, granteeThreshold);
+        // 9. Validate grantee signatures (with granteeThreshold from grantTxPayload and allowed pubkeys)
+        _validateGranteeSignatures(signBytes, granteeSigs, granteeThreshold, grantTxPayload[96:]);
 
         emit GrantValidated(address(this));
 
@@ -271,12 +280,14 @@ contract Account is IAccount {
     /**
      * @dev Validates grantee signatures with the grantee threshold.
      * Grantee public keys must be provided in the signature data but don't need to be authorized account signers.
+     * However, they must be in the allowedPubKeys list defined in the grant.
      */
     function _validateGranteeSignatures(
         bytes calldata signBytes,
         SignatureData calldata sigs,
-        uint64 granteeThreshold
-    ) internal view {
+        uint64 granteeThreshold,
+        bytes calldata allowedPubKeys
+    ) internal pure {
         // Validate array lengths
         if (sigs.x.length != sigs.y.length) {
             revert InvalidPubKeyLength();
@@ -297,9 +308,31 @@ contract Account is IAccount {
             }
         }
 
-        // Verify signatures (grantees don't need to be authorized signers)
+        // Verify signatures and check against allowedPubKeys
         bytes32 signBytesHash = sha256(signBytes);
         for (uint64 i = 0; i < sigs.x.length; i++) {
+            // Check if pubkey is allowed
+            bool isAllowed = false;
+            // allowedPubKeys is a sequence of (X, Y) 64 bytes blocks
+            for (uint256 j = 0; j < allowedPubKeys.length; j += 64) {
+                bytes32 allowedX;
+                bytes32 allowedY;
+                assembly {
+                    let base := add(allowedPubKeys.offset, j)
+                    allowedX := calldataload(base)
+                    allowedY := calldataload(add(base, 32))
+                }
+                
+                if (sigs.x[i] == allowedX && sigs.y[i] == allowedY) {
+                    isAllowed = true;
+                    break;
+                }
+            }
+            
+            if (!isAllowed) {
+                revert InvalidAuthorization();
+            }
+
             address expectedAddr = _pubKeyToAddress(sigs.x[i], sigs.y[i]);
             address recovered = _recoverSigner(signBytesHash, sigs.v[i] + 27, sigs.r[i], sigs.s[i]);
             if (recovered != expectedAddr) {
