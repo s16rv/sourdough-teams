@@ -6,6 +6,10 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
+// Only include accounts when env vars are set (avoids Hardhat config validation errors)
+const evmAccounts = process.env.EVM_PRIVATE_KEY ? [process.env.EVM_PRIVATE_KEY] : [];
+const mainnetAccounts = process.env.MAINNET_EVM_PRIVATE_KEY ? [process.env.MAINNET_EVM_PRIVATE_KEY] : [];
+
 const config: HardhatUserConfig = {
     solidity: {
         version: "0.8.24",
@@ -18,39 +22,43 @@ const config: HardhatUserConfig = {
         },
     },
     networks: {
+        "anvil-local": {
+            url: process.env.ANVIL_RPC_URL || "http://localhost:18545",
+            accounts: ["0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"], // Anvil account 0
+        },
         sepolia: {
             url: "https://ethereum-sepolia-rpc.publicnode.com",
-            accounts: [process.env.EVM_PRIVATE_KEY as string],
+            accounts: evmAccounts,
             gasMultiplier: 1.2,
         },
         polygon: {
             url: "https://rpc-amoy.polygon.technology",
-            accounts: [process.env.EVM_PRIVATE_KEY as string],
+            accounts: evmAccounts,
             gasMultiplier: 1.2,
         },
         base: {
             url: "https://base-sepolia-rpc.publicnode.com",
-            accounts: [process.env.EVM_PRIVATE_KEY as string],
+            accounts: evmAccounts,
             gasMultiplier: 1.2,
         },
         ethereum_mainnet: {
             url: "https://ethereum-rpc.publicnode.com",
-            accounts: [process.env.MAINNET_EVM_PRIVATE_KEY as string],
+            accounts: mainnetAccounts,
             gasMultiplier: 1.2,
         },
         base_mainnet: {
             url: "https://base-rpc.publicnode.com",
-            accounts: [process.env.MAINNET_EVM_PRIVATE_KEY as string],
+            accounts: mainnetAccounts,
             gasMultiplier: 1.2,
         },
         polygon_mainnet: {
             url: "https://polygon-bor-rpc.publicnode.com",
-            accounts: [process.env.MAINNET_EVM_PRIVATE_KEY as string],
+            accounts: mainnetAccounts,
             gasMultiplier: 1.2,
         },
         arbitrum_mainnet: {
             url: "https://arbitrum-one-rpc.publicnode.com",
-            accounts: [process.env.MAINNET_EVM_PRIVATE_KEY as string],
+            accounts: mainnetAccounts,
             gasMultiplier: 1.2,
         },
     },
