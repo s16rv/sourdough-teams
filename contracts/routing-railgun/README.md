@@ -1,56 +1,77 @@
 # Routing Railgun
 
-RoutingRailgun is a minimal, controller-gated router that forwards encoded calls (e.g., Railgun `shield`/`shieldERC20`) and performs ETH/ERC20 refunds. The controller is authorized to call `executeRailgunCall` and `refund`. Encoded call data is produced off-chain, then forwarded by the router to the Railgun contract to shield funds to the user’s zk address.
+RoutingRailgun is a minimal routing account used to forward privacy-preserving calls (e.g., Railgun `shield`/`shieldERC20`) under a bonded routing key. It executes bundles of calls atomically when authorized by an ECDSA signature and gated by the system EntryPoint.
 
-**Factory**
+The contract verifies a Sourdough-compatible signature over an encoded payload, enforces replay protection via a nonce, validates `chainId` and `accountAddress`, then executes each call with optional ETH value.
 
-- `createRoutingRailgun(address railgunAddress)`
-    - Deploys a `RoutingRailgun` configured with `controller = msg.sender` and `railgunAddress`.
-    - Emits `RoutingRailgunCreated(address contractAddress, address railgunAddress)`.
+**Constructor**
 
-**RoutingRailgun**
+- `(address routingKeyAddress, address railgunAddress, address entryPoint)`
+    - `routingKeyAddress`: EOA that signs routing operations.
+    - `railgunAddress`: target Railgun contract this router is intended to interact with.
+    - `entryPoint`: only this address can invoke `handleOps`.
 
-- Constructor: `(address controller, address railgunAddress)`
+**State & Access Control**
 
-    - `controller`: address authorized to call `executeRailgunCall` and `refund`.
-    - `railgunAddress`: a railgun contract address reserved by the router; `executeRailgunCall` reverts for this address to guard misrouting (`InvalidRecipient`).
+- `routingKeyAddress() → address` (immutable)
+- `railgunAddress() → address` (immutable)
+- `entryPoint` (immutable)
+- `nonce() → uint256` replay protection counter
+- `onlyEntryPoint` modifier gates mutation entrypoints
 
-- Events
+**Events**
 
-    - `FundsReceived(address indexed sender, uint256 amount)`
-    - `RefundedETH(address indexed to, uint256 amount)`
-    - `RefundedToken(address indexed token, address indexed to, uint256 amount)`
-    - `CallSuccess(address indexed to, uint256 value, bytes data)`
+- `FundsReceived(address indexed sender, uint256 amount)`
+- `CallExecuted(address indexed target, uint256 value, bytes data)`
+- `OpsHandled(uint256 indexed nonce)`
 
-- Errors
+**Errors**
 
-    - `NotController`
-    - `InvalidETHRefundAmount`
-    - `CallFailed`
-    - `InvalidRecipient`
+- `NotEntryPoint()`
+- `InvalidSignature()`
+- `InvalidNonce()`
+- `InvalidChainId()`
+- `InvalidAccountAddress()`
+- `CallFailed(uint256 index)`
+- `PayloadTooShort()`
 
-- Functions
+**Core Function**
 
-    - `controller() → address`
-    - `railgunAddress() → address`
-    - `executeRailgunCall(address to, uint256 value, bytes data) external onlyController`
-        - Non-payable. Forwards an encoded call to `to` and sends `value` wei from the router’s existing ETH balance. Reverts `InvalidRecipient` if `to == railgunAddress`. Emits `CallSuccess` on success.
-    - `refund(address token, address to, uint256 amount) external onlyController`
-        - ETH: requires `address(this).balance == amount`, transfers ETH to `to`, emits `RefundedETH(to, amount)`.
-        - ERC20: transfers tokens currently held by the router to `to`, emits `RefundedToken(token, to, amount)`.
-    - `receive() external payable`
-        - Allows the router to receive ETH and emits `FundsReceived(sender, amount)`.
+- `handleOps(bytes payload, bytes signature) external onlyEntryPoint`
+    - Verifies signature from `routingKeyAddress` over the payload hash using the Sourdough/Cosmos-style message:
+        - `message = sha256( '{"tx_hash":"0x' + hex(keccak256(payload)) + '"}' )`
+    - Validates header fields and executes the multicall atomically.
+    - Emits `CallExecuted` per call and `OpsHandled(nonce)` on success.
 
-- Notes on Railgun interactions
-    - To interact with a Railgun contract, encode its `shield`/`shieldERC20` call data off-chain and pass it to `executeRailgunCall`. Commitments and encrypted notes are produced off-chain by your Railgun SDK.
+**Payload Encoding**
 
-**Design Notes**
+- Header (128 bytes): `chainId(32) | accountAddress(32) | sequence(32) | count(32)`
+- Calls (repeated):
+    - Call header (96 bytes): `target(32) | value(32) | dataLen(32)`
+    - `data` bytes, padded to 32-byte boundary
 
-- Stateless flows: the router holds no internal accounting. Fund the router with ETH via a plain transfer before calling `executeRailgunCall` or `refund`. Tokens must be held by the router prior to `refund`.
-- Access control: only `controller` can call mutation functions.
-- Observability: events allow downstream systems to track receipts, refunds, and forwarded calls.
+Validation rules:
 
-**Testing**
+- `chainId == block.chainid`
+- `accountAddress == address(this)`
+- `sequence == nonce` (then increments before external calls)
 
-- Hardhat tests cover ETH forward-calls to a `MockRailgun`, and ETH/ERC20 refunds.
-- `RoutingRailgunFactory.createRoutingRailgun(railgunAddress)` deploys a router controlled by the deployer.
+**Ether Handling**
+
+- Contract can receive ETH via `receive()` and records deposits via `FundsReceived`.
+- Each executed call may forward `value` wei from the contract’s balance.
+
+**Usage Flow**
+
+- Off-chain:
+    - Construct the payload per the layout above.
+    - Compute `message = sha256('{"tx_hash":"0x' + hex(keccak256(payload)) + '"}')`.
+    - Sign `message` with the bonded `routingKeyAddress` to produce 65-byte `(r,s,v)`.
+- On-chain:
+    - The system `EntryPoint` calls `handleOps(payload, signature)`.
+    - Contract verifies, increments `nonce`, and executes all calls in order.
+
+**Notes**
+
+- Designed as an intermediary to the Railgun protocol; however, it can forward calls to any `target` encoded in the payload.
+- All validation and execution happen atomically; any failed call reverts the whole bundle with `CallFailed(index)`.

@@ -5,12 +5,18 @@ import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 
 import { Account } from "../../typechain-types";
 import { generateSignatureWithMnemonic, getPublicKeyFromMnemonic } from "../../scripts/generateSignature";
-import { combineHexStrings, encodeNewTxPayload, computeTxPayloadHash, createSignBytes } from "../utils/lib";
+import {
+    combineHexStrings,
+    encodeNewTxPayload,
+    computeTxPayloadHash,
+    createSignBytes,
+    encodeGrantTxPayload,
+    DEFAULT_SALT,
+} from "../utils/lib";
 
 const TEST_MNEMONIC = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-const EXPECTED_CHAIN_ID = 31337n; // Hardhat default chain ID
 const TEST_SENDER_COSMOS_ADDRESS = "sourdough139sv320e3ref6lqrmg98k7juy8wcgwlhz3jejp";
-const SENDER_HASH = keccak256(toUtf8Bytes(TEST_SENDER_COSMOS_ADDRESS));
+const EXPECTED_CHAIN_ID = 31337n; // Hardhat default chain ID
 
 /**
  * Helper to encode the txPayload for recoverTransaction.
@@ -41,8 +47,9 @@ async function createValidateParams(
     publicKeyY: string[],
     mnemonic: string = TEST_MNEMONIC
 ) {
-    // 1. Create txPayload
-    const txPayload = encodeNewTxPayload(SENDER_HASH, EXPECTED_CHAIN_ID, accountAddress, sequence, calls);
+    // 1. Create txPayload (with senderHash)
+    const senderHash = keccak256(toUtf8Bytes(TEST_SENDER_COSMOS_ADDRESS));
+    const txPayload = encodeNewTxPayload(senderHash, EXPECTED_CHAIN_ID, accountAddress, sequence, calls);
 
     // 2. Compute hash of txPayload
     const txPayloadHash = computeTxPayloadHash(txPayload);
@@ -119,7 +126,8 @@ describe("Account", function () {
         // validateAndExecute requires being called by EntryPoint
         // We test this by trying to call directly from a stranger
         const sequence = 1n;
-        const txPayload = encodeNewTxPayload(SENDER_HASH, EXPECTED_CHAIN_ID, await account.getAddress(), sequence, [
+        const senderHash = keccak256(toUtf8Bytes(TEST_SENDER_COSMOS_ADDRESS));
+        const txPayload = encodeNewTxPayload(senderHash, EXPECTED_CHAIN_ID, await account.getAddress(), sequence, [
             { to: RECIPIENT_ADDRESS, value: parseEther("0.001"), data: "0x" },
         ]);
         const txPayloadHash = computeTxPayloadHash(txPayload);
@@ -978,6 +986,644 @@ describe("Account Grant", function () {
                 )
             ).to.be.revertedWithCustomError(account, "InvalidAuthorization");
         });
+
+        it("should revert with InvalidAuthorization when senderHash in txPayload mismatches granterHash", async function () {
+            const granterHash = keccak256(toUtf8Bytes(GRANTER_COSMOS_ADDRESS));
+            const grantTxPayload = encodeGrantTxPayload(granterHash, 1, []);
+
+            // txPayload with DIFFERENT senderHash than granterHash
+            const wrongSenderHash = keccak256(toUtf8Bytes("wrong_sender"));
+            const accountAddress = await account.getAddress();
+            const txPayload = encodeNewTxPayload(wrongSenderHash, EXPECTED_CHAIN_ID, accountAddress, 1n, [
+                { to: RECIPIENT_ADDRESS, value: 0n, data: "0x" },
+            ]);
+            const txPayloadHash = computeTxPayloadHash(txPayload);
+            const { signBytes, hashOffset } = createSignBytes(txPayloadHash);
+
+            await expect(
+                account.connect(entryPoint).validateAndExecuteGrant(
+                    signBytes,
+                    hashOffset,
+                    { v: [], r: [], s: [], x: [], y: [] },
+                    txPayload,
+                    "0x" + "30".repeat(70), // grantSignBytes (enough bytes for chain ID parsing "0")
+                    {
+                        chainIdOffset: 0,
+                        chainIdLength: 1,
+                        grantSequenceOffset: 0,
+                        grantSequenceLength: 1,
+                        grantTxPayloadHashOffset: 0,
+                        granteeThreshold: 0,
+                        granterHash: granterHash,
+                    },
+                    { v: [], r: [], s: [], x: [], y: [] },
+                    grantTxPayload
+                )
+            ).to.be.revertedWithCustomError(account, "InvalidAuthorization");
+        });
+
+        it("should revert with InvalidPayload when txPayload too short in grant flow", async function () {
+            const abiCoder = new AbiCoder();
+            const granterHash = keccak256(toUtf8Bytes(GRANTER_COSMOS_ADDRESS));
+            const grantTxPayload = abiCoder.encode(["bytes32", "uint64"], [granterHash, 1]);
+
+            const shortTxPayload = "0x" + "00".repeat(100); // Less than 160 bytes
+
+            await expect(
+                account.connect(entryPoint).validateAndExecuteGrant(
+                    "0x00",
+                    0,
+                    { v: [], r: [], s: [], x: [], y: [] },
+                    shortTxPayload,
+                    "0x00",
+                    {
+                        chainIdOffset: 0,
+                        chainIdLength: 1,
+                        grantSequenceOffset: 0,
+                        grantSequenceLength: 1,
+                        grantTxPayloadHashOffset: 0,
+                        granteeThreshold: 1,
+                        granterHash: granterHash,
+                    },
+                    { v: [], r: [], s: [], x: [], y: [] },
+                    grantTxPayload
+                )
+            ).to.be.revertedWithCustomError(account, "InvalidPayload");
+        });
+
+        it("should revert with InvalidChainId when chainId wrong in grant txPayload", async function () {
+            const granterHash = keccak256(toUtf8Bytes(GRANTER_COSMOS_ADDRESS));
+            const grantTxPayload = encodeGrantTxPayload(granterHash, 1, []);
+
+            // txPayload with wrong chain ID
+            const accountAddress = await account.getAddress();
+            const txPayload = encodeNewTxPayload(granterHash, 999n, accountAddress, 1n, [
+                { to: RECIPIENT_ADDRESS, value: 0n, data: "0x" },
+            ]);
+            const txPayloadHash = computeTxPayloadHash(txPayload);
+            const { signBytes, hashOffset } = createSignBytes(txPayloadHash);
+
+            await expect(
+                account.connect(entryPoint).validateAndExecuteGrant(
+                    signBytes,
+                    hashOffset,
+                    { v: [], r: [], s: [], x: [], y: [] },
+                    txPayload,
+                    "0x00",
+                    {
+                        chainIdOffset: 0,
+                        chainIdLength: 1,
+                        grantSequenceOffset: 0,
+                        grantSequenceLength: 1,
+                        grantTxPayloadHashOffset: 0,
+                        granteeThreshold: 1,
+                        granterHash: granterHash,
+                    },
+                    { v: [], r: [], s: [], x: [], y: [] },
+                    grantTxPayload
+                )
+            ).to.be.revertedWithCustomError(account, "InvalidChainId");
+        });
+
+        it("should revert with InvalidAccountAddress when account wrong in grant txPayload", async function () {
+            const granterHash = keccak256(toUtf8Bytes(GRANTER_COSMOS_ADDRESS));
+            const grantTxPayload = encodeGrantTxPayload(granterHash, 1, []);
+
+            const wrongAccount = "0x0000000000000000000000000000000000000001";
+            const txPayload = encodeNewTxPayload(granterHash, EXPECTED_CHAIN_ID, wrongAccount, 1n, [
+                { to: RECIPIENT_ADDRESS, value: 0n, data: "0x" },
+            ]);
+            const txPayloadHash = computeTxPayloadHash(txPayload);
+            const { signBytes, hashOffset } = createSignBytes(txPayloadHash);
+
+            await expect(
+                account.connect(entryPoint).validateAndExecuteGrant(
+                    signBytes,
+                    hashOffset,
+                    { v: [], r: [], s: [], x: [], y: [] },
+                    txPayload,
+                    "0x00",
+                    {
+                        chainIdOffset: 0,
+                        chainIdLength: 1,
+                        grantSequenceOffset: 0,
+                        grantSequenceLength: 1,
+                        grantTxPayloadHashOffset: 0,
+                        granteeThreshold: 1,
+                        granterHash: granterHash,
+                    },
+                    { v: [], r: [], s: [], x: [], y: [] },
+                    grantTxPayload
+                )
+            ).to.be.revertedWithCustomError(account, "InvalidAccountAddress");
+        });
+
+        it("should revert with InvalidSequence when sequence wrong in grant txPayload", async function () {
+            const granterHash = keccak256(toUtf8Bytes(GRANTER_COSMOS_ADDRESS));
+            const grantTxPayload = encodeGrantTxPayload(granterHash, 1, []);
+
+            const accountAddress = await account.getAddress();
+            const txPayload = encodeNewTxPayload(granterHash, EXPECTED_CHAIN_ID, accountAddress, 99n, [
+                { to: RECIPIENT_ADDRESS, value: 0n, data: "0x" },
+            ]);
+            const txPayloadHash = computeTxPayloadHash(txPayload);
+            const { signBytes, hashOffset } = createSignBytes(txPayloadHash);
+
+            await expect(
+                account.connect(entryPoint).validateAndExecuteGrant(
+                    signBytes,
+                    hashOffset,
+                    { v: [], r: [], s: [], x: [], y: [] },
+                    txPayload,
+                    "0x00",
+                    {
+                        chainIdOffset: 0,
+                        chainIdLength: 1,
+                        grantSequenceOffset: 0,
+                        grantSequenceLength: 1,
+                        grantTxPayloadHashOffset: 0,
+                        granteeThreshold: 1,
+                        granterHash: granterHash,
+                    },
+                    { v: [], r: [], s: [], x: [], y: [] },
+                    grantTxPayload
+                )
+            ).to.be.revertedWithCustomError(account, "InvalidSequence");
+        });
+
+        it("should revert with InvalidInputLength when count=0 in grant txPayload", async function () {
+            const abiCoder = new AbiCoder();
+            const granterHash = keccak256(toUtf8Bytes(GRANTER_COSMOS_ADDRESS));
+            const grantTxPayload = encodeGrantTxPayload(granterHash, 1, []);
+
+            const accountAddress = await account.getAddress();
+            // Create txPayload with count=0
+            const txPayload = abiCoder.encode(
+                ["bytes32", "uint256", "address", "uint64", "uint64"],
+                [granterHash, EXPECTED_CHAIN_ID, accountAddress, 1n, 0n]
+            );
+            const txPayloadHash = computeTxPayloadHash(txPayload);
+            const { signBytes, hashOffset } = createSignBytes(txPayloadHash);
+
+            await expect(
+                account.connect(entryPoint).validateAndExecuteGrant(
+                    signBytes,
+                    hashOffset,
+                    { v: [], r: [], s: [], x: [], y: [] },
+                    txPayload,
+                    "0x00",
+                    {
+                        chainIdOffset: 0,
+                        chainIdLength: 1,
+                        grantSequenceOffset: 0,
+                        grantSequenceLength: 1,
+                        grantTxPayloadHashOffset: 0,
+                        granteeThreshold: 1,
+                        granterHash: granterHash,
+                    },
+                    { v: [], r: [], s: [], x: [], y: [] },
+                    grantTxPayload
+                )
+            ).to.be.revertedWithCustomError(account, "InvalidInputLength");
+        });
+
+        it("should revert with InvalidHashCommitment when txPayload hash mismatch in grant flow", async function () {
+            const granterHash = keccak256(toUtf8Bytes(GRANTER_COSMOS_ADDRESS));
+            const grantTxPayload = encodeGrantTxPayload(granterHash, 1, []);
+
+            const accountAddress = await account.getAddress();
+            const txPayload = encodeNewTxPayload(granterHash, EXPECTED_CHAIN_ID, accountAddress, 1n, [
+                { to: RECIPIENT_ADDRESS, value: 0n, data: "0x" },
+            ]);
+
+            // Create signBytes with a DIFFERENT hash (hash mismatch)
+            const wrongHash = keccak256(toUtf8Bytes("wrong"));
+            const { signBytes, hashOffset } = createSignBytes(wrongHash);
+
+            await expect(
+                account.connect(entryPoint).validateAndExecuteGrant(
+                    signBytes,
+                    hashOffset,
+                    { v: [], r: [], s: [], x: [], y: [] },
+                    txPayload,
+                    "0x00",
+                    {
+                        chainIdOffset: 0,
+                        chainIdLength: 1,
+                        grantSequenceOffset: 0,
+                        grantSequenceLength: 1,
+                        grantTxPayloadHashOffset: 0,
+                        granteeThreshold: 1,
+                        granterHash: granterHash,
+                    },
+                    { v: [], r: [], s: [], x: [], y: [] },
+                    grantTxPayload
+                )
+            ).to.be.revertedWithCustomError(account, "InvalidHashCommitment");
+        });
+    });
+});
+
+/**
+ * Account validateAndExecuteGrant deep validation tests
+ */
+describe("Account Grant Deep Validation", function () {
+    const RECIPIENT_ADDRESS = "0xaa25Aa7a19f9c426E07dee59b12f944f4d9f1DD3";
+    const GRANTER_COSMOS_ADDRESS = "sourdough139sv320e3ref6lqrmg98k7juy8wcgwlhz3jejp";
+    const GRANTEE_MNEMONIC = "zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo wrong";
+
+    let PUBLIC_KEY_X: string[];
+    let PUBLIC_KEY_Y: string[];
+
+    const SOURCE_ADDRESS = "neutron1chcktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
+    const SOURCE_ADDRESS_HASH = keccak256(toUtf8Bytes(SOURCE_ADDRESS));
+
+    let account: Account;
+    let entryPoint: HardhatEthersSigner;
+
+    /**
+     * Helper to build grant call params that pass through initial validation
+     * (granterHash match, txPayload header valid) so we can test deeper paths.
+     */
+    async function buildGrantCallParams(opts: {
+        grantChainId?: string;
+        grantSequence?: string;
+        granteeThreshold?: number;
+        granteeSigs?: { v: number[]; r: string[]; s: string[]; x: string[]; y: string[] };
+        granteePubKeys?: { x: string; y: string }[];
+    }) {
+        const granterHash = keccak256(toUtf8Bytes(GRANTER_COSMOS_ADDRESS));
+        const granteeThreshold = opts.granteeThreshold ?? 1;
+        const granteePubKeys = opts.granteePubKeys ?? [];
+
+        // Build grantTxPayload: granterHash + granteeThreshold + numberGranteePubkeys + pubkeys
+        const grantTxPayload = encodeGrantTxPayload(granterHash, granteeThreshold, granteePubKeys);
+
+        // Build txPayload with correct senderHash = granterHash
+        const accountAddress = await account.getAddress();
+        const txPayload = encodeNewTxPayload(granterHash, EXPECTED_CHAIN_ID, accountAddress, 1n, [
+            { to: RECIPIENT_ADDRESS, value: 0n, data: "0x" },
+        ]);
+        const txPayloadHash = computeTxPayloadHash(txPayload);
+        const { signBytes, hashOffset } = createSignBytes(txPayloadHash);
+
+        // Build grantSignBytes with embedded chainId and sequence
+        const grantChainId = opts.grantChainId ?? EXPECTED_CHAIN_ID.toString();
+        const grantSequence = opts.grantSequence ?? "0";
+        const grantTxPayloadHash = keccak256(grantTxPayload);
+
+        const grantMessage = JSON.stringify({
+            chain_id: grantChainId,
+            grant_payload_hash: grantTxPayloadHash,
+            sequence: grantSequence,
+        });
+        const grantSignBytes = "0x" + Buffer.from(grantMessage, "utf8").toString("hex");
+
+        // Find offsets
+        const chainIdPattern = `"chain_id":"${grantChainId}"`;
+        const chainIdIdx = grantMessage.indexOf(chainIdPattern);
+        const chainIdOffset = chainIdIdx + '"chain_id":"'.length;
+
+        const seqPattern = `"sequence":"${grantSequence}"`;
+        const seqIdx = grantMessage.indexOf(seqPattern);
+        const seqOffset = seqIdx + '"sequence":"'.length;
+
+        const hashPattern = `"grant_payload_hash":"${grantTxPayloadHash}"`;
+        const hashIdx = grantMessage.indexOf(hashPattern);
+        const grantHashOffset = hashIdx + '"grant_payload_hash":"'.length;
+
+        const granteeSigs = opts.granteeSigs ?? { v: [], r: [], s: [], x: [], y: [] };
+
+        return {
+            signBytes,
+            hashOffset,
+            granteeSigs,
+            txPayload,
+            grantSignBytes,
+            grantData: {
+                chainIdOffset,
+                chainIdLength: grantChainId.length,
+                grantSequenceOffset: seqOffset,
+                grantSequenceLength: grantSequence.length,
+                grantTxPayloadHashOffset: grantHashOffset,
+                granteeThreshold: granteeThreshold,
+                granterHash,
+            },
+            granterSigs: {
+                v: [] as number[],
+                r: [] as string[],
+                s: [] as string[],
+                x: [] as string[],
+                y: [] as string[],
+            },
+            grantTxPayload,
+        };
+    }
+
+    beforeEach(async function () {
+        [entryPoint] = await hre.ethers.getSigners();
+
+        const pubKey = await getPublicKeyFromMnemonic(TEST_MNEMONIC);
+        PUBLIC_KEY_X = [pubKey.x];
+        PUBLIC_KEY_Y = [pubKey.y];
+
+        const AccountContract = await hre.ethers.getContractFactory("Account");
+        account = await AccountContract.deploy(entryPoint.address, PUBLIC_KEY_X, PUBLIC_KEY_Y, SOURCE_ADDRESS_HASH, 1);
+        await account.waitForDeployment();
+
+        await entryPoint.sendTransaction({
+            to: await account.getAddress(),
+            value: parseEther("2.0"),
+        });
+    });
+
+    it("should revert with InvalidGrantChainId when grant chain ID is wrong", async function () {
+        const params = await buildGrantCallParams({ grantChainId: "999" });
+
+        await expect(
+            account
+                .connect(entryPoint)
+                .validateAndExecuteGrant(
+                    params.signBytes,
+                    params.hashOffset,
+                    params.granteeSigs,
+                    params.txPayload,
+                    params.grantSignBytes,
+                    params.grantData,
+                    params.granterSigs,
+                    params.grantTxPayload
+                )
+        ).to.be.revertedWithCustomError(account, "InvalidGrantChainId");
+    });
+
+    it("should revert with InvalidPayload when grant chain ID contains non-digit", async function () {
+        // _parseUintFromBytes reverts with InvalidPayload for non-digit chars
+        const params = await buildGrantCallParams({ grantChainId: "abc" });
+
+        await expect(
+            account
+                .connect(entryPoint)
+                .validateAndExecuteGrant(
+                    params.signBytes,
+                    params.hashOffset,
+                    params.granteeSigs,
+                    params.txPayload,
+                    params.grantSignBytes,
+                    params.grantData,
+                    params.granterSigs,
+                    params.grantTxPayload
+                )
+        ).to.be.revertedWithCustomError(account, "InvalidPayload");
+    });
+
+    it("should revert with InvalidGrantHashCommitment when grant hash doesn't match", async function () {
+        const params = await buildGrantCallParams({});
+
+        // Tamper with grantTxPayload so its granterHash won't match grantData.granterHash
+        const tamperedGrantTxPayload = encodeGrantTxPayload(keccak256(toUtf8Bytes("tampered")), 1, []);
+
+        await expect(
+            account.connect(entryPoint).validateAndExecuteGrant(
+                params.signBytes,
+                params.hashOffset,
+                params.granteeSigs,
+                params.txPayload,
+                params.grantSignBytes,
+                params.grantData,
+                params.granterSigs,
+                tamperedGrantTxPayload // Tampered - hash won't match
+            )
+        ).to.be.revertedWithCustomError(account, "InvalidAuthorization");
+    });
+
+    it("should revert with InvalidThreshold when not enough granter signatures", async function () {
+        const params = await buildGrantCallParams({});
+
+        // granterSigs is empty but account threshold is 1
+        await expect(
+            account.connect(entryPoint).validateAndExecuteGrant(
+                params.signBytes,
+                params.hashOffset,
+                params.granteeSigs,
+                params.txPayload,
+                params.grantSignBytes,
+                params.grantData,
+                params.granterSigs, // Empty - threshold is 1
+                params.grantTxPayload
+            )
+        ).to.be.revertedWithCustomError(account, "InvalidThreshold");
+    });
+
+    it("should revert with InvalidThreshold when not enough grantee signatures for threshold", async function () {
+        // Set granteeThreshold=2 but provide 0 grantee signatures
+        const params = await buildGrantCallParams({ granteeThreshold: 2 });
+
+        // First sign grantSignBytes with granter key so granter validation passes
+        const grantSignBytesForSigning = Buffer.from(params.grantSignBytes.slice(2), "hex");
+        const granterSig = await generateSignatureWithMnemonic(TEST_MNEMONIC, grantSignBytesForSigning.toString("hex"));
+
+        params.granterSigs = {
+            v: [granterSig.v],
+            r: [granterSig.r],
+            s: [granterSig.s],
+            x: PUBLIC_KEY_X,
+            y: PUBLIC_KEY_Y,
+        };
+
+        await expect(
+            account.connect(entryPoint).validateAndExecuteGrant(
+                params.signBytes,
+                params.hashOffset,
+                params.granteeSigs, // Empty sigs, but threshold is 2
+                params.txPayload,
+                params.grantSignBytes,
+                params.grantData,
+                params.granterSigs,
+                params.grantTxPayload
+            )
+        ).to.be.revertedWithCustomError(account, "InvalidThreshold");
+    });
+
+    it("should revert with InvalidSignature when grantee signature is wrong", async function () {
+        const granteePubKey = await getPublicKeyFromMnemonic(GRANTEE_MNEMONIC);
+        const params = await buildGrantCallParams({ granteePubKeys: [granteePubKey] });
+
+        // Sign grantSignBytes with granter key (granter validation passes)
+        const grantSignBytesForSigning = Buffer.from(params.grantSignBytes.slice(2), "hex");
+        const granterSig = await generateSignatureWithMnemonic(TEST_MNEMONIC, grantSignBytesForSigning.toString("hex"));
+        params.granterSigs = {
+            v: [granterSig.v],
+            r: [granterSig.r],
+            s: [granterSig.s],
+            x: PUBLIC_KEY_X,
+            y: PUBLIC_KEY_Y,
+        };
+
+        // Grantee signs WRONG data (not signBytes) — signature won't match
+        const wrongSig = await generateSignatureWithMnemonic(GRANTEE_MNEMONIC, "deadbeef");
+        params.granteeSigs = {
+            v: [wrongSig.v],
+            r: [wrongSig.r],
+            s: [wrongSig.s],
+            x: [granteePubKey.x],
+            y: [granteePubKey.y],
+        };
+
+        await expect(
+            account
+                .connect(entryPoint)
+                .validateAndExecuteGrant(
+                    params.signBytes,
+                    params.hashOffset,
+                    params.granteeSigs,
+                    params.txPayload,
+                    params.grantSignBytes,
+                    params.grantData,
+                    params.granterSigs,
+                    params.grantTxPayload
+                )
+        ).to.be.revertedWithCustomError(account, "InvalidSignature");
+    });
+
+    it("should update grantSequence when grant sequence is higher than current", async function () {
+        expect(await account.grantSequence()).to.equal(0);
+
+        // Build a fully valid grant with sequence "5" to update grantSequence from 0 to 5
+        const granteePubKey = await getPublicKeyFromMnemonic(GRANTEE_MNEMONIC);
+        const params = await buildGrantCallParams({ grantSequence: "5", granteePubKeys: [granteePubKey] });
+
+        // Sign grantSignBytes with granter key
+        const grantSignBytesForSigning = Buffer.from(params.grantSignBytes.slice(2), "hex");
+        const granterSig = await generateSignatureWithMnemonic(TEST_MNEMONIC, grantSignBytesForSigning.toString("hex"));
+        params.granterSigs = {
+            v: [granterSig.v],
+            r: [granterSig.r],
+            s: [granterSig.s],
+            x: PUBLIC_KEY_X,
+            y: PUBLIC_KEY_Y,
+        };
+
+        // Grantee signs signBytes correctly
+        const signBytesForSigning = Buffer.from(params.signBytes.slice(2), "hex");
+        const granteeSig = await generateSignatureWithMnemonic(GRANTEE_MNEMONIC, signBytesForSigning.toString("hex"));
+        params.granteeSigs = {
+            v: [granteeSig.v],
+            r: [granteeSig.r],
+            s: [granteeSig.s],
+            x: [granteePubKey.x],
+            y: [granteePubKey.y],
+        };
+
+        await account
+            .connect(entryPoint)
+            .validateAndExecuteGrant(
+                params.signBytes,
+                params.hashOffset,
+                params.granteeSigs,
+                params.txPayload,
+                params.grantSignBytes,
+                params.grantData,
+                params.granterSigs,
+                params.grantTxPayload
+            );
+
+        // grantSequence should now be 5
+        expect(await account.grantSequence()).to.equal(5);
+    });
+
+    it("should revert with InvalidGrantSequence when grant sequence is below current", async function () {
+        // First, execute a grant with sequence "5" to set grantSequence=5
+        const granteePubKey = await getPublicKeyFromMnemonic(GRANTEE_MNEMONIC);
+        const params1 = await buildGrantCallParams({ grantSequence: "5", granteePubKeys: [granteePubKey] });
+
+        const grantSignBytesForSigning1 = Buffer.from(params1.grantSignBytes.slice(2), "hex");
+        const granterSig1 = await generateSignatureWithMnemonic(
+            TEST_MNEMONIC,
+            grantSignBytesForSigning1.toString("hex")
+        );
+        params1.granterSigs = {
+            v: [granterSig1.v],
+            r: [granterSig1.r],
+            s: [granterSig1.s],
+            x: PUBLIC_KEY_X,
+            y: PUBLIC_KEY_Y,
+        };
+
+        const signBytesForSigning1 = Buffer.from(params1.signBytes.slice(2), "hex");
+        const granteeSig1 = await generateSignatureWithMnemonic(GRANTEE_MNEMONIC, signBytesForSigning1.toString("hex"));
+        params1.granteeSigs = {
+            v: [granteeSig1.v],
+            r: [granteeSig1.r],
+            s: [granteeSig1.s],
+            x: [granteePubKey.x],
+            y: [granteePubKey.y],
+        };
+
+        await account
+            .connect(entryPoint)
+            .validateAndExecuteGrant(
+                params1.signBytes,
+                params1.hashOffset,
+                params1.granteeSigs,
+                params1.txPayload,
+                params1.grantSignBytes,
+                params1.grantData,
+                params1.granterSigs,
+                params1.grantTxPayload
+            );
+        expect(await account.grantSequence()).to.equal(5);
+
+        // Now try with grant sequence "3" which is below current grantSequence of 5
+        // Need sequence=2 for txPayload since account sequence is now 1
+        const accountAddress = await account.getAddress();
+        const granterHash = keccak256(toUtf8Bytes(GRANTER_COSMOS_ADDRESS));
+        const abiCoder = new AbiCoder();
+        const grantTxPayload2 = encodeGrantTxPayload(granterHash, 1, []);
+        const grantTxPayloadHash2 = keccak256(grantTxPayload2);
+
+        const txPayload2 = encodeNewTxPayload(granterHash, EXPECTED_CHAIN_ID, accountAddress, 2n, [
+            { to: RECIPIENT_ADDRESS, value: 0n, data: "0x" },
+        ]);
+        const txPayloadHash2 = computeTxPayloadHash(txPayload2);
+        const { signBytes: signBytes2, hashOffset: hashOffset2 } = createSignBytes(txPayloadHash2);
+
+        const grantMessage2 = JSON.stringify({
+            chain_id: EXPECTED_CHAIN_ID.toString(),
+            grant_payload_hash: grantTxPayloadHash2,
+            sequence: "3",
+        });
+        const grantSignBytes2 = "0x" + Buffer.from(grantMessage2, "utf8").toString("hex");
+
+        const chainIdStr = EXPECTED_CHAIN_ID.toString();
+        const chainIdIdx2 = grantMessage2.indexOf(`"chain_id":"${chainIdStr}"`);
+        const chainIdOffset2 = chainIdIdx2 + '"chain_id":"'.length;
+
+        const seqIdx2 = grantMessage2.indexOf(`"sequence":"3"`);
+        const seqOffset2 = seqIdx2 + '"sequence":"'.length;
+
+        const hashIdx2 = grantMessage2.indexOf(`"grant_payload_hash":"${grantTxPayloadHash2}"`);
+        const grantHashOffset2 = hashIdx2 + '"grant_payload_hash":"'.length;
+
+        await expect(
+            account.connect(entryPoint).validateAndExecuteGrant(
+                signBytes2,
+                hashOffset2,
+                { v: [], r: [], s: [], x: [], y: [] },
+                txPayload2,
+                grantSignBytes2,
+                {
+                    chainIdOffset: chainIdOffset2,
+                    chainIdLength: chainIdStr.length,
+                    grantSequenceOffset: seqOffset2,
+                    grantSequenceLength: 1,
+                    grantTxPayloadHashOffset: grantHashOffset2,
+                    granteeThreshold: 1,
+                    granterHash,
+                },
+                { v: [], r: [], s: [], x: [], y: [] },
+                grantTxPayload2
+            )
+        ).to.be.revertedWithCustomError(account, "InvalidGrantSequence");
     });
 });
 
@@ -1432,7 +2078,8 @@ describe("Account validateAndExecute via EntryPoint", function () {
         const wrongChainId = 999n;
 
         // Manually create payload with wrong chain ID
-        const txPayload = encodeNewTxPayload(SENDER_HASH, wrongChainId, accountAddress, 1n, [
+        const senderHash = keccak256(toUtf8Bytes(TEST_SENDER_COSMOS_ADDRESS));
+        const txPayload = encodeNewTxPayload(senderHash, wrongChainId, accountAddress, 1n, [
             { to: RECIPIENT_ADDRESS, value: parseEther("0.01"), data: "0x" },
         ]);
         const txPayloadHash = computeTxPayloadHash(txPayload);
@@ -1455,7 +2102,8 @@ describe("Account validateAndExecute via EntryPoint", function () {
     it("should revert with InvalidAccountAddress for wrong account in payload", async function () {
         const wrongAddress = "0x0000000000000000000000000000000000000001";
 
-        const txPayload = encodeNewTxPayload(SENDER_HASH, EXPECTED_CHAIN_ID, wrongAddress, 1n, [
+        const senderHash = keccak256(toUtf8Bytes(TEST_SENDER_COSMOS_ADDRESS));
+        const txPayload = encodeNewTxPayload(senderHash, EXPECTED_CHAIN_ID, wrongAddress, 1n, [
             { to: RECIPIENT_ADDRESS, value: parseEther("0.01"), data: "0x" },
         ]);
         const txPayloadHash = computeTxPayloadHash(txPayload);
@@ -1555,5 +2203,399 @@ describe("Account Signature Recovery Edge Cases", function () {
 
         const finalBalance = await hre.ethers.provider.getBalance(RECIPIENT_ADDRESS);
         expect(finalBalance).to.equal(initialBalance + parseEther("0.01"));
+    });
+
+    it("should revert with InvalidSignature for invalid v value (not 27 or 28)", async function () {
+        const txPayload = encodeRecoverTxPayload(EXPECTED_CHAIN_ID, 1n, RECIPIENT_ADDRESS, parseEther("0.01"), "0x");
+        const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, txPayload.slice(2));
+
+        // v=2 + 27 = 29, which is not 27 or 28, so _recoverSigner returns address(0)
+        await expect(
+            account.recoverTransaction([2], [sig.r], [sig.s], PUBLIC_KEY_X, PUBLIC_KEY_Y, txPayload)
+        ).to.be.revertedWithCustomError(account, "InvalidSignature");
+    });
+});
+
+/**
+ * Account validateAndExecute branch coverage tests
+ */
+describe("Account validateAndExecute Branch Coverage", function () {
+    const RECIPIENT_ADDRESS = "0xaa25Aa7a19f9c426E07dee59b12f944f4d9f1DD3";
+    const SOURCE_ADDRESS = "neutron1chcktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
+    const SOURCE_ADDRESS_HASH = keccak256(toUtf8Bytes(SOURCE_ADDRESS));
+
+    let PUBLIC_KEY_X: string[];
+    let PUBLIC_KEY_Y: string[];
+
+    let account: Account;
+    let entryPoint: HardhatEthersSigner;
+
+    beforeEach(async function () {
+        [entryPoint] = await hre.ethers.getSigners();
+
+        const pubKey = await getPublicKeyFromMnemonic(TEST_MNEMONIC);
+        PUBLIC_KEY_X = [pubKey.x];
+        PUBLIC_KEY_Y = [pubKey.y];
+
+        const AccountContract = await hre.ethers.getContractFactory("Account");
+        account = await AccountContract.deploy(entryPoint.address, PUBLIC_KEY_X, PUBLIC_KEY_Y, SOURCE_ADDRESS_HASH, 1);
+        await account.waitForDeployment();
+
+        await entryPoint.sendTransaction({
+            to: await account.getAddress(),
+            value: parseEther("5.0"),
+        });
+    });
+
+    it("should revert with InvalidPayload when txPayload is too short", async function () {
+        const shortPayload = "0x" + "00".repeat(100); // Less than 160 bytes
+
+        await expect(
+            account
+                .connect(entryPoint)
+                .validateAndExecute("0x00", 0, { v: [], r: [], s: [], x: [], y: [] }, shortPayload)
+        ).to.be.revertedWithCustomError(account, "InvalidPayload");
+    });
+
+    it("should revert with InvalidInputLength when count is 0", async function () {
+        const accountAddress = await account.getAddress();
+        const coder = new AbiCoder();
+        const senderHash = keccak256(toUtf8Bytes(TEST_SENDER_COSMOS_ADDRESS));
+        // Create a txPayload with count=0
+        const txPayload = coder.encode(
+            ["bytes32", "uint256", "address", "uint64", "uint64"],
+            [senderHash, EXPECTED_CHAIN_ID, accountAddress, 1n, 0n]
+        );
+        const txPayloadHash = computeTxPayloadHash(txPayload);
+        const { signBytes, hashOffset } = createSignBytes(txPayloadHash);
+        const signBytesForSigning = Buffer.from(signBytes.slice(2), "hex");
+        const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, signBytesForSigning.toString("hex"));
+
+        await expect(
+            account
+                .connect(entryPoint)
+                .validateAndExecute(
+                    signBytes,
+                    hashOffset,
+                    { v: [sig.v], r: [sig.r], s: [sig.s], x: PUBLIC_KEY_X, y: PUBLIC_KEY_Y },
+                    txPayload
+                )
+        ).to.be.revertedWithCustomError(account, "InvalidInputLength");
+    });
+
+    it("should revert with InvalidInputLength when count exceeds 20", async function () {
+        const accountAddress = await account.getAddress();
+        const coder = new AbiCoder();
+        const senderHash = keccak256(toUtf8Bytes(TEST_SENDER_COSMOS_ADDRESS));
+        // Create a txPayload with count=21
+        const txPayload = coder.encode(
+            ["bytes32", "uint256", "address", "uint64", "uint64"],
+            [senderHash, EXPECTED_CHAIN_ID, accountAddress, 1n, 21n]
+        );
+        const txPayloadHash = computeTxPayloadHash(txPayload);
+        const { signBytes, hashOffset } = createSignBytes(txPayloadHash);
+        const signBytesForSigning = Buffer.from(signBytes.slice(2), "hex");
+        const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, signBytesForSigning.toString("hex"));
+
+        await expect(
+            account
+                .connect(entryPoint)
+                .validateAndExecute(
+                    signBytes,
+                    hashOffset,
+                    { v: [sig.v], r: [sig.r], s: [sig.s], x: PUBLIC_KEY_X, y: PUBLIC_KEY_Y },
+                    txPayload
+                )
+        ).to.be.revertedWithCustomError(account, "InvalidInputLength");
+    });
+
+    it("should revert with InvalidHashOffset when signBytes too short for hash extraction", async function () {
+        const accountAddress = await account.getAddress();
+        const senderHash = keccak256(toUtf8Bytes(TEST_SENDER_COSMOS_ADDRESS));
+        const txPayload = encodeNewTxPayload(senderHash, EXPECTED_CHAIN_ID, accountAddress, 1n, [
+            { to: RECIPIENT_ADDRESS, value: parseEther("0.01"), data: "0x" },
+        ]);
+
+        // signBytes is only a few bytes, but hashOffset points beyond it
+        const tinySignBytes = "0x" + "00".repeat(10);
+        const hugeOffset = 999;
+
+        const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, tinySignBytes.slice(2));
+
+        await expect(
+            account
+                .connect(entryPoint)
+                .validateAndExecute(
+                    tinySignBytes,
+                    hugeOffset,
+                    { v: [sig.v], r: [sig.r], s: [sig.s], x: PUBLIC_KEY_X, y: PUBLIC_KEY_Y },
+                    txPayload
+                )
+        ).to.be.revertedWithCustomError(account, "InvalidHashOffset");
+    });
+
+    it("should revert with InvalidHashCommitment when hash has invalid 0x prefix", async function () {
+        const accountAddress = await account.getAddress();
+        const senderHash = keccak256(toUtf8Bytes(TEST_SENDER_COSMOS_ADDRESS));
+        const txPayload = encodeNewTxPayload(senderHash, EXPECTED_CHAIN_ID, accountAddress, 1n, [
+            { to: RECIPIENT_ADDRESS, value: parseEther("0.01"), data: "0x" },
+        ]);
+
+        // Construct signBytes manually with "1x" instead of "0x" at hash position
+        // _extractHashFromSignBytes returns bytes32(0), which won't match keccak256(txPayload)
+        const txPayloadHash = computeTxPayloadHash(txPayload);
+        // Use "1x" prefix instead of "0x" to trigger the invalid prefix branch
+        const fakeHash = "1x" + txPayloadHash.slice(2); // 1x instead of 0x
+        const prefix = '{"tx_hash":"';
+        const suffix = '"}';
+        const fullString = prefix + fakeHash + suffix;
+        const signBytes = "0x" + Buffer.from(fullString, "utf8").toString("hex");
+        const hashOffset = Buffer.from(prefix, "utf8").length;
+
+        const signBytesForSigning = Buffer.from(signBytes.slice(2), "hex");
+        const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, signBytesForSigning.toString("hex"));
+
+        await expect(
+            account
+                .connect(entryPoint)
+                .validateAndExecute(
+                    signBytes,
+                    hashOffset,
+                    { v: [sig.v], r: [sig.r], s: [sig.s], x: PUBLIC_KEY_X, y: PUBLIC_KEY_Y },
+                    txPayload
+                )
+        ).to.be.revertedWithCustomError(account, "InvalidHashCommitment");
+    });
+
+    it("should revert with InvalidHashCommitment when hash contains invalid hex chars", async function () {
+        const accountAddress = await account.getAddress();
+        const senderHash = keccak256(toUtf8Bytes(TEST_SENDER_COSMOS_ADDRESS));
+        const txPayload = encodeNewTxPayload(senderHash, EXPECTED_CHAIN_ID, accountAddress, 1n, [
+            { to: RECIPIENT_ADDRESS, value: parseEther("0.01"), data: "0x" },
+        ]);
+
+        // Create signBytes with invalid hex chars (gg instead of valid hex)
+        const fakeHash = "0x" + "gg".repeat(32); // 'g' is not a valid hex char
+        const { signBytes, hashOffset } = createSignBytes("placeholder", '{"tx_hash":"');
+        // Build signBytes manually with invalid hex
+        const prefix = '{"tx_hash":"';
+        const suffix = '"}';
+        const fullString = prefix + fakeHash + suffix;
+        const invalidSignBytes = "0x" + Buffer.from(fullString, "utf8").toString("hex");
+
+        const signBytesForSigning = Buffer.from(invalidSignBytes.slice(2), "hex");
+        const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, signBytesForSigning.toString("hex"));
+
+        await expect(
+            account
+                .connect(entryPoint)
+                .validateAndExecute(
+                    invalidSignBytes,
+                    Buffer.from(prefix, "utf8").length,
+                    { v: [sig.v], r: [sig.r], s: [sig.s], x: PUBLIC_KEY_X, y: PUBLIC_KEY_Y },
+                    txPayload
+                )
+        ).to.be.revertedWithCustomError(account, "InvalidHashCommitment");
+    });
+
+    it("should revert with InvalidPubKeyLength when x and y lengths differ in validateAndExecute", async function () {
+        const accountAddress = await account.getAddress();
+
+        const params = await createValidateParams(
+            accountAddress,
+            1n,
+            [{ to: RECIPIENT_ADDRESS, value: parseEther("0.01"), data: "0x" }],
+            PUBLIC_KEY_X,
+            PUBLIC_KEY_Y
+        );
+
+        await expect(
+            account.connect(entryPoint).validateAndExecute(
+                params.signBytes,
+                params.txPayloadHashOffset,
+                {
+                    v: params.v,
+                    r: params.r,
+                    s: params.s,
+                    x: [...params.x, params.x[0]], // 2 x values
+                    y: params.y, // 1 y value
+                },
+                params.txPayload
+            )
+        ).to.be.revertedWithCustomError(account, "InvalidPubKeyLength");
+    });
+
+    it("should revert with InvalidSignatureLength when sig arrays mismatch in validateAndExecute", async function () {
+        const accountAddress = await account.getAddress();
+
+        const params = await createValidateParams(
+            accountAddress,
+            1n,
+            [{ to: RECIPIENT_ADDRESS, value: parseEther("0.01"), data: "0x" }],
+            PUBLIC_KEY_X,
+            PUBLIC_KEY_Y
+        );
+
+        await expect(
+            account.connect(entryPoint).validateAndExecute(
+                params.signBytes,
+                params.txPayloadHashOffset,
+                {
+                    v: [params.v[0], params.v[0]], // 2 v values
+                    r: params.r, // 1 r value
+                    s: params.s,
+                    x: params.x,
+                    y: params.y,
+                },
+                params.txPayload
+            )
+        ).to.be.revertedWithCustomError(account, "InvalidSignatureLength");
+    });
+
+    it("should revert with DuplicatePubKey when duplicate keys in validateAndExecute", async function () {
+        // Deploy account with 2 copies of the same key and threshold=1
+        const AccountContract = await hre.ethers.getContractFactory("Account");
+        const dupeAccount = await AccountContract.deploy(
+            entryPoint.address,
+            [PUBLIC_KEY_X[0], PUBLIC_KEY_X[0]],
+            [PUBLIC_KEY_Y[0], PUBLIC_KEY_Y[0]],
+            SOURCE_ADDRESS_HASH,
+            1
+        );
+
+        await entryPoint.sendTransaction({ to: await dupeAccount.getAddress(), value: parseEther("1.0") });
+
+        const accountAddress = await dupeAccount.getAddress();
+        const senderHash = keccak256(toUtf8Bytes(TEST_SENDER_COSMOS_ADDRESS));
+        const txPayload = encodeNewTxPayload(senderHash, EXPECTED_CHAIN_ID, accountAddress, 1n, [
+            { to: RECIPIENT_ADDRESS, value: parseEther("0.01"), data: "0x" },
+        ]);
+        const txPayloadHash = computeTxPayloadHash(txPayload);
+        const { signBytes, hashOffset } = createSignBytes(txPayloadHash);
+        const signBytesForSigning = Buffer.from(signBytes.slice(2), "hex");
+        const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, signBytesForSigning.toString("hex"));
+
+        // Provide both duplicate keys
+        await expect(
+            dupeAccount.connect(entryPoint).validateAndExecute(
+                signBytes,
+                hashOffset,
+                {
+                    v: [sig.v, sig.v],
+                    r: [sig.r, sig.r],
+                    s: [sig.s, sig.s],
+                    x: [PUBLIC_KEY_X[0], PUBLIC_KEY_X[0]],
+                    y: [PUBLIC_KEY_Y[0], PUBLIC_KEY_Y[0]],
+                },
+                txPayload
+            )
+        ).to.be.revertedWithCustomError(dupeAccount, "DuplicatePubKey");
+    });
+
+    it("should revert with InvalidPubKey when unauthorized key in validateAndExecute", async function () {
+        const accountAddress = await account.getAddress();
+        const UNAUTHORIZED_MNEMONIC = "zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo wrong";
+        const unauthorizedPubKey = await getPublicKeyFromMnemonic(UNAUTHORIZED_MNEMONIC);
+
+        const params = await createValidateParams(
+            accountAddress,
+            1n,
+            [{ to: RECIPIENT_ADDRESS, value: parseEther("0.01"), data: "0x" }],
+            [unauthorizedPubKey.x],
+            [unauthorizedPubKey.y],
+            UNAUTHORIZED_MNEMONIC
+        );
+
+        await expect(
+            account
+                .connect(entryPoint)
+                .validateAndExecute(
+                    params.signBytes,
+                    params.txPayloadHashOffset,
+                    { v: params.v, r: params.r, s: params.s, x: params.x, y: params.y },
+                    params.txPayload
+                )
+        ).to.be.revertedWithCustomError(account, "InvalidPubKey");
+    });
+
+    it("should revert with InvalidSignature for wrong signature in validateAndExecute", async function () {
+        const accountAddress = await account.getAddress();
+
+        const params = await createValidateParams(
+            accountAddress,
+            1n,
+            [{ to: RECIPIENT_ADDRESS, value: parseEther("0.01"), data: "0x" }],
+            PUBLIC_KEY_X,
+            PUBLIC_KEY_Y
+        );
+
+        // Use a different r value to make signature invalid
+        const invalidR = "0x1111111111111111111111111111111111111111111111111111111111111111";
+
+        await expect(
+            account
+                .connect(entryPoint)
+                .validateAndExecute(
+                    params.signBytes,
+                    params.txPayloadHashOffset,
+                    { v: params.v, r: [invalidR], s: params.s, x: params.x, y: params.y },
+                    params.txPayload
+                )
+        ).to.be.revertedWithCustomError(account, "InvalidSignature");
+    });
+
+    it("should revert with InvalidPayload when call data is truncated in executeCallsFromPayload", async function () {
+        const accountAddress = await account.getAddress();
+        const senderHash = keccak256(toUtf8Bytes(TEST_SENDER_COSMOS_ADDRESS));
+
+        // Create a valid header but with a call that has dataLen > remaining bytes
+        const coder = new AbiCoder();
+        const header = coder.encode(
+            ["bytes32", "uint256", "address", "uint64", "uint64"],
+            [senderHash, EXPECTED_CHAIN_ID, accountAddress, 1n, 1n]
+        );
+
+        // Add a call header with dataLen=100 but no actual data
+        const callHeader = coder.encode(["address", "uint256", "uint256"], [RECIPIENT_ADDRESS, 0n, 100n]);
+        const txPayload = combineHexStrings(header, callHeader);
+
+        const txPayloadHash = computeTxPayloadHash(txPayload);
+        const { signBytes, hashOffset } = createSignBytes(txPayloadHash);
+        const signBytesForSigning = Buffer.from(signBytes.slice(2), "hex");
+        const sig = await generateSignatureWithMnemonic(TEST_MNEMONIC, signBytesForSigning.toString("hex"));
+
+        await expect(
+            account
+                .connect(entryPoint)
+                .validateAndExecute(
+                    signBytes,
+                    hashOffset,
+                    { v: [sig.v], r: [sig.r], s: [sig.s], x: PUBLIC_KEY_X, y: PUBLIC_KEY_Y },
+                    txPayload
+                )
+        ).to.be.revertedWithCustomError(account, "InvalidPayload");
+    });
+
+    it("should emit TransactionExecuted event on success", async function () {
+        const accountAddress = await account.getAddress();
+
+        const params = await createValidateParams(
+            accountAddress,
+            1n,
+            [{ to: RECIPIENT_ADDRESS, value: parseEther("0.01"), data: "0x" }],
+            PUBLIC_KEY_X,
+            PUBLIC_KEY_Y
+        );
+
+        await expect(
+            account
+                .connect(entryPoint)
+                .validateAndExecute(
+                    params.signBytes,
+                    params.txPayloadHashOffset,
+                    { v: params.v, r: params.r, s: params.s, x: params.x, y: params.y },
+                    params.txPayload
+                )
+        ).to.emit(account, "TransactionExecuted");
     });
 });

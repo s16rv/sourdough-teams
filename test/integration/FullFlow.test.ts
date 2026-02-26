@@ -27,10 +27,9 @@ describe("Integration: Full Flow", function () {
 
     const SOURCE_CHAIN = "sourdough-1";
     const SOURCE_ADDRESS = "neutron1chcktqempjfddymtslsagpwtp6nkw9qrvnt98tctp7dp0wuppjpsghqecn";
+    const TEST_SENDER_COSMOS_ADDRESS = "sourdough139sv320e3ref6lqrmg98k7juy8wcgwlhz3jejp";
     const DESTINATION_CHAIN = "ethereum";
     const CHAIN_ID = 31337n; // Hardhat default chain ID for txPayload
-    const TEST_SENDER_COSMOS_ADDRESS = "sourdough139sv320e3ref6lqrmg98k7juy8wcgwlhz3jejp";
-    const SENDER_HASH = keccak256(toUtf8Bytes(TEST_SENDER_COSMOS_ADDRESS));
 
     let mpcGateway: MPCGateway;
     let mpcVerifier: MPCVerifier;
@@ -70,8 +69,9 @@ describe("Integration: Full Flow", function () {
         signerPubKeyX: string,
         signerPubKeyY: string
     ): Promise<string> {
-        // 1. Encode txPayload with chainId, accountAddress, sequence, calls
-        const txPayload = encodeNewTxPayload(SENDER_HASH, CHAIN_ID, accountAddress, sequence, calls);
+        // 1. Encode txPayload with senderHash, chainId, accountAddress, sequence, calls
+        const senderHash = keccak256(toUtf8Bytes(TEST_SENDER_COSMOS_ADDRESS));
+        const txPayload = encodeNewTxPayload(senderHash, CHAIN_ID, accountAddress, sequence, calls);
 
         // 2. Compute hash of txPayload
         const txPayloadHash = computeTxPayloadHash(txPayload);
