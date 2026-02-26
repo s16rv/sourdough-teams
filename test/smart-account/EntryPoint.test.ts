@@ -804,10 +804,12 @@ describe("EntryPoint Team Grant", function () {
         const signBytesForSigning = Buffer.from(signBytes.slice(2), "hex");
         const granteeSig = await generateSignatureWithMnemonic(GRANTEE_MNEMONIC, signBytesForSigning.toString("hex"));
 
-        // 4. Create grantTxPayload: granterHash + granteeThreshold
+        // 4. Create grantTxPayload: granterHash + granteeThreshold + pubkeys
         const granteeThreshold = 1;
-        const coder = new AbiCoder();
-        const grantTxPayload = coder.encode(["bytes32", "uint64"], [granterHash, granteeThreshold]);
+        const { encodeGrantTxPayload } = await import("../utils/lib");
+        const grantTxPayload = encodeGrantTxPayload(granterHash, granteeThreshold, [
+            { x: GRANTEE_PUBLIC_KEY_X, y: GRANTEE_PUBLIC_KEY_Y },
+        ]);
 
         // 6. Compute grantTxPayloadHash for grant signBytes (contract uses keccak256)
         const grantTxPayloadHash = keccak256(grantTxPayload);

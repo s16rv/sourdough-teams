@@ -181,14 +181,30 @@ export function encodeRecoverPayload(
 
 /**
  * Encode grantTxPayload for grant transactions.
- * Format: granterHash (32 bytes) + granteeThreshold (32 bytes, padded uint64)
+ * Format: granterHash (32 bytes) + granteeThreshold (32 bytes, padded uint64) + numSigners (32 bytes, padded uint64) + pubkeys (64 * numSigners)
  * @param granterHash The keccak256 hash of the granter's cosmos address
  * @param granteeThreshold The threshold for grantee signatures
- * @returns The 64-byte encoded grantTxPayload
+ * @param granteePubKeys Array of grantee public keys (x, y)
+ * @returns The encoded grantTxPayload
  */
-export function encodeGrantTxPayload(granterHash: string, granteeThreshold: number): string {
+export function encodeGrantTxPayload(
+    granterHash: string,
+    granteeThreshold: number,
+    granteePubKeys: { x: string; y: string }[]
+): string {
     const coder = new AbiCoder();
-    return coder.encode(["bytes32", "uint64"], [granterHash, granteeThreshold]);
+    const header = coder.encode(
+        ["bytes32", "uint64", "uint64"],
+        [granterHash, granteeThreshold, BigInt(granteePubKeys.length)]
+    );
+
+    let payload = header;
+    for (const key of granteePubKeys) {
+        payload = combineHexStrings(payload, key.x);
+        payload = combineHexStrings(payload, key.y);
+    }
+
+    return payload;
 }
 
 /**

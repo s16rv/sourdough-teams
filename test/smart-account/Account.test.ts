@@ -907,9 +907,9 @@ describe("Account Grant", function () {
 
     describe("validateAndExecuteGrant access control", function () {
         it("should revert with NotEntryPoint when called by stranger", async function () {
-            const abiCoder = new AbiCoder();
             const granterHash = keccak256(toUtf8Bytes(GRANTER_COSMOS_ADDRESS));
-            const grantTxPayload = abiCoder.encode(["bytes32", "uint64"], [granterHash, 1]);
+            const { encodeGrantTxPayload } = await import("../utils/lib");
+            const grantTxPayload = encodeGrantTxPayload(granterHash, 1, []);
 
             await expect(
                 account.connect(stranger).validateAndExecuteGrant(
@@ -958,10 +958,10 @@ describe("Account Grant", function () {
             ).to.be.revertedWithCustomError(account, "InvalidPayload");
         });
 
-        it("should revert with InvalidAuthorization when granterHash in grantData mismatches grantTxPayload", async function () {
-            const abiCoder = new AbiCoder();
+        it("should revert with InvalidAuthorization when granterHash mismatch", async function () {
+            const { encodeGrantTxPayload } = await import("../utils/lib");
             const wrongGranterHash = keccak256(toUtf8Bytes("wrong_granter"));
-            const grantTxPayload = abiCoder.encode(["bytes32", "uint64"], [wrongGranterHash, 1]);
+            const grantTxPayload = encodeGrantTxPayload(wrongGranterHash, 1, []);
             const differentHash = keccak256(toUtf8Bytes("different_hash"));
 
             await expect(
