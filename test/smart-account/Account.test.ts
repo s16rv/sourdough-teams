@@ -10,6 +10,7 @@ import {
     encodeNewTxPayload,
     computeTxPayloadHash,
     createSignBytes,
+    encodeGrantTxPayload,
     DEFAULT_SALT,
 } from "../utils/lib";
 
@@ -987,9 +988,8 @@ describe("Account Grant", function () {
         });
 
         it("should revert with InvalidAuthorization when senderHash in txPayload mismatches granterHash", async function () {
-            const abiCoder = new AbiCoder();
             const granterHash = keccak256(toUtf8Bytes(GRANTER_COSMOS_ADDRESS));
-            const grantTxPayload = abiCoder.encode(["bytes32", "uint64"], [granterHash, 1]);
+            const grantTxPayload = encodeGrantTxPayload(granterHash, 1, []);
 
             // txPayload with DIFFERENT senderHash than granterHash
             const wrongSenderHash = keccak256(toUtf8Bytes("wrong_sender"));
@@ -1052,9 +1052,8 @@ describe("Account Grant", function () {
         });
 
         it("should revert with InvalidChainId when chainId wrong in grant txPayload", async function () {
-            const abiCoder = new AbiCoder();
             const granterHash = keccak256(toUtf8Bytes(GRANTER_COSMOS_ADDRESS));
-            const grantTxPayload = abiCoder.encode(["bytes32", "uint64"], [granterHash, 1]);
+            const grantTxPayload = encodeGrantTxPayload(granterHash, 1, []);
 
             // txPayload with wrong chain ID
             const accountAddress = await account.getAddress();
@@ -1087,9 +1086,8 @@ describe("Account Grant", function () {
         });
 
         it("should revert with InvalidAccountAddress when account wrong in grant txPayload", async function () {
-            const abiCoder = new AbiCoder();
             const granterHash = keccak256(toUtf8Bytes(GRANTER_COSMOS_ADDRESS));
-            const grantTxPayload = abiCoder.encode(["bytes32", "uint64"], [granterHash, 1]);
+            const grantTxPayload = encodeGrantTxPayload(granterHash, 1, []);
 
             const wrongAccount = "0x0000000000000000000000000000000000000001";
             const txPayload = encodeNewTxPayload(granterHash, EXPECTED_CHAIN_ID, wrongAccount, 1n, [
@@ -1121,9 +1119,8 @@ describe("Account Grant", function () {
         });
 
         it("should revert with InvalidSequence when sequence wrong in grant txPayload", async function () {
-            const abiCoder = new AbiCoder();
             const granterHash = keccak256(toUtf8Bytes(GRANTER_COSMOS_ADDRESS));
-            const grantTxPayload = abiCoder.encode(["bytes32", "uint64"], [granterHash, 1]);
+            const grantTxPayload = encodeGrantTxPayload(granterHash, 1, []);
 
             const accountAddress = await account.getAddress();
             const txPayload = encodeNewTxPayload(granterHash, EXPECTED_CHAIN_ID, accountAddress, 99n, [
@@ -1157,7 +1154,7 @@ describe("Account Grant", function () {
         it("should revert with InvalidInputLength when count=0 in grant txPayload", async function () {
             const abiCoder = new AbiCoder();
             const granterHash = keccak256(toUtf8Bytes(GRANTER_COSMOS_ADDRESS));
-            const grantTxPayload = abiCoder.encode(["bytes32", "uint64"], [granterHash, 1]);
+            const grantTxPayload = encodeGrantTxPayload(granterHash, 1, []);
 
             const accountAddress = await account.getAddress();
             // Create txPayload with count=0
@@ -1191,9 +1188,8 @@ describe("Account Grant", function () {
         });
 
         it("should revert with InvalidHashCommitment when txPayload hash mismatch in grant flow", async function () {
-            const abiCoder = new AbiCoder();
             const granterHash = keccak256(toUtf8Bytes(GRANTER_COSMOS_ADDRESS));
-            const grantTxPayload = abiCoder.encode(["bytes32", "uint64"], [granterHash, 1]);
+            const grantTxPayload = encodeGrantTxPayload(granterHash, 1, []);
 
             const accountAddress = await account.getAddress();
             const txPayload = encodeNewTxPayload(granterHash, EXPECTED_CHAIN_ID, accountAddress, 1n, [
@@ -1254,13 +1250,14 @@ describe("Account Grant Deep Validation", function () {
         grantSequence?: string;
         granteeThreshold?: number;
         granteeSigs?: { v: number[]; r: string[]; s: string[]; x: string[]; y: string[] };
+        granteePubKeys?: { x: string; y: string }[];
     }) {
-        const abiCoder = new AbiCoder();
         const granterHash = keccak256(toUtf8Bytes(GRANTER_COSMOS_ADDRESS));
         const granteeThreshold = opts.granteeThreshold ?? 1;
+        const granteePubKeys = opts.granteePubKeys ?? [];
 
-        // Build grantTxPayload
-        const grantTxPayload = abiCoder.encode(["bytes32", "uint64"], [granterHash, granteeThreshold]);
+        // Build grantTxPayload: granterHash + granteeThreshold + numberGranteePubkeys + pubkeys
+        const grantTxPayload = encodeGrantTxPayload(granterHash, granteeThreshold, granteePubKeys);
 
         // Build txPayload with correct senderHash = granterHash
         const accountAddress = await account.getAddress();
@@ -1382,9 +1379,8 @@ describe("Account Grant Deep Validation", function () {
     it("should revert with InvalidGrantHashCommitment when grant hash doesn't match", async function () {
         const params = await buildGrantCallParams({});
 
-        // Tamper with grantTxPayload so its hash won't match what's in grantSignBytes
-        const abiCoder = new AbiCoder();
-        const tamperedGrantTxPayload = abiCoder.encode(["bytes32", "uint64"], [keccak256(toUtf8Bytes("tampered")), 1]);
+        // Tamper with grantTxPayload so its granterHash won't match grantData.granterHash
+        const tamperedGrantTxPayload = encodeGrantTxPayload(keccak256(toUtf8Bytes("tampered")), 1, []);
 
         await expect(
             account.connect(entryPoint).validateAndExecuteGrant(
@@ -1450,7 +1446,7 @@ describe("Account Grant Deep Validation", function () {
 
     it("should revert with InvalidSignature when grantee signature is wrong", async function () {
         const granteePubKey = await getPublicKeyFromMnemonic(GRANTEE_MNEMONIC);
-        const params = await buildGrantCallParams({});
+        const params = await buildGrantCallParams({ granteePubKeys: [granteePubKey] });
 
         // Sign grantSignBytes with granter key (granter validation passes)
         const grantSignBytesForSigning = Buffer.from(params.grantSignBytes.slice(2), "hex");
@@ -1494,7 +1490,7 @@ describe("Account Grant Deep Validation", function () {
 
         // Build a fully valid grant with sequence "5" to update grantSequence from 0 to 5
         const granteePubKey = await getPublicKeyFromMnemonic(GRANTEE_MNEMONIC);
-        const params = await buildGrantCallParams({ grantSequence: "5" });
+        const params = await buildGrantCallParams({ grantSequence: "5", granteePubKeys: [granteePubKey] });
 
         // Sign grantSignBytes with granter key
         const grantSignBytesForSigning = Buffer.from(params.grantSignBytes.slice(2), "hex");
@@ -1538,7 +1534,7 @@ describe("Account Grant Deep Validation", function () {
     it("should revert with InvalidGrantSequence when grant sequence is below current", async function () {
         // First, execute a grant with sequence "5" to set grantSequence=5
         const granteePubKey = await getPublicKeyFromMnemonic(GRANTEE_MNEMONIC);
-        const params1 = await buildGrantCallParams({ grantSequence: "5" });
+        const params1 = await buildGrantCallParams({ grantSequence: "5", granteePubKeys: [granteePubKey] });
 
         const grantSignBytesForSigning1 = Buffer.from(params1.grantSignBytes.slice(2), "hex");
         const granterSig1 = await generateSignatureWithMnemonic(
@@ -1582,7 +1578,7 @@ describe("Account Grant Deep Validation", function () {
         const accountAddress = await account.getAddress();
         const granterHash = keccak256(toUtf8Bytes(GRANTER_COSMOS_ADDRESS));
         const abiCoder = new AbiCoder();
-        const grantTxPayload2 = abiCoder.encode(["bytes32", "uint64"], [granterHash, 1]);
+        const grantTxPayload2 = encodeGrantTxPayload(granterHash, 1, []);
         const grantTxPayloadHash2 = keccak256(grantTxPayload2);
 
         const txPayload2 = encodeNewTxPayload(granterHash, EXPECTED_CHAIN_ID, accountAddress, 2n, [

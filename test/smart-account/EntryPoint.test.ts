@@ -940,9 +940,9 @@ describe("EntryPoint Branch Coverage", function () {
         );
     });
 
-    it("should silently pass through unsupported category (category 3)", async function () {
+    it("should silently pass through unsupported category (category 5)", async function () {
         const coder = new AbiCoder();
-        const payload = coder.encode(["uint8"], [3]);
+        const payload = coder.encode(["uint8"], [5]);
 
         await expect(entryPoint.connect(mpcGateway).executePayload("sourceChain", SOURCE_ADDRESS, payload)).to.emit(
             entryPoint,
