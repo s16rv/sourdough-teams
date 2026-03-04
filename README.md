@@ -1,125 +1,86 @@
-# Sourdough Solidity Contracts
+# Sourdough — One Pager
+**Stop Exposing Your Treasury to The World.**
 
-Multi-signature smart account system for EVM chains, enabling cross-chain transaction authentication via the [Sourdough](https://github.com/s16rv/sourdough) protocol.
+> Run payroll, pay expenses, and receive payments — without revealing your balances or transaction history.
 
-## Overview
+---
 
-Users control smart accounts via threshold signatures verified against secp256k1 public keys. Transactions originate from a source chain, are validated by the MPC network, and executed on EVM destination chains.
+## Problem Space
 
-```
-Source Chain --> MPC Relayer --> MPCGateway --> EntryPoint --> Account
-```
+### Teams Struggle with Treasury Management
+Organizations juggle multiple wallets across different chains, making it nearly impossible to track everything in one place. This fragmented setup increases the risk of human error.
 
-### Key Features
+### Privacy
+As institutions adopt Web3, they face a critical gap: existing treasury tools expose sensitive financial data on public blockchains. Competitors can track balances, monitor transactions, and analyze payment patterns.
 
-- **Threshold Multisig**: Configurable M-of-N signature requirements
-- **Cross-chain Authentication**: Transactions signed on source chain, executed on EVM
-- **Censorship Resistance**: Direct recovery path bypasses infrastructure
-- **Privacy Integration**: Optional Railgun routing for private transactions
-- **Immutable Accounts**: Account behavior locked at creation
+---
 
-## Contracts
+## Meet Sourdough
 
-### Smart Account System
+>
+> **Sourdough is a multichain treasury management platform that helps teams manage digital assets easily and privately.**
+> 
+> Built-in privacy lets teams manage stablecoins and receive payments without exposing balances or flows.
 
-| Contract            | Description                                              |
-| ------------------- | -------------------------------------------------------- |
-| `EntryPoint`        | Dumb router - parses payloads and forwards to Account    |
-| `Account`           | Trust anchor - validates everything, executes atomically |
-| `AccountFactory`    | Creates Account instances via CREATE2                    |
-| `Secp256k1Verifier` | EIP-7212 compatible signature verification               |
+---
 
-### MPC Gateway
+## Why Us
 
-| Contract      | Description                                       |
-| ------------- | ------------------------------------------------- |
-| `MPCGateway`  | Validates MPC signatures, prevents replay attacks |
-| `MPCVerifier` | Stores MPC public key, verifies signatures        |
+* **Privacy without compromise**
+    No more exposing your team’s wallets, balances, and activity to the public. 
+    *Treasury activity is visible only to the right parties.*
+* **One platform, every chain**
+    Manage treasury across Cosmos, EVM, and Solana from a single interface. 
+    *7+ chains. 100% non-custodial.*
+* **Efficient operations**
+    Execute multiple transfers across chains with only one signature. 
+    *Save time on cross-chain payments and simplify the UI/UX.*
+* **Smart team policies**
+    Team permissions and approval rules sync automatically across all networks. 
+    *One policy setup across all chains. Built to scale securely as your team grows.*
+* **Get started in minutes**
+    Connect with email. 
+    *Simple to start. Multichain, non-custodial, recoverable.*
 
-### Railgun Integration
-
-| Contract                | Description                                   |
-| ----------------------- | --------------------------------------------- |
-| `RoutingRailgun`        | Intermediary for Railgun privacy transactions |
-| `RoutingRailgunFactory` | Deploys user-specific routing contracts       |
-
-## Repository Structure
-
-```
-contracts/
-├── smart-account/        # Core smart account system
-│   ├── account/          # Account implementation
-│   ├── interfaces/       # Contract interfaces
-│   └── util/             # Signature verification utilities
-├── mpc-gateway/          # MPC signature validation
-├── routing-railgun/      # Railgun privacy integration
-├── testing-contracts/    # Mock contracts for testing
-└── utils/                # General utilities
-
-test/                     # Test suites
-scripts/                  # Deployment scripts
-```
-
-## Getting Started
-
-### Prerequisites
-
-- Node.js 18+
-- npm
-
-### Installation
-
-```bash
-npm ci
-```
-
-### Compile
-
-```bash
-npm run compile
-```
-
-### Test
-
-```bash
-npm run test
-```
-
-### Deploy
-
-```bash
-npx hardhat run scripts/deploy.ts --network <network>
-```
-
-Supported networks: `sepolia`, `polygon-amoy`, `base-sepolia`, `mainnet`, `base`, `polygon`, `arbitrum`
+---
 
 ## Security
 
-See [THREAT_MODEL.md](./docs/THREAT_MODEL.md) for the complete security model.
+Enterprise-grade security meets cutting-edge privacy tech.
 
-### Authorization Paths
+* 🔒 **Private Balances**
+    Receive payments without exposing your treasury. Powered by Railgun on supported EVM chains.
+* 🔑 **Non-Custodial**
+    Your keys, your funds. Sourdough never has access. Self-custody with team controls.
+* 💻 **Verifiable Smart Contracts**
+    Inspect the code yourself. Open source, no black boxes.
+* 🛡️ **Multi-Layered Key Security**
+    Private keys protected by TEE and MPC. No single point of compromise.
+* 👩‍💻🧑‍💻 **Multi-Sig Controls**
+    Require multiple approvals for transactions. Eliminate single points of failure.
+* 🔃 **Recoverable by Design**
+    If Sourdough disappears, you don't lose your funds. Export your keys anytime.
 
-1. **Normal Path**: Source Chain -> MPC Relayer -> MPCGateway -> EntryPoint -> Account
-2. **Recovery Path**: Direct call to `Account.recoverTransaction()` with threshold signatures
+---
 
-Both paths require valid owner signatures. The recovery path provides censorship resistance if infrastructure is unavailable.
+## Demo & Quick Guide
 
-### Key Security Properties
+* **Connect your wallet** – automatically create “My Team”
+* **Add account** – create your team account
+* **Add private account** — create your private account
+* **Send or swap tokens** – move assets with ease
+* **Add team members** – expand access and collaboration
 
-- **Account is trust anchor** - validates everything atomically (no TOCTOU vulnerability)
-- Funds require threshold valid signatures to move
-- Cross-chain replay prevented via `evmChainId == block.chainid` validation
-- Replay attacks prevented via sequence numbers and txHash tracking
-- Account signers and threshold are immutable after creation
-- Recovery path always available to original owners
-- CEI pattern prevents reentrancy attacks
+---
 
-## Documentation
+## Let’s Connect
 
-- [THREAT_MODEL.md](./docs/THREAT_MODEL.md) - Security model and threat analysis
-- [TODO.md](./docs/TODO.md) - Tracked issues and planned improvements
-- [CLAUDE.md](./CLAUDE.md) - Project context for AI assistance
+**Sourdough is now live on mainnet!**
 
-## License
+After refining our testnet prototype, we’ve built a platform that’s not only functional but simple to use. Every interaction is designed to be simple, intuitive, and approachable, so your team can focus on running your business.
 
-MIT
+**Try it out at:** [https://app.sourdough.zone/](https://app.sourdough.zone/)
+
+Do you have feedback or questions, somebody we should talk to, or ideas for collaboration? We would be delighted to hear from you.
+
+**S16 Research Ventures** *Jakarta, Indonesia*
