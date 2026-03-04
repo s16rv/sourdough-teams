@@ -69,7 +69,7 @@ Enterprise-grade security meets cutting-edge privacy tech.
 
 After refining our testnet prototype, we’ve built a platform that’s not only functional but simple to use. Every interaction is designed to be simple, intuitive, and approachable, so your team can focus on running your business.
 
-**Try it out at:** [https://app.sourdough.zone/](https://app.sourdough.zone/)
+Try it out at: [https://app.sourdough.zone/](https://app.sourdough.zone/)
 
 ---
 
