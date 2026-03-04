@@ -1,5 +1,5 @@
-# Sourdough — One Pager
-**Stop Exposing Your Treasury to The World.**
+# Sourdough
+### Stop Exposing Your Treasury to The World.
 
 > Run payroll, pay expenses, and receive payments — without revealing your balances or transaction history.
 
@@ -63,7 +63,17 @@ Enterprise-grade security meets cutting-edge privacy tech.
 
 ---
 
-## Demo & Quick Guide
+## Get Started
+
+**Sourdough is now live on mainnet!**
+
+After refining our testnet prototype, we’ve built a platform that’s not only functional but simple to use. Every interaction is designed to be simple, intuitive, and approachable, so your team can focus on running your business.
+
+**Try it out at:** [https://app.sourdough.zone/](https://app.sourdough.zone/)
+
+---
+
+## Quick Guide
 
 * **Connect your wallet** – automatically create “My Team”
 * **Add account** – create your team account
@@ -75,12 +85,8 @@ Enterprise-grade security meets cutting-edge privacy tech.
 
 ## Let’s Connect
 
-**Sourdough is now live on mainnet!**
-
-After refining our testnet prototype, we’ve built a platform that’s not only functional but simple to use. Every interaction is designed to be simple, intuitive, and approachable, so your team can focus on running your business.
-
-**Try it out at:** [https://app.sourdough.zone/](https://app.sourdough.zone/)
-
 Do you have feedback or questions, somebody we should talk to, or ideas for collaboration? We would be delighted to hear from you.
+
+Contact: team@s16.ventures
 
 **S16 Research Ventures** *Jakarta, Indonesia*
