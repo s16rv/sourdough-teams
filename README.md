@@ -89,4 +89,4 @@ Do you have feedback or questions, somebody we should talk to, or ideas for coll
 
 Contact: team@s16.ventures
 
-**S16 Research Ventures** *Jakarta, Indonesia*
+**S16 Research Ventures**
